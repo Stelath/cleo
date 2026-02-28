@@ -59,6 +59,14 @@ class TestStaticRegistry:
         assert spec["description"] == "Tool A does things"
         assert spec["inputSchema"]["json"] == sample_tools[0].input_schema
 
+    def test_default_registry_has_four_tools(self):
+        registry = ToolRegistry()
+        assert len(registry.tool_names) == 4
+        assert "color_blindness_assist" in registry.tool_names
+        assert "object_recognition" in registry.tool_names
+        assert "navigation_assist" in registry.tool_names
+        assert "notetaking" in registry.tool_names
+
     def test_empty_registry(self):
         registry = ToolRegistry(tools=[])
         assert registry.tool_names == []
