@@ -8,6 +8,7 @@ import time
 import grpc
 import structlog
 
+import services.config as services_config
 from services.config import (
     ASSISTANT_ADDRESS,
     ASSISTANT_PORT,
@@ -45,6 +46,30 @@ log = structlog.get_logger()
 
 _PROCESS_TERMINATE_TIMEOUT_SECONDS = 5
 _PROCESS_KILL_TIMEOUT_SECONDS = 2
+
+
+def _validate_unique_ports() -> None:
+    port_to_names: dict[int, list[str]] = {}
+    for name, value in vars(services_config).items():
+        if not name.endswith("_PORT"):
+            continue
+        if not isinstance(value, int):
+            continue
+        port_to_names.setdefault(value, []).append(name)
+
+    duplicates = {
+        port: sorted(names)
+        for port, names in port_to_names.items()
+        if len(names) > 1
+    }
+    if not duplicates:
+        return
+
+    details = ", ".join(
+        f"{port} -> {', '.join(names)}"
+        for port, names in sorted(duplicates.items())
+    )
+    raise RuntimeError(f"Duplicate service ports configured: {details}")
 
 
 def _run_sensor_service() -> None:
@@ -185,6 +210,7 @@ def _stop_processes(processes: list[multiprocessing.Process]) -> None:
 
 def main() -> None:
     log.info("runtime.starting")
+    _validate_unique_ports()
 
     processes: list[multiprocessing.Process] = []
     shutdown_event = threading.Event()

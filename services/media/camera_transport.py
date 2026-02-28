@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import multiprocessing
 import os
 import queue
 import select
@@ -306,67 +305,138 @@ class PersistentH264Decoder:
         self._height = int(height)
         self._frame_bytes = self._width * self._height * 3
         self._lock = threading.Lock()
-        self._ctx = multiprocessing.get_context("fork")
-        self._request_queue = self._ctx.Queue(maxsize=4)
-        self._response_queue = self._ctx.Queue(maxsize=4)
-        self._request_id = 0
-        self._backlog: dict[int, tuple[bytes, str]] = {}
+        self._stderr_tail: deque[str] = deque(maxlen=40)
+        self._frame_queue: queue.Queue[bytes | None] = queue.Queue(maxsize=16)
+        self._primed = False
         self._closed = False
 
-        self._proc = self._ctx.Process(
-            target=_persistent_h264_decoder_worker,
-            args=(
-                self._request_queue,
-                self._response_queue,
-                self._width,
-                self._height,
-            ),
-            daemon=True,
-            name="PersistentH264DecoderWorker",
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
+            "-probesize",
+            "32",
+            "-analyzeduration",
+            "0",
+            "-f",
+            "h264",
+            "-i",
+            "pipe:0",
+            "-an",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ]
+
+        self._proc = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
         )
-        self._proc.start()
+        if self._proc.stdin is None or self._proc.stdout is None or self._proc.stderr is None:
+            self.close()
+            raise RuntimeError("Failed to initialize ffmpeg decoder pipes")
+
+        self._stdout_thread = threading.Thread(
+            target=self._drain_stdout,
+            daemon=True,
+            name="PersistentH264DecoderStdout",
+        )
+        self._stdout_thread.start()
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            daemon=True,
+            name="PersistentH264DecoderStderr",
+        )
+        self._stderr_thread.start()
+
+    def _drain_stderr(self) -> None:
+        stderr = self._proc.stderr
+        if stderr is None:
+            return
+        while True:
+            line = stderr.readline()
+            if not line:
+                return
+            text = line.decode("utf-8", errors="ignore").strip()
+            if text:
+                self._stderr_tail.append(text)
+
+    def _stderr_text(self) -> str:
+        if not self._stderr_tail:
+            return ""
+        return " | ".join(self._stderr_tail)
+
+    @staticmethod
+    def _read_exact(stream, size: int) -> bytes | None:
+        payload = bytearray()
+        while len(payload) < size:
+            chunk = stream.read(size - len(payload))
+            if not chunk:
+                return None
+            payload.extend(chunk)
+        return bytes(payload)
+
+    def _drain_stdout(self) -> None:
+        stdout = self._proc.stdout
+        if stdout is None:
+            return
+        while True:
+            frame_bytes = self._read_exact(stdout, self._frame_bytes)
+            if frame_bytes is None:
+                try:
+                    self._frame_queue.put_nowait(None)
+                except queue.Full:
+                    pass
+                return
+            self._frame_queue.put(frame_bytes)
 
     def _ensure_running(self) -> None:
-        rc = self._proc.exitcode
+        rc = self._proc.poll()
         if rc is not None:
-            raise RuntimeError(f"Persistent H.264 decoder worker exited rc={rc}")
+            details = self._stderr_text()
+            raise RuntimeError(
+                f"Persistent H.264 decoder exited rc={rc}{(': ' + details) if details else ''}"
+            )
 
-    def _drain_backlog(self, request_id: int) -> tuple[bytes, str] | None:
-        cached = self._backlog.pop(request_id, None)
-        if cached is not None:
-            return cached
-        return None
-
-    def _await_response(self, request_id: int, timeout: float) -> tuple[bytes, str]:
-        cached = self._drain_backlog(request_id)
-        if cached is not None:
-            return cached
-
+    def _read_decoded_frame(self, timeout: float) -> bytes:
         deadline = time.monotonic() + max(0.01, float(timeout))
         while time.monotonic() < deadline:
             self._ensure_running()
             remaining = max(0.0, deadline - time.monotonic())
-            wait_s = min(0.1, remaining)
+            wait_s = min(0.2, remaining)
             try:
-                response_id, payload, error = self._response_queue.get(timeout=wait_s)
+                item = self._frame_queue.get(timeout=wait_s)
             except queue.Empty:
-                cached = self._drain_backlog(request_id)
-                if cached is not None:
-                    return cached
                 continue
 
-            if response_id == request_id:
-                return payload, error
+            if item is None:
+                self._ensure_running()
+                raise RuntimeError("Persistent H.264 decoder ended unexpectedly")
 
-            self._backlog[response_id] = (payload, error)
+            if len(item) != self._frame_bytes:
+                raise RuntimeError(
+                    f"Decoded H.264 frame size mismatch: expected {self._frame_bytes}, got {len(item)}"
+                )
 
-        raise RuntimeError("Timed out waiting for decoded H.264 frame bytes")
+            return item
+
+        details = self._stderr_text()
+        raise RuntimeError(
+            "Timed out waiting for decoded H.264 frame bytes"
+            + (f": {details}" if details else "")
+        )
 
     def _decode_payload(self, payload: bytes) -> np.ndarray:
-        if len(payload) != self._frame_bytes:
-            raise RuntimeError(
-                f"Decoded H.264 frame size mismatch: expected {self._frame_bytes}, got {len(payload)}"
-            )
         frame = np.frombuffer(payload, dtype=np.uint8).reshape(
             self._height,
             self._width,
@@ -380,13 +450,27 @@ class PersistentH264Decoder:
 
         with self._lock:
             self._ensure_running()
-            self._request_id += 1
-            request_id = self._request_id
-            self._request_queue.put((request_id, bytes(frame_h264)), timeout=max(0.1, timeout))
-            payload, error = self._await_response(request_id, timeout=timeout)
+            stdin = self._proc.stdin
+            if stdin is None:
+                raise RuntimeError("Decoder stdin is unavailable")
 
-        if error:
-            raise RuntimeError(error)
+            attempts = 1 if self._primed else 5
+            per_attempt_timeout = max(0.5, float(timeout) / attempts)
+            payload: bytes | None = None
+            for attempt in range(attempts):
+                stdin.write(frame_h264)
+                stdin.flush()
+                try:
+                    payload = self._read_decoded_frame(per_attempt_timeout)
+                    break
+                except RuntimeError:
+                    if attempt >= attempts - 1:
+                        raise
+
+            if payload is None:
+                raise RuntimeError("Persistent H.264 decoder produced no frame")
+            self._primed = True
+
         return self._decode_payload(payload)
 
     def close(self) -> None:
@@ -394,27 +478,22 @@ class PersistentH264Decoder:
             return
         self._closed = True
 
-        try:
-            self._request_queue.put(None, timeout=0.2)
-        except Exception:
-            pass
+        if self._proc.stdin is not None:
+            try:
+                self._proc.stdin.close()
+            except Exception:
+                pass
 
-        if self._proc.is_alive():
-            self._proc.join(timeout=2.0)
-        if self._proc.is_alive():
+        if self._proc.poll() is None:
             self._proc.terminate()
-            self._proc.join(timeout=2.0)
+            try:
+                self._proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=2.0)
 
-        try:
-            self._request_queue.close()
-            self._request_queue.join_thread()
-        except Exception:
-            pass
-        try:
-            self._response_queue.close()
-            self._response_queue.join_thread()
-        except Exception:
-            pass
+        self._stdout_thread.join(timeout=0.5)
+        self._stderr_thread.join(timeout=0.5)
 
     def __enter__(self) -> "PersistentH264Decoder":
         return self
@@ -599,25 +678,6 @@ def _decode_h264_annexb_to_rgb_subprocess(
 
     frame = np.frombuffer(proc.stdout[:expected], dtype=np.uint8).reshape(height, width, 3)
     return frame.copy()
-
-
-def _persistent_h264_decoder_worker(
-    request_queue,
-    response_queue,
-    width: int,
-    height: int,
-) -> None:
-    while True:
-        item = request_queue.get()
-        if item is None:
-            return
-
-        request_id, frame_h264 = item
-        try:
-            frame_rgb = _decode_h264_annexb_to_rgb_subprocess(frame_h264, width, height)
-            response_queue.put((request_id, frame_rgb.tobytes(), ""))
-        except Exception as exc:
-            response_queue.put((request_id, b"", str(exc)))
 
 
 def assembled_frame_to_rgb(
