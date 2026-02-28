@@ -1,5 +1,6 @@
 """Bedrock Converse API client for tool-use routing."""
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,7 +8,10 @@ import structlog
 
 log = structlog.get_logger()
 
-_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+_MODEL_ID = os.environ.get(
+    "CLEO_BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"
+)
+_BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
 _SYSTEM_PROMPT = (
     "You are Cleo, an AI assistant running on AR smart glasses. "
     "The user speaks commands aloud after saying 'hey cleo'. "
@@ -36,7 +40,7 @@ class TextResult:
 class BedrockClient:
     """Thin wrapper around AWS Bedrock Converse API for tool-use routing."""
 
-    def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = "us-east-1"):
+    def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = _BEDROCK_REGION):
         self._model_id = model_id
         if client is not None:
             self._client = client

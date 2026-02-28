@@ -9,12 +9,11 @@ import structlog
 
 from assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 from assistant.registry import ToolRegistry
+from core.ports import ASSISTANT_PORT
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import tool_pb2, tool_pb2_grpc
 
 log = structlog.get_logger()
-
-_DEFAULT_PORT = 50053
 
 
 class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
@@ -76,8 +75,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             address=tool_def.grpc_address,
         )
 
+        channel = grpc.insecure_channel(tool_def.grpc_address)
         try:
-            channel = grpc.insecure_channel(tool_def.grpc_address)
             stub = tool_pb2_grpc.ToolServiceStub(channel)
             tool_response = stub.Execute(
                 tool_pb2.ToolRequest(
@@ -85,8 +84,6 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                     parameters_json=json.dumps(result.parameters),
                 )
             )
-            channel.close()
-
             return assistant_pb2.CommandResponse(
                 success=tool_response.success,
                 response_text=tool_response.result_text,
@@ -99,9 +96,11 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                 response_text=f"Failed to reach tool service: {e}",
                 tool_name=result.tool_name,
             )
+        finally:
+            channel.close()
 
 
-def serve(port: int = _DEFAULT_PORT):
+def serve(port: int = ASSISTANT_PORT):
     """Start the assistant gRPC server."""
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     servicer = AssistantServiceServicer()

@@ -90,3 +90,68 @@ class TestBedrockClient:
         client = BedrockClient(client=mock_boto3_client)
         with pytest.raises(Exception, match="Bedrock unavailable"):
             client.converse("hello", tool_config={"tools": []})
+
+    def test_tool_use_prioritized_over_text(self, mock_boto3_client):
+        """When response contains both text and toolUse blocks, toolUse wins."""
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "tool_use",
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"text": "Let me help you with that."},
+                        {
+                            "toolUse": {
+                                "toolUseId": "tu_mixed",
+                                "name": "navigation_assist",
+                                "input": {"query": "coffee shop"},
+                            }
+                        },
+                    ],
+                }
+            },
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        result = client.converse("find coffee", tool_config={"tools": []})
+
+        assert isinstance(result, ToolUseResult)
+        assert result.tool_name == "navigation_assist"
+
+    def test_tool_use_missing_input_defaults_to_empty(self, mock_boto3_client):
+        """toolUse block without 'input' key returns empty dict for parameters."""
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "tool_use",
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "tu_noinput",
+                                "name": "object_recognition",
+                            }
+                        }
+                    ],
+                }
+            },
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        result = client.converse("look", tool_config={"tools": []})
+
+        assert isinstance(result, ToolUseResult)
+        assert result.parameters == {}
+
+    def test_system_prompt_passed_to_converse(self, mock_boto3_client):
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "end_turn",
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        client.converse("test", tool_config={"tools": []})
+
+        call_kwargs = mock_boto3_client.converse.call_args[1]
+        system_texts = [b["text"] for b in call_kwargs["system"]]
+        assert any("Cleo" in t for t in system_texts)

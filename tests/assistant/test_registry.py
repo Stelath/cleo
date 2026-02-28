@@ -58,3 +58,10 @@ class TestToolRegistry:
         assert "color_blindness_assist" in registry.tool_names
         assert "object_recognition" in registry.tool_names
         assert "navigation_assist" in registry.tool_names
+
+    def test_empty_registry(self):
+        registry = ToolRegistry(tools=[])
+        assert registry.tool_names == []
+        assert registry.get("anything") is None
+        config = registry.bedrock_tool_config()
+        assert config == {"tools": []}

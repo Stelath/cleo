@@ -46,6 +46,36 @@ class TestToolServiceBase:
         with pytest.raises(TypeError):
             ToolServiceBase()
 
+    def test_execute_exception_caught(self, mock_grpc_context):
+        """If execute() raises, base class catches it and returns an error response."""
+
+        class BrokenTool(ToolServiceBase):
+            @property
+            def tool_name(self) -> str:
+                return "broken"
+
+            def execute(self, params: dict) -> tuple[bool, str]:
+                raise RuntimeError("something went wrong")
+
+        servicer = BrokenTool()
+        request = tool_pb2.ToolRequest(tool_name="broken", parameters_json="{}")
+        response = servicer.Execute(request, mock_grpc_context)
+
+        assert not response.success
+        assert "something went wrong" in response.result_text
+        mock_grpc_context.set_code.assert_called()
+
+    def test_wrong_tool_sets_invalid_argument_status(self, mock_grpc_context):
+        import grpc
+
+        servicer = ColorBlindnessServicer()
+        request = tool_pb2.ToolRequest(
+            tool_name="wrong",
+            parameters_json="{}",
+        )
+        servicer.Execute(request, mock_grpc_context)
+        mock_grpc_context.set_code.assert_called_with(grpc.StatusCode.INVALID_ARGUMENT)
+
 
 class TestColorBlindnessServicer:
     def test_execute_returns_success(self, mock_grpc_context):

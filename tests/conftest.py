@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from assistant.registry import ToolDefinition, ToolRegistry
-from data.vector.faiss_db import FaissDB
 
 
 def pytest_addoption(parser):
