@@ -1,10 +1,14 @@
-"""Smoke test for face detection against local image fixtures.
+"""Face embedding & clustering test with 3 photos each of 2 people.
 
 Exercises the full pipeline:
-1. Fixture images are loaded and sent to AWS Rekognition DetectFaces.
-2. Detected faces are cropped and embedded via the DataService StoreFaceEmbedding RPC.
-3. Deduplication is verified: group scenes contain the same 2 people as person_a and person_b.
-4. SearchFaces RPC is exercised against stored faces.
+1. Detect faces via AWS Rekognition DetectFaces.
+2. Crop and embed each face via DataService StoreFaceEmbedding RPC.
+3. Print a full similarity matrix (every face vs every face).
+4. Show whether the embeddings cluster by person (dedup analysis).
+
+Images (in tests/image/faces/):
+  Person A: IMG_8709.jpeg, IMG_8710.jpeg, IMG_8711.jpeg
+  Person B: IMG_8712.jpeg, IMG_8713.jpeg, IMG_8714.jpeg
 
 Requires valid AWS credentials with Rekognition and Bedrock access.
 
@@ -15,9 +19,10 @@ Usage:
 from __future__ import annotations
 
 import multiprocessing
+import shutil
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import boto3
@@ -36,38 +41,23 @@ DATA_PORT = 50053
 DATA_ADDRESS = f"localhost:{DATA_PORT}"
 MIN_CONFIDENCE = 90.0
 
-
-@dataclass(frozen=True)
-class FaceCase:
-    """One test case for the face detection pipeline."""
-
-    file_name: str
-    expected_faces: int  # minimum faces expected
-    summary: str
+PERSON_A_IMAGES = ["IMG_8709.jpeg", "IMG_8710.jpeg", "IMG_8711.jpeg"]
+PERSON_B_IMAGES = ["IMG_8712.jpeg", "IMG_8713.jpeg", "IMG_8714.jpeg"]
+ALL_IMAGES = PERSON_A_IMAGES + PERSON_B_IMAGES
 
 
-CASES = [
-    FaceCase(
-        file_name="person_a.jpeg",
-        expected_faces=1,
-        summary="Single person (A). Should detect 1 face, store as new.",
-    ),
-    FaceCase(
-        file_name="person_b.jpeg",
-        expected_faces=1,
-        summary="Single person (B). Should detect 1 face, store as new.",
-    ),
-    FaceCase(
-        file_name="group_scene.jpeg",
-        expected_faces=2,
-        summary="Group photo with persons A and B. Should detect 2 faces, both should dedup-match.",
-    ),
-    FaceCase(
-        file_name="group_scene2.jpeg",
-        expected_faces=2,
-        summary="Second group photo with same 2 people. Should detect 2 faces, both should dedup-match.",
-    ),
-]
+@dataclass
+class FaceResult:
+    """Result of processing a single image."""
+
+    image: str
+    person: str
+    face_id: int
+    faiss_id: int
+    is_new: bool
+    matched_face_id: int | None
+    confidence: float
+    bbox_area: float  # fraction of frame
 
 
 def _load_image_as_jpeg(path: Path) -> tuple[bytes, np.ndarray]:
@@ -122,12 +112,12 @@ def _run_data_service() -> None:
 
 
 def main() -> int:
-    # Remove stale face data so each run starts fresh
-    import shutil
-
-    for stale in ("data/cleo.db", "data/cleo.db-wal", "data/cleo.db-shm",
-                   "data/vector/clips.index", "data/vector/clips.index.meta.json",
-                   "data/vector/faces.index", "data/vector/faces.index.meta.json"):
+    # Remove stale data so each run starts fresh
+    for stale in (
+        "data/cleo.db", "data/cleo.db-wal", "data/cleo.db-shm",
+        "data/vector/clips.index", "data/vector/clips.index.meta.json",
+        "data/vector/faces.index", "data/vector/faces.meta.json",
+    ):
         p = ROOT / stale
         if p.exists():
             p.unlink()
@@ -149,22 +139,21 @@ def main() -> int:
     data_channel = grpc.insecure_channel(DATA_ADDRESS)
     data_stub = data_pb2_grpc.DataServiceStub(data_channel)
 
-    passes = 0
-    stored_face_ids: list[int] = []
+    results: list[FaceResult] = []
 
-    # ── Phase 1: Store individual faces ──
+    # ── Phase 1: Detect and store all faces ──
 
-    print("=" * 60)
-    print("PHASE 1: Detect and store faces from person_a and person_b")
-    print("=" * 60)
+    print("=" * 70)
+    print("PHASE 1: Detect and store faces from all 6 images")
+    print("=" * 70)
 
-    for case in CASES[:2]:  # person_a, person_b only
-        image_path = FACES_DIR / case.file_name
-        print(f"\nImage: {case.file_name}")
-        print(f"Expectation: {case.summary}")
+    for image_name in ALL_IMAGES:
+        person = "A" if image_name in PERSON_A_IMAGES else "B"
+        image_path = FACES_DIR / image_name
+        print(f"\n  [{person}] {image_name}")
 
         if not image_path.exists() or image_path.stat().st_size == 0:
-            print("Result: SKIP (image missing or empty)")
+            print(f"       SKIP (missing or empty)")
             continue
 
         try:
@@ -174,144 +163,217 @@ def main() -> int:
                 Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]
             )
             face_details = response.get("FaceDetails", [])
-            high_conf = [f for f in face_details if f.get("Confidence", 0) >= MIN_CONFIDENCE]
-            print(f"Rekognition: {len(face_details)} faces detected, {len(high_conf)} above {MIN_CONFIDENCE}%")
+            high_conf = [
+                f for f in face_details if f.get("Confidence", 0) >= MIN_CONFIDENCE
+            ]
+            print(
+                f"       Rekognition: {len(face_details)} detected, "
+                f"{len(high_conf)} >= {MIN_CONFIDENCE}% confidence"
+            )
 
-            if len(high_conf) < case.expected_faces:
-                print(f"Result: FAIL (expected >= {case.expected_faces} faces, got {len(high_conf)})")
+            if not high_conf:
+                print(f"       NO FACES above threshold")
                 continue
 
-            for i, face in enumerate(high_conf):
-                bbox = face["BoundingBox"]
-                cropped = _crop_face_from_image(img_rgb, bbox, padding=0.2)
+            # Use the largest face (highest bbox area) — skip background faces
+            best_face = max(
+                high_conf,
+                key=lambda f: f["BoundingBox"]["Width"] * f["BoundingBox"]["Height"],
+            )
+            bbox = best_face["BoundingBox"]
+            bbox_area = bbox["Width"] * bbox["Height"]
 
-                resp = data_stub.StoreFaceEmbedding(
-                    data_pb2.StoreFaceEmbeddingRequest(
-                        image_data=cropped,
-                        timestamp=time.time(),
-                        confidence=face["Confidence"],
-                    ),
-                    timeout=30,
+            cropped = _crop_face_from_image(img_rgb, bbox, padding=0.2)
+
+            resp = data_stub.StoreFaceEmbedding(
+                data_pb2.StoreFaceEmbeddingRequest(
+                    image_data=cropped,
+                    timestamp=time.time(),
+                    confidence=best_face["Confidence"],
+                ),
+                timeout=30,
+            )
+
+            status = "NEW" if resp.is_new else f"MATCHED face_id={resp.matched_face_id}"
+            print(
+                f"       face_id={resp.face_id}  {status}  "
+                f"bbox_area={bbox_area:.4f}  conf={best_face['Confidence']:.1f}%"
+            )
+
+            results.append(
+                FaceResult(
+                    image=image_name,
+                    person=person,
+                    face_id=resp.face_id,
+                    faiss_id=resp.faiss_id,
+                    is_new=resp.is_new,
+                    matched_face_id=resp.matched_face_id if not resp.is_new else None,
+                    confidence=best_face["Confidence"],
+                    bbox_area=bbox_area,
                 )
-                status = "NEW" if resp.is_new else f"MATCHED face_id={resp.matched_face_id}"
-                print(f"  Face {i+1}: face_id={resp.face_id}, {status}")
-                stored_face_ids.append(resp.face_id)
-
-            passes += 1
-            print("Result: PASS")
+            )
 
         except Exception as exc:
-            print(f"Result: ERROR ({exc})")
+            print(f"       ERROR: {exc}")
 
-    # ── Phase 2: Dedup via group scenes ──
+    # ── Phase 2: Cross-search similarity matrix ──
 
-    print("\n" + "=" * 60)
-    print("PHASE 2: Deduplication — group scenes have same 2 people")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("PHASE 2: Similarity matrix (SearchFaces for each image vs all stored)")
+    print("=" * 70)
 
-    for case in CASES[2:]:  # group_scene, group_scene2
-        image_path = FACES_DIR / case.file_name
-        print(f"\nImage: {case.file_name}")
-        print(f"Expectation: {case.summary}")
+    # Re-embed each image and search against the full index
+    similarity_scores: dict[tuple[str, str], float] = {}
 
-        if not image_path.exists() or image_path.stat().st_size == 0:
-            print("Result: SKIP (image missing or empty)")
+    for image_name in ALL_IMAGES:
+        image_path = FACES_DIR / image_name
+        if not image_path.exists():
             continue
 
         try:
             jpeg_bytes, img_rgb = _load_image_as_jpeg(image_path)
-
             response = rekognition.detect_faces(
                 Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]
             )
-            face_details = response.get("FaceDetails", [])
-            high_conf = [f for f in face_details if f.get("Confidence", 0) >= MIN_CONFIDENCE]
-            print(f"Rekognition: {len(face_details)} faces detected, {len(high_conf)} above {MIN_CONFIDENCE}%")
+            high_conf = [
+                f
+                for f in response.get("FaceDetails", [])
+                if f.get("Confidence", 0) >= MIN_CONFIDENCE
+            ]
+            if not high_conf:
+                continue
 
-            new_count = 0
-            matched_count = 0
-            for i, face in enumerate(high_conf):
-                bbox = face["BoundingBox"]
-                cropped = _crop_face_from_image(img_rgb, bbox, padding=0.2)
-
-                resp = data_stub.StoreFaceEmbedding(
-                    data_pb2.StoreFaceEmbeddingRequest(
-                        image_data=cropped,
-                        timestamp=time.time(),
-                        confidence=face["Confidence"],
-                    ),
-                    timeout=30,
-                )
-                if resp.is_new:
-                    new_count += 1
-                    status = "NEW (unexpected — should have matched)"
-                else:
-                    matched_count += 1
-                    status = f"MATCHED face_id={resp.matched_face_id}"
-                print(f"  Face {i+1}: face_id={resp.face_id}, {status}")
-
-            if matched_count > 0:
-                print(f"Result: PASS ({matched_count} matched, {new_count} new)")
-                passes += 1
-            else:
-                print(f"Result: FAIL (no faces matched — all {new_count} stored as new)")
-
-        except Exception as exc:
-            print(f"Result: ERROR ({exc})")
-
-    # ── Phase 3: Search ──
-
-    print("\n" + "=" * 60)
-    print("PHASE 3: SearchFaces — query with person_b image")
-    print("=" * 60)
-
-    person_b_path = FACES_DIR / "person_b.jpeg"
-    if person_b_path.exists() and person_b_path.stat().st_size > 0:
-        try:
-            jpeg_bytes, img_rgb = _load_image_as_jpeg(person_b_path)
-            response = rekognition.detect_faces(
-                Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]
+            best_face = max(
+                high_conf,
+                key=lambda f: f["BoundingBox"]["Width"] * f["BoundingBox"]["Height"],
             )
-            face_details = response.get("FaceDetails", [])
-            high_conf = [f for f in face_details if f.get("Confidence", 0) >= MIN_CONFIDENCE]
+            cropped = _crop_face_from_image(img_rgb, best_face["BoundingBox"], padding=0.2)
 
-            if high_conf:
-                bbox = high_conf[0]["BoundingBox"]
-                cropped = _crop_face_from_image(img_rgb, bbox, padding=0.2)
-                search_resp = data_stub.SearchFaces(
-                    data_pb2.SearchFacesRequest(image_data=cropped, top_k=5),
-                    timeout=30,
-                )
-                print(f"Search returned {len(search_resp.results)} result(s)")
-                for r in search_resp.results:
-                    print(
-                        f"  face_id={r.face_id}  score={r.score:.3f}  "
-                        f"seen_count={r.seen_count}  thumbnail={r.thumbnail_path}"
-                    )
-                if search_resp.results:
-                    print("Result: PASS")
-                    passes += 1
-                else:
-                    print("Result: FAIL (no search results)")
-            else:
-                print("Result: SKIP (no faces detected in person_b.jpeg)")
+            search_resp = data_stub.SearchFaces(
+                data_pb2.SearchFacesRequest(image_data=cropped, top_k=10),
+                timeout=30,
+            )
+
+            for r in search_resp.results:
+                # Find which image this face_id came from
+                for res in results:
+                    if res.face_id == r.face_id:
+                        similarity_scores[(image_name, res.image)] = r.score
+                        break
+
         except Exception as exc:
-            print(f"Result: ERROR ({exc})")
+            print(f"  Error searching {image_name}: {exc}")
+
+    # Print similarity matrix
+    print(f"\n{'':>18}", end="")
+    for img in ALL_IMAGES:
+        print(f"  {img[:10]:>10}", end="")
+    print()
+
+    for img_a in ALL_IMAGES:
+        person_a = "A" if img_a in PERSON_A_IMAGES else "B"
+        print(f"  [{person_a}] {img_a[:10]:>10}", end="")
+        for img_b in ALL_IMAGES:
+            score = similarity_scores.get((img_a, img_b))
+            if score is not None:
+                print(f"  {score:>10.4f}", end="")
+            else:
+                print(f"  {'---':>10}", end="")
+        print()
+
+    # ── Phase 3: Clustering analysis ──
+
+    print("\n" + "=" * 70)
+    print("PHASE 3: Clustering analysis")
+    print("=" * 70)
+
+    # Group by assigned face_id
+    clusters: dict[int, list[FaceResult]] = {}
+    for r in results:
+        # The effective cluster ID is the matched_face_id if deduped, else its own face_id
+        cluster_id = r.matched_face_id if r.matched_face_id else r.face_id
+        clusters.setdefault(cluster_id, []).append(r)
+
+    print(f"\n  Total images processed: {len(results)}")
+    print(f"  Unique face IDs (clusters): {len(clusters)}")
+    print(f"  Expected clusters: 2 (Person A and Person B)")
+
+    for cluster_id, members in sorted(clusters.items()):
+        persons = set(m.person for m in members)
+        images = [m.image for m in members]
+        pure = len(persons) == 1
+        print(f"\n  Cluster face_id={cluster_id}:")
+        print(f"    Members: {', '.join(images)}")
+        print(f"    Persons: {', '.join(sorted(persons))}")
+        print(f"    Pure cluster: {'YES' if pure else 'NO — MIXED'}")
+
+    # Compute intra-person vs inter-person similarity stats
+    intra_scores = []
+    inter_scores = []
+    for (img_a, img_b), score in similarity_scores.items():
+        if img_a == img_b:
+            continue
+        person_a = "A" if img_a in PERSON_A_IMAGES else "B"
+        person_b = "A" if img_b in PERSON_A_IMAGES else "B"
+        if person_a == person_b:
+            intra_scores.append(score)
+        else:
+            inter_scores.append(score)
+
+    print(f"\n  Similarity statistics:")
+    if intra_scores:
+        print(
+            f"    Same person (intra):   "
+            f"min={min(intra_scores):.4f}  "
+            f"max={max(intra_scores):.4f}  "
+            f"mean={np.mean(intra_scores):.4f}  "
+            f"n={len(intra_scores)}"
+        )
     else:
-        print("Result: SKIP (person_b.jpeg missing or empty)")
+        print(f"    Same person (intra):   no data")
+
+    if inter_scores:
+        print(
+            f"    Diff person (inter):   "
+            f"min={min(inter_scores):.4f}  "
+            f"max={max(inter_scores):.4f}  "
+            f"mean={np.mean(inter_scores):.4f}  "
+            f"n={len(inter_scores)}"
+        )
+    else:
+        print(f"    Diff person (inter):   no data")
+
+    if intra_scores and inter_scores:
+        gap = min(intra_scores) - max(inter_scores)
+        print(f"    Separation gap:        {gap:.4f} ", end="")
+        if gap > 0:
+            print("(GOOD — no overlap, clean threshold possible)")
+        else:
+            print("(BAD — overlap, threshold cannot cleanly separate)")
+
+        ideal_threshold = (np.mean(intra_scores) + np.mean(inter_scores)) / 2
+        print(f"    Suggested threshold:   {ideal_threshold:.4f}")
+        print(f"    Current threshold:     0.85 (FACE_SIMILARITY_THRESHOLD)")
 
     # ── Summary ──
 
-    total_possible = 5  # 2 individuals + 2 group dedup + 1 search
-    print(f"\n{'=' * 60}")
-    print(f"Overall: {passes}/{total_possible} phases passed")
-    print(f"Stored face_ids: {stored_face_ids}")
+    print(f"\n{'=' * 70}")
+    dedup_correct = len(clusters) == 2 and all(
+        len(set(m.person for m in members)) == 1 for members in clusters.values()
+    )
+    if dedup_correct:
+        print("RESULT: PASS — 2 clean clusters, one per person")
+    else:
+        print(
+            f"RESULT: FAIL — got {len(clusters)} clusters, expected 2. "
+            f"Dedup is not working correctly with current embeddings."
+        )
 
     data_channel.close()
     data_proc.terminate()
     data_proc.join(timeout=3)
 
-    return 0 if passes >= 3 else 1
+    return 0 if dedup_correct else 1
 
 
 if __name__ == "__main__":

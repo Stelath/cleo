@@ -246,3 +246,4 @@ node_modules/
 website/node_modules/
 frontend/viture-luma-display/node_modules/
 *.pnpm-workspace-state-v1.json
+data/faces
