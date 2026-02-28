@@ -11,7 +11,8 @@ log = structlog.get_logger()
 VOICE_ID = "MClEFoImJXBTgLwdLI5n"  # Ivy
 MODEL_ID = "eleven_turbo_v2_5"
 OUTPUT_FORMAT = "pcm_22050"
-SAMPLE_RATE = 22050
+ELEVENLABS_SAMPLE_RATE = 22050
+PLAYBACK_SAMPLE_RATE = 48000
 
 VOICE_SETTINGS = {
     "speed": 1.03,
@@ -21,15 +22,25 @@ VOICE_SETTINGS = {
 }
 
 
+def _resample(samples: np.ndarray, orig_rate: int, target_rate: int) -> np.ndarray:
+    """Resample audio via linear interpolation."""
+    if orig_rate == target_rate:
+        return samples
+    target_len = int(len(samples) * target_rate / orig_rate)
+    indices = np.linspace(0, len(samples) - 1, target_len)
+    return np.interp(indices, np.arange(len(samples)), samples).astype(np.float32)
+
+
 def _pcm16_to_f32_base64(pcm16_bytes: bytes) -> str:
-    """Convert signed 16-bit LE PCM to float32 LE, then base64-encode.
+    """Convert signed 16-bit LE PCM to float32 LE, resample to playback rate, then base64-encode.
 
     This matches the Tauri client's ``play_pcm_base64`` expectation.
     """
     if not pcm16_bytes:
         return base64.b64encode(b"").decode("ascii")
     samples_i16 = np.frombuffer(pcm16_bytes, dtype=np.int16)
-    samples_f32 = (samples_i16.astype(np.float32) / 32767.0)
+    samples_f32 = samples_i16.astype(np.float32) / 32767.0
+    samples_f32 = _resample(samples_f32, ELEVENLABS_SAMPLE_RATE, PLAYBACK_SAMPLE_RATE)
     return base64.b64encode(samples_f32.tobytes()).decode("ascii")
 
 
@@ -79,4 +90,4 @@ class ElevenLabsVoice:
 
         data_base64 = _pcm16_to_f32_base64(pcm16_bytes)
         log.info("elevenlabs.synthesized", pcm_bytes=len(pcm16_bytes))
-        return data_base64, SAMPLE_RATE
+        return data_base64, PLAYBACK_SAMPLE_RATE
