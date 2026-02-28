@@ -226,3 +226,5 @@ gemini.md
 *.index
 *.meta.json
 
+*.db-shm
+*.db-wal

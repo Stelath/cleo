@@ -16,12 +16,10 @@ from services.config import (
     DATA_PORT,
     FRONTEND_ADDRESS,
     FRONTEND_PORT,
-    NAVIGATION_ASSIST_ADDRESS,
-    NAVIGATION_ASSIST_PORT,
+    NAVIGATOR_ADDRESS,
+    NAVIGATOR_PORT,
     NOTETAKING_ADDRESS,
     NOTETAKING_PORT,
-    OBJECT_RECOGNITION_ADDRESS,
-    OBJECT_RECOGNITION_PORT,
     SENSOR_ADDRESS,
     SENSOR_PORT,
     TRANSCRIPTION_ADDRESS,
@@ -61,18 +59,6 @@ def _run_color_blind_service() -> None:
     serve(port=COLOR_BLIND_PORT)
 
 
-def _run_object_recognition_service() -> None:
-    from apps.object_recognition import serve
-
-    serve(port=OBJECT_RECOGNITION_PORT)
-
-
-def _run_navigation_assist_service() -> None:
-    from apps.navigation_assist import serve
-
-    serve(port=NAVIGATION_ASSIST_PORT)
-
-
 def _run_frontend_service() -> None:
     from services.frontend_service import serve
 
@@ -89,6 +75,12 @@ def _run_notetaking_service() -> None:
     from apps.notetaking import serve
 
     serve(port=NOTETAKING_PORT)
+
+
+def _run_navigator_service() -> None:
+    from apps.navigator import serve
+
+    serve(port=NAVIGATOR_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
@@ -119,16 +111,6 @@ def main() -> None:
         ),
         multiprocessing.Process(target=_run_color_blind_service, daemon=True, name="color-blind-tool"),
         multiprocessing.Process(
-            target=_run_object_recognition_service,
-            daemon=True,
-            name="object-recognition-tool",
-        ),
-        multiprocessing.Process(
-            target=_run_navigation_assist_service,
-            daemon=True,
-            name="navigation-assist-tool",
-        ),
-        multiprocessing.Process(
             target=_run_frontend_service,
             daemon=True,
             name="frontend-service",
@@ -139,6 +121,7 @@ def main() -> None:
             name="video-service",
         ),
         multiprocessing.Process(target=_run_notetaking_service, daemon=True, name="notetaking-tool"),
+        multiprocessing.Process(target=_run_navigator_service, daemon=True, name="navigator-tool"),
     ]
 
     for proc in processes:
@@ -149,10 +132,9 @@ def main() -> None:
     _wait_for_grpc(ASSISTANT_ADDRESS)
     _wait_for_grpc(TRANSCRIPTION_ADDRESS)
     _wait_for_grpc(COLOR_BLIND_ADDRESS)
-    _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
-    _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
     _wait_for_grpc(FRONTEND_ADDRESS)
     _wait_for_grpc(NOTETAKING_ADDRESS)
+    _wait_for_grpc(NAVIGATOR_ADDRESS)
     log.info("runtime.services_ready")
 
     shutdown_event = threading.Event()
