@@ -16,6 +16,9 @@ _SYSTEM_PROMPT = (
     "You are Cleo, an AI assistant running on AR smart glasses. "
     "The user speaks commands aloud after saying 'hey cleo'. "
     "Be concise — responses are displayed on a small heads-up display. "
+    "A camera image is attached to every message for context. "
+    "Do NOT describe or comment on what you see unless the user explicitly asks about it "
+    "or the image is directly relevant to answering their question. "
     "Tool use is preferred whenever a user request maps to an available tool. "
     "If transcript context contains chatter, focus on the words after the last wake phrase. "
     "For nutrition, calories, macros, protein, fat, carbs, food, barcode, or meal questions, "
@@ -70,8 +73,23 @@ class BedrockClient:
 
             self._client = boto3.client("bedrock-runtime", region_name=region)
 
-    def converse(self, user_text: str, tool_config: dict) -> ToolUseResult | TextResult:
-        """Send user text to Bedrock and return either a tool-use or text result."""
+    def converse(
+        self,
+        user_text: str,
+        tool_config: dict,
+        *,
+        messages: list[dict] | None = None,
+        image_bytes: bytes | None = None,
+    ) -> tuple[ToolUseResult | TextResult, list[dict]]:
+        """Send user text to Bedrock and return (result, updated_history).
+
+        Parameters
+        ----------
+        messages:
+            Existing conversation history.  A new user turn is appended.
+        image_bytes:
+            JPEG bytes to attach to the *current* user turn as a vision input.
+        """
         tools = tool_config.get("tools", []) if isinstance(tool_config, dict) else []
         log.info(
             "assistant.llm_prompt",
@@ -79,12 +97,37 @@ class BedrockClient:
             tool_count=len(tools),
             system_prompt=_truncate(_SYSTEM_PROMPT),
             user_text=_truncate(user_text),
+            has_image=image_bytes is not None,
+            history_len=len(messages) if messages else 0,
         )
+
+        # Build user content blocks
+        user_content: list[dict[str, Any]] = [{"text": user_text}]
+        if image_bytes is not None:
+            user_content.append({
+                "image": {
+                    "format": "jpeg",
+                    "source": {"bytes": image_bytes},
+                }
+            })
+
+        # Start from existing history or empty
+        history = list(messages) if messages else []
+
+        # Strip image blocks from older user messages to save context
+        for msg in history:
+            if msg.get("role") == "user":
+                msg["content"] = [
+                    block for block in msg.get("content", [])
+                    if "image" not in block
+                ]
+
+        history.append({"role": "user", "content": user_content})
 
         converse_args: dict[str, Any] = {
             "modelId": self._model_id,
             "system": [{"text": _SYSTEM_PROMPT}],
-            "messages": [{"role": "user", "content": [{"text": user_text}]}],
+            "messages": history,
         }
         if tools:
             converse_args["toolConfig"] = tool_config
@@ -103,6 +146,10 @@ class BedrockClient:
             num_blocks=len(content_blocks),
         )
 
+        # Append assistant turn to history
+        if content_blocks:
+            history.append({"role": "assistant", "content": content_blocks})
+
         # Check for tool use blocks first
         for block in content_blocks:
             if "toolUse" in block:
@@ -119,11 +166,14 @@ class BedrockClient:
                     parameters=tool_use.get("input", {}),
                     response_text=_truncate(accompanying_text) if accompanying_text else "",
                 )
-                return ToolUseResult(
-                    tool_use_id=tool_use["toolUseId"],
-                    tool_name=tool_use["name"],
-                    parameters=tool_use.get("input", {}),
-                    response_text=accompanying_text,
+                return (
+                    ToolUseResult(
+                        tool_use_id=tool_use["toolUseId"],
+                        tool_name=tool_use["name"],
+                        parameters=tool_use.get("input", {}),
+                        response_text=accompanying_text,
+                    ),
+                    history,
                 )
 
         # Fall back to text
@@ -138,7 +188,7 @@ class BedrockClient:
             stop_reason=stop_reason,
             text=_truncate(text_result),
         )
-        return TextResult(text=text_result)
+        return TextResult(text=text_result), history
 
     def classify_follow_up(self, user_text: str) -> bool:
         """Return True when *user_text* is a continuation/question for the assistant."""

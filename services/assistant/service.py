@@ -3,6 +3,7 @@
 import json
 import os
 import signal
+import time
 from concurrent import futures
 
 import grpc
@@ -10,10 +11,17 @@ import structlog
 
 from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 from services.assistant.registry import ToolRegistry
-from services.config import ASSISTANT_PORT, DATA_ADDRESS, FRONTEND_ADDRESS
+from services.config import ASSISTANT_PORT, DATA_ADDRESS, FRONTEND_ADDRESS, SENSOR_ADDRESS
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import frontend_pb2, frontend_pb2_grpc
+from generated import sensor_pb2, sensor_pb2_grpc
 from generated import tool_pb2, tool_pb2_grpc
+from services.media.camera_transport import (
+    AssembledCameraFrame,
+    CameraFrameAssembler,
+    assembled_frame_to_rgb,
+    encode_rgb_to_jpeg,
+)
 
 log = structlog.get_logger()
 
@@ -30,13 +38,20 @@ def _truncate(value: str, *, max_chars: int = _DEBUG_ASSISTANT_HUD_MAX_CHARS) ->
 class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
     """Receives transcribed commands, uses Bedrock to pick a tool, calls it via gRPC."""
 
+    _IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
+    _MAX_HISTORY_MESSAGES = 20
+
     def __init__(
         self,
         registry: ToolRegistry | None = None,
         bedrock_client: BedrockClient | None = None,
+        sensor_address: str = SENSOR_ADDRESS,
     ):
         self._registry = registry or ToolRegistry()
         self._bedrock = bedrock_client or BedrockClient()
+        self._sensor_address = sensor_address
+        self._conversation_history: list[dict] = []
+        self._last_interaction_time: float = 0.0
         enabled = os.getenv(_DEBUG_ASSISTANT_HUD_ENV, "").strip().lower()
         self._debug_hud_enabled = enabled in {"1", "true", "yes", "on"}
         if self._debug_hud_enabled:
@@ -100,6 +115,40 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
         finally:
             channel.close()
 
+    def _capture_frame_jpeg(self) -> bytes | None:
+        """Grab one JPEG frame from the sensor service.  Returns *None* on failure."""
+        channel = grpc.insecure_channel(self._sensor_address)
+        try:
+            stub = sensor_pb2_grpc.SensorServiceStub(channel)
+            stream = stub.CaptureFrame(sensor_pb2.CaptureRequest())
+            assembler = CameraFrameAssembler()
+            for chunk in stream:
+                frame = assembler.push(chunk)
+                if frame is not None:
+                    if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
+                        return frame.data
+                    frame_rgb = assembled_frame_to_rgb(frame)
+                    return encode_rgb_to_jpeg(frame_rgb)
+        except Exception as e:
+            log.warning("assistant.frame_capture_failed", error=str(e))
+        finally:
+            channel.close()
+        return None
+
+    def _maybe_clear_stale_history(self) -> None:
+        """Reset conversation if idle for too long."""
+        if (
+            self._conversation_history
+            and time.monotonic() - self._last_interaction_time > self._IDLE_TIMEOUT_SECONDS
+        ):
+            log.info("assistant.history_expired")
+            self._conversation_history = []
+
+    def _trim_history(self) -> None:
+        """Cap conversation history at *_MAX_HISTORY_MESSAGES* messages."""
+        if len(self._conversation_history) > self._MAX_HISTORY_MESSAGES:
+            self._conversation_history = self._conversation_history[-self._MAX_HISTORY_MESSAGES:]
+
     def ProcessCommand(self, request, context):
         text = request.text.strip()
         is_follow_up = bool(request.is_follow_up)
@@ -129,6 +178,7 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
 
             if not should_respond:
                 log.info("assistant.follow_up_ended")
+                self._conversation_history = []
                 return assistant_pb2.CommandResponse(
                     success=True,
                     response_text="",
@@ -137,10 +187,19 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                     continue_follow_up=False,
                 )
 
+        # Manage conversation state
+        self._maybe_clear_stale_history()
+        self._trim_history()
+
+        # Always try to capture a frame for vision context
+        image_bytes = self._capture_frame_jpeg()
+
         try:
-            result = self._bedrock.converse(
+            result, self._conversation_history = self._bedrock.converse(
                 user_text=text,
                 tool_config=self._registry.bedrock_tool_config(),
+                messages=self._conversation_history,
+                image_bytes=image_bytes,
             )
         except Exception as e:
             log.error("assistant.bedrock_error", error=str(e))
@@ -152,6 +211,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                 continue_follow_up=False,
             )
 
+        self._last_interaction_time = time.monotonic()
+
         if isinstance(result, TextResult):
             response_text = result.text.strip()
             self._show_llm_debug_response(response_text)
@@ -159,6 +220,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             responded = bool(response_text)
             if responded:
                 self._speak_response_text(response_text)
+            if not responded:
+                self._conversation_history = []
             return assistant_pb2.CommandResponse(
                 success=True,
                 response_text=response_text,
@@ -204,8 +267,23 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                     parameters_json=json.dumps(result.parameters),
                 )
             )
+
+            # Append tool result to conversation history so the LLM
+            # can reference it in follow-ups.
+            self._conversation_history.append({
+                "role": "user",
+                "content": [{
+                    "toolResult": {
+                        "toolUseId": result.tool_use_id,
+                        "content": [{"text": tool_response.result_text}],
+                    }
+                }],
+            })
+
             response_text = tool_response.result_text.strip()
             responded = bool(response_text) and bool(tool_response.success)
+            if not responded:
+                self._conversation_history = []
             return assistant_pb2.CommandResponse(
                 success=tool_response.success,
                 response_text=tool_response.result_text,
