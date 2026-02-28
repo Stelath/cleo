@@ -21,9 +21,9 @@ _DEFAULT_TOOLS: list[ToolDefinition] = [
     ToolDefinition(
         name="color_blindness_assist",
         description=(
-            "Help a color-blind user identify or distinguish colors in their "
-            "current view. Use when the user asks about colors, color matching, "
-            "or needs help telling colors apart."
+            "Apply a customized color blindness correction filter to the user's "
+            "current view. Triggers a single frame capture and applies the "
+            "user's configured color correction preference so they can distinguish colors."
         ),
         input_schema={
             "type": "object",

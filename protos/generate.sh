@@ -18,8 +18,7 @@ python -m grpc_tools.protoc \
   "$PROTO_DIR"/transcription.proto \
   "$PROTO_DIR"/data.proto \
   "$PROTO_DIR"/assistant.proto \
-  "$PROTO_DIR"/tool.proto \
-  "$PROTO_DIR"/color_blind.proto
+  "$PROTO_DIR"/tool.proto
 
 # Fix relative imports in generated _grpc.py files (known grpc_tools bug)
 # The generated files use "import sensor_pb2" instead of "from . import sensor_pb2"
