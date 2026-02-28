@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package cleo.data;
+
+service DataService {
+  // Store a transcription result in SQLite
+  rpc StoreTranscription(StoreTranscriptionRequest) returns (StoreTranscriptionResponse);
+
+  // Store a video clip: save MP4 to disk, embed via Nova, store in FAISS + SQLite
+  rpc StoreVideoClip(StoreVideoClipRequest) returns (StoreVideoClipResponse);
+
+  // Search by text, image, or video — embed query, search FAISS, join SQLite
+  rpc Search(SearchRequest) returns (SearchResponse);
+
+  // Get paginated transcription history
+  rpc GetTranscriptionLog(TranscriptionLogRequest) returns (TranscriptionLogResponse);
+
+  // Retrieve a video clip by ID
+  rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
+}
+
+// ── Store Transcription ──
+
+message StoreTranscriptionRequest {
+  string text = 1;
+  float confidence = 2;
+  double start_time = 3;
+  double end_time = 4;
+}
+
+message StoreTranscriptionResponse {
+  int64 id = 1;
+}
+
+// ── Store Video Clip ──
+
+message StoreVideoClipRequest {
+  // Raw MP4 bytes
+  bytes mp4_data = 1;
+
+  // Unix epoch seconds for clip boundaries
+  double start_timestamp = 2;
+  double end_timestamp = 3;
+
+  // Number of frames in the clip
+  int32 num_frames = 4;
+}
+
+message StoreVideoClipResponse {
+  int64 clip_id = 1;
+  int64 faiss_id = 2;
+}
+
+// ── Search ──
+
+message SearchRequest {
+  oneof query {
+    string text = 1;
+    bytes image_data = 2;
+    bytes video_data = 3;
+  }
+  int32 top_k = 4;
+}
+
+message SearchResult {
+  int64 clip_id = 1;
+  float score = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  string clip_path = 5;
+  int32 num_frames = 6;
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+}
+
+// ── Transcription Log ──
+
+message TranscriptionLogRequest {
+  // Maximum number of entries to return (default: 50)
+  int32 limit = 1;
+
+  // Offset for pagination
+  int32 offset = 2;
+}
+
+message TranscriptionLogEntry {
+  int64 id = 1;
+  string text = 2;
+  float confidence = 3;
+  double start_time = 4;
+  double end_time = 5;
+  double created_at = 6;
+}
+
+message TranscriptionLogResponse {
+  repeated TranscriptionLogEntry entries = 1;
+  int32 total_count = 2;
+}
+
+// ── Get Video Clip ──
+
+message GetVideoClipRequest {
+  int64 clip_id = 1;
+}
+
+message VideoClipResponse {
+  bytes mp4_data = 1;
+  double start_timestamp = 2;
+  double end_timestamp = 3;
+  int32 num_frames = 4;
+}

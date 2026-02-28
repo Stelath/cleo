@@ -2,24 +2,27 @@
 
 import multiprocessing
 import signal
-import sys
 import threading
 import time
 
 import grpc
-import numpy as np
 import structlog
 
+from core.config import (
+    DATA_ADDRESS,
+    DATA_PORT,
+    SENSOR_ADDRESS,
+    SENSOR_PORT,
+    TRANSCRIPTION_ADDRESS,
+    TRANSCRIPTION_PORT,
+)
 from core.frame_processor import FrameProcessor
+from generated import data_pb2, data_pb2_grpc
 from generated import sensor_pb2, sensor_pb2_grpc
 from generated import transcription_pb2, transcription_pb2_grpc
 
 log = structlog.get_logger()
 
-_SENSOR_PORT = 50051
-_TRANSCRIPTION_PORT = 50052
-_SENSOR_ADDR = f"localhost:{_SENSOR_PORT}"
-_TRANSCRIPTION_ADDR = f"localhost:{_TRANSCRIPTION_PORT}"
 _AUDIO_CHUNK_MS = 500
 _AUDIO_SAMPLE_RATE = 16000
 
@@ -27,13 +30,19 @@ _AUDIO_SAMPLE_RATE = 16000
 def _run_sensor_service():
     """Entry point for the sensor service subprocess."""
     from services.sensor_service import serve
-    serve(port=_SENSOR_PORT)
+    serve(port=SENSOR_PORT)
 
 
 def _run_transcription_service():
     """Entry point for the transcription service subprocess."""
     from transcription.parakeet import serve
-    serve(port=_TRANSCRIPTION_PORT)
+    serve(port=TRANSCRIPTION_PORT)
+
+
+def _run_data_service():
+    """Entry point for the data service subprocess."""
+    from data.service import serve
+    serve(port=DATA_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0):
@@ -53,17 +62,20 @@ class AudioTranscriptionBridge(threading.Thread):
     """Daemon thread that streams audio from SensorService to TranscriptionService.
 
     Reads audio chunks from SensorService.StreamAudio and forwards them to
-    TranscriptionService.TranscribeStream, logging transcription results.
+    TranscriptionService.TranscribeStream. Transcription results are pushed to
+    DataService.StoreTranscription for persistence.
     """
 
     def __init__(
         self,
-        sensor_address: str = _SENSOR_ADDR,
-        transcription_address: str = _TRANSCRIPTION_ADDR,
+        sensor_address: str = SENSOR_ADDRESS,
+        transcription_address: str = TRANSCRIPTION_ADDRESS,
+        data_address: str = DATA_ADDRESS,
     ):
         super().__init__(daemon=True, name="AudioTranscriptionBridge")
         self._sensor_address = sensor_address
         self._transcription_address = transcription_address
+        self._data_address = data_address
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -83,14 +95,19 @@ class AudioTranscriptionBridge(threading.Thread):
                 ("grpc.max_receive_message_length", 16 * 1024 * 1024),
             ],
         )
+        data_channel = grpc.insecure_channel(
+            self._data_address,
+            options=[("grpc.max_send_message_length", 8 * 1024 * 1024)],
+        )
         sensor_stub = sensor_pb2_grpc.SensorServiceStub(sensor_channel)
         transcription_stub = transcription_pb2_grpc.TranscriptionServiceStub(
             transcription_channel
         )
+        data_stub = data_pb2_grpc.DataServiceStub(data_channel)
 
         while not self._stop_event.is_set():
             try:
-                self._bridge(sensor_stub, transcription_stub)
+                self._bridge(sensor_stub, transcription_stub, data_stub)
             except grpc.RpcError as e:
                 if self._stop_event.is_set():
                     break
@@ -99,6 +116,7 @@ class AudioTranscriptionBridge(threading.Thread):
 
         sensor_channel.close()
         transcription_channel.close()
+        data_channel.close()
         log.info("audio_bridge.stopped")
 
     def _audio_generator(self, sensor_stub):
@@ -115,8 +133,8 @@ class AudioTranscriptionBridge(threading.Thread):
                 is_final=False,
             )
 
-    def _bridge(self, sensor_stub, transcription_stub):
-        """Connect sensor audio stream to transcription stream."""
+    def _bridge(self, sensor_stub, transcription_stub, data_stub):
+        """Connect sensor audio stream to transcription stream, push results to DataService."""
         audio_stream = self._audio_generator(sensor_stub)
         results = transcription_stub.TranscribeStream(audio_stream)
 
@@ -131,6 +149,19 @@ class AudioTranscriptionBridge(threading.Thread):
                     end=f"{result.end_time:.2f}",
                     partial=result.is_partial,
                 )
+                # Persist to DataService
+                if not result.is_partial:
+                    try:
+                        data_stub.StoreTranscription(
+                            data_pb2.StoreTranscriptionRequest(
+                                text=result.text,
+                                confidence=result.confidence,
+                                start_time=result.start_time,
+                                end_time=result.end_time,
+                            )
+                        )
+                    except grpc.RpcError as e:
+                        log.error("audio_bridge.store_error", error=str(e))
 
 
 def main():
@@ -140,19 +171,28 @@ def main():
     # Start services as separate processes
     sensor_proc = multiprocessing.Process(target=_run_sensor_service, daemon=True)
     transcription_proc = multiprocessing.Process(target=_run_transcription_service, daemon=True)
+    data_proc = multiprocessing.Process(target=_run_data_service, daemon=True)
 
     sensor_proc.start()
     transcription_proc.start()
-    log.info("orchestrator.processes_started",
-             sensor_pid=sensor_proc.pid,
-             transcription_pid=transcription_proc.pid)
+    data_proc.start()
+    log.info(
+        "orchestrator.processes_started",
+        sensor_pid=sensor_proc.pid,
+        transcription_pid=transcription_proc.pid,
+        data_pid=data_proc.pid,
+    )
 
     # Wait for gRPC servers to be ready
-    _wait_for_grpc(_SENSOR_ADDR)
-    _wait_for_grpc(_TRANSCRIPTION_ADDR)
+    _wait_for_grpc(SENSOR_ADDRESS)
+    _wait_for_grpc(TRANSCRIPTION_ADDRESS)
+    _wait_for_grpc(DATA_ADDRESS)
 
     # Start processing threads
-    frame_processor = FrameProcessor(sensor_address=_SENSOR_ADDR)
+    frame_processor = FrameProcessor(
+        sensor_address=SENSOR_ADDRESS,
+        data_address=DATA_ADDRESS,
+    )
     audio_bridge = AudioTranscriptionBridge()
 
     frame_processor.start()
@@ -179,19 +219,14 @@ def main():
     frame_processor.join(timeout=5)
     audio_bridge.join(timeout=5)
 
-    # Save FAISS index
-    try:
-        frame_processor.db.save()
-        log.info("orchestrator.faiss_saved")
-    except Exception as e:
-        log.error("orchestrator.faiss_save_error", error=str(e))
-
-    # Terminate service processes
+    # Terminate service processes (DataService handles its own FAISS persistence)
     log.info("orchestrator.stopping_processes")
     sensor_proc.terminate()
     transcription_proc.terminate()
+    data_proc.terminate()
     sensor_proc.join(timeout=5)
     transcription_proc.join(timeout=5)
+    data_proc.join(timeout=5)
 
     log.info("orchestrator.stopped")
 

@@ -1,7 +1,9 @@
 """gRPC Sensor Service wrapping VITURE Luma Ultra camera and microphone hardware."""
 
+import queue
 import signal
 import sys
+import threading
 import time
 from concurrent import futures
 
@@ -9,6 +11,7 @@ import grpc
 import numpy as np
 import structlog
 
+from core.broadcast import BroadcastHub
 from generated import sensor_pb2, sensor_pb2_grpc
 from viture_sensors import AudioRecorder, USBCamera
 
@@ -31,58 +34,105 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
         self._recorder = AudioRecorder()
         log.info("sensor_service.audio_ready")
 
-    def shutdown(self):
-        """Gracefully release hardware resources."""
-        log.info("sensor_service.shutdown")
-        self._camera.close()
-        self._recorder.close()
+        # Broadcast hubs for fan-out streaming
+        self._camera_hub = BroadcastHub(maxsize=64)
+        self._audio_hub = BroadcastHub(maxsize=128)
+        self._stop_event = threading.Event()
 
-    def StreamCamera(self, request, context):
-        """Stream camera frames at the requested FPS."""
-        fps = request.fps if request.fps > 0 else _DEFAULT_FPS
-        interval = 1.0 / fps
-        log.info("sensor_service.stream_camera", fps=fps)
+        # Start background capture loops
+        self._camera_thread = threading.Thread(
+            target=self._camera_capture_loop, daemon=True, name="CameraCaptureLoop"
+        )
+        self._audio_thread = threading.Thread(
+            target=self._audio_capture_loop, daemon=True, name="AudioCaptureLoop"
+        )
+        self._camera_thread.start()
+        self._audio_thread.start()
 
-        while context.is_active():
+    def _camera_capture_loop(self):
+        """Continuously capture frames and publish to the camera hub."""
+        interval = 1.0 / _DEFAULT_FPS
+        while not self._stop_event.is_set():
             t0 = time.monotonic()
             try:
                 frame = self._camera.capture()
                 h, w = frame.shape[:2]
-                yield sensor_pb2.CameraFrame(
+                msg = sensor_pb2.CameraFrame(
                     data=frame.tobytes(),
                     width=w,
                     height=h,
                     timestamp=time.time(),
                 )
+                self._camera_hub.publish(msg)
             except RuntimeError as e:
-                log.error("sensor_service.camera_error", error=str(e))
-                break
+                log.error("sensor_service.camera_loop_error", error=str(e))
+                time.sleep(1)
+                continue
 
             elapsed = time.monotonic() - t0
             sleep_time = interval - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
+    def _audio_capture_loop(self):
+        """Continuously record audio chunks and publish to the audio hub."""
+        while not self._stop_event.is_set():
+            try:
+                audio = self._recorder.record(
+                    duration_ms=_DEFAULT_CHUNK_MS, sample_rate=_DEFAULT_SAMPLE_RATE
+                )
+                msg = sensor_pb2.AudioChunk(
+                    data=audio.tobytes(),
+                    sample_rate=_DEFAULT_SAMPLE_RATE,
+                    num_samples=len(audio),
+                    timestamp=time.time(),
+                )
+                self._audio_hub.publish(msg)
+            except RuntimeError as e:
+                log.error("sensor_service.audio_loop_error", error=str(e))
+                time.sleep(1)
+
+    def shutdown(self):
+        """Gracefully release hardware resources."""
+        log.info("sensor_service.shutdown")
+        self._stop_event.set()
+        self._camera_thread.join(timeout=3)
+        self._audio_thread.join(timeout=3)
+        self._camera.close()
+        self._recorder.close()
+
+    def StreamCamera(self, request, context):
+        """Stream camera frames at the requested FPS via BroadcastHub."""
+        fps = request.fps if request.fps > 0 else _DEFAULT_FPS
+        log.info("sensor_service.stream_camera", fps=fps)
+
+        sid, q = self._camera_hub.subscribe()
+        try:
+            while context.is_active() and not self._stop_event.is_set():
+                try:
+                    frame_msg = q.get(timeout=1.0)
+                    yield frame_msg
+                except queue.Empty:
+                    continue
+        finally:
+            self._camera_hub.unsubscribe(sid)
+
     def StreamAudio(self, request, context):
-        """Stream audio chunks of the requested duration."""
+        """Stream audio chunks via BroadcastHub."""
         chunk_ms = request.chunk_ms if request.chunk_ms > 0 else _DEFAULT_CHUNK_MS
         sample_rate = request.sample_rate if request.sample_rate > 0 else _DEFAULT_SAMPLE_RATE
         log.info("sensor_service.stream_audio", chunk_ms=chunk_ms, sample_rate=sample_rate)
 
-        while context.is_active():
-            try:
-                audio = self._recorder.record(
-                    duration_ms=chunk_ms, sample_rate=sample_rate
-                )
-                yield sensor_pb2.AudioChunk(
-                    data=audio.tobytes(),
-                    sample_rate=sample_rate,
-                    num_samples=len(audio),
-                    timestamp=time.time(),
-                )
-            except RuntimeError as e:
-                log.error("sensor_service.audio_error", error=str(e))
-                break
+        sid, q = self._audio_hub.subscribe()
+        try:
+            while context.is_active() and not self._stop_event.is_set():
+                try:
+                    audio_msg = q.get(timeout=1.0)
+                    yield audio_msg
+                except queue.Empty:
+                    continue
+        finally:
+            self._audio_hub.unsubscribe(sid)
 
     def StreamIMU(self, request, context):
         """Stream IMU readings. Requires a connected VITURE Device."""
