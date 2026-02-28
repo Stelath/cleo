@@ -681,6 +681,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
                     seen_count=face["seen_count"],
                     thumbnail_path=face["thumbnail_path"],
                     name=face["display_name"] or "",
+                    note=face["display_note"] or "",
                 )
             )
 
@@ -729,7 +730,12 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
     def SetFaceName(self, request, context):
         display_name = request.name.strip()
-        updated = self._sqlite.set_face_name(request.face_id, display_name)
+        display_note = request.note.strip()
+        updated = self._sqlite.set_face_metadata(
+            request.face_id,
+            display_name,
+            display_note,
+        )
         if not updated:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Face {request.face_id} was not found.")
@@ -739,8 +745,13 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             "data_service.face_name_updated",
             face_id=request.face_id,
             has_name=bool(display_name),
+            has_note=bool(display_note),
         )
-        return data_pb2.SetFaceNameResponse(updated=True, name=display_name)
+        return data_pb2.SetFaceNameResponse(
+            updated=True,
+            name=display_name,
+            note=display_note,
+        )
 
     def _serialize_face_entry(self, row: dict) -> data_pb2.FaceEntry:
         # Limit the preview collage to four most recent sightings.
@@ -748,6 +759,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         entry = data_pb2.FaceEntry(
             face_id=row["id"],
             name=row["display_name"] or "",
+            note=row["display_note"] or "",
             first_seen=row["first_seen"],
             last_seen=row["last_seen"],
             seen_count=row["seen_count"],

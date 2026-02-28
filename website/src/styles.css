@@ -359,12 +359,18 @@ button {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   border: 1px solid rgba(94, 85, 65, 0.12);
   border-radius: 14px;
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.82);
+}
+
+.face-note-input {
+  resize: vertical;
+  min-height: 84px;
 }
 
 .small-field {

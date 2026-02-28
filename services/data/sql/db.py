@@ -91,6 +91,7 @@ class CleoSQLite:
                 faiss_id INTEGER,
                 thumbnail_path TEXT NOT NULL,
                 display_name TEXT NOT NULL DEFAULT '',
+                display_note TEXT NOT NULL DEFAULT '',
                 confidence REAL,
                 first_seen REAL NOT NULL,
                 last_seen REAL NOT NULL,
@@ -115,6 +116,10 @@ class CleoSQLite:
         if "display_name" not in face_columns:
             self._conn.execute(
                 "ALTER TABLE faces ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
+            )
+        if "display_note" not in face_columns:
+            self._conn.execute(
+                "ALTER TABLE faces ADD COLUMN display_note TEXT NOT NULL DEFAULT ''"
             )
         self._conn.execute(
             """
@@ -475,11 +480,16 @@ class CleoSQLite:
         ).fetchall()
         return [dict(r) for r in rows], total
 
-    def set_face_name(self, face_id: int, display_name: str) -> bool:
-        """Assign or clear the display name for a face row."""
+    def set_face_metadata(
+        self,
+        face_id: int,
+        display_name: str,
+        display_note: str,
+    ) -> bool:
+        """Assign or clear stored face metadata."""
         cur = self._conn.execute(
-            "UPDATE faces SET display_name = ? WHERE id = ?",
-            (display_name, face_id),
+            "UPDATE faces SET display_name = ?, display_note = ? WHERE id = ?",
+            (display_name, display_note, face_id),
         )
         self._conn.commit()
         return cur.rowcount > 0

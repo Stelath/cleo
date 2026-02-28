@@ -371,17 +371,25 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
 
         payload = self._read_json_body()
         raw_name = payload.get("name", "")
+        raw_note = payload.get("note", "")
         if not isinstance(raw_name, str):
             raise ValueError("Field 'name' must be a string.")
+        if not isinstance(raw_note, str):
+            raise ValueError("Field 'note' must be a string.")
 
         response = self._get_data_stub().SetFaceName(
-            data_pb2.SetFaceNameRequest(face_id=face_id, name=raw_name)
+            data_pb2.SetFaceNameRequest(
+                face_id=face_id,
+                name=raw_name,
+                note=raw_note,
+            )
         )
         self._write_json(
             {
                 "faceId": face_id,
                 "updated": response.updated,
                 "name": response.name,
+                "note": response.note,
             }
         )
 
@@ -561,6 +569,7 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         return {
             "faceId": entry.face_id,
             "name": entry.name,
+            "note": entry.note,
             "firstSeen": entry.first_seen,
             "lastSeen": entry.last_seen,
             "seenCount": entry.seen_count,

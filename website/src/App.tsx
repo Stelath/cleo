@@ -44,6 +44,7 @@ type MemoryClipEntry = {
 type FaceEntry = {
   faceId: number;
   name: string;
+  note: string;
   firstSeen: number;
   lastSeen: number;
   seenCount: number;
@@ -318,6 +319,19 @@ function App() {
     );
   }
 
+  function handleFaceNoteChange(faceId: number, value: string) {
+    setFaceEntries((current) =>
+      current.map((entry) =>
+        entry.faceId === faceId
+          ? {
+              ...entry,
+              note: value,
+            }
+          : entry,
+      ),
+    );
+  }
+
   async function saveFaceName(faceId: number) {
     const face = faceEntries.find((entry) => entry.faceId === faceId);
     if (!face) {
@@ -333,7 +347,7 @@ function App() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: face.name }),
+        body: JSON.stringify({ name: face.name, note: face.note }),
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -342,6 +356,7 @@ function App() {
 
       const payload = (await response.json()) as {
         name?: string;
+        note?: string;
       };
       setFaceEntries((current) =>
         current.map((entry) =>
@@ -349,12 +364,13 @@ function App() {
             ? {
                 ...entry,
                 name: payload.name ?? entry.name,
+                note: payload.note ?? entry.note,
               }
             : entry,
         ),
       );
     } catch (error) {
-      setFaceSaveError(error instanceof Error ? error.message : "Unable to save the face name.");
+      setFaceSaveError(error instanceof Error ? error.message : "Unable to save the face details.");
     } finally {
       setFaceSavingId((current) => (current === faceId ? null : current));
     }
@@ -743,15 +759,25 @@ function App() {
                             onChange={(event) => handleFaceNameChange(entry.faceId, event.target.value)}
                           />
                         </label>
-                        <button
-                          className="solid-button"
-                          type="button"
-                          disabled={faceSavingId === entry.faceId}
-                          onClick={() => void saveFaceName(entry.faceId)}
-                        >
-                          {faceSavingId === entry.faceId ? "Saving..." : "Save"}
-                        </button>
                       </div>
+                      <label className="field">
+                        <span>Note</span>
+                        <textarea
+                          className="face-note-input"
+                          value={entry.note}
+                          placeholder="Add a reminder or context for this person"
+                          rows={3}
+                          onChange={(event) => handleFaceNoteChange(entry.faceId, event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="solid-button"
+                        type="button"
+                        disabled={faceSavingId === entry.faceId}
+                        onClick={() => void saveFaceName(entry.faceId)}
+                      >
+                        {faceSavingId === entry.faceId ? "Saving..." : "Save"}
+                      </button>
                     </article>
                   ))}
               </div>

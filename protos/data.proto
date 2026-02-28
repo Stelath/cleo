@@ -386,6 +386,7 @@ message FaceSearchResult {
   int32 seen_count = 5;
   string thumbnail_path = 6;
   string name = 7;
+  string note = 8;
 }
 
 message SearchFacesResponse {
@@ -400,12 +401,13 @@ message ListFacesRequest {
 message FaceEntry {
   int64 face_id = 1;
   string name = 2;
-  double first_seen = 3;
-  double last_seen = 4;
-  int32 seen_count = 5;
-  string thumbnail_path = 6;
-  optional float confidence = 7;
-  int32 collage_image_count = 8;
+  string note = 3;
+  double first_seen = 4;
+  double last_seen = 5;
+  int32 seen_count = 6;
+  string thumbnail_path = 7;
+  optional float confidence = 8;
+  int32 collage_image_count = 9;
 }
 
 message ListFacesResponse {
@@ -426,9 +428,11 @@ message GetFaceImageResponse {
 message SetFaceNameRequest {
   int64 face_id = 1;
   string name = 2;
+  string note = 3;
 }
 
 message SetFaceNameResponse {
   bool updated = 1;
   string name = 2;
+  string note = 3;
 }

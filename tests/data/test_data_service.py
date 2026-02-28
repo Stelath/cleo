@@ -530,16 +530,18 @@ def test_set_face_name_and_list_faces(sqlite_db):
         first_seen=1000.0,
     )
 
-    assert sqlite_db.set_face_name(face_id, "Ada") is True
+    assert sqlite_db.set_face_metadata(face_id, "Ada", "Met at the office") is True
 
     face = sqlite_db.get_face(face_id)
     assert face is not None
     assert face["display_name"] == "Ada"
+    assert face["display_note"] == "Met at the office"
 
     rows, total = sqlite_db.list_faces(limit=10, offset=0)
     assert total == 1
     assert rows[0]["id"] == face_id
     assert rows[0]["display_name"] == "Ada"
+    assert rows[0]["display_note"] == "Met at the office"
 
     sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
     sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
@@ -661,11 +663,16 @@ def test_list_faces_rpc(data_servicer):
     )
 
     name_resp = data_servicer.SetFaceName(
-        data_pb2.SetFaceNameRequest(face_id=store_resp.face_id, name="Grace"),
+        data_pb2.SetFaceNameRequest(
+            face_id=store_resp.face_id,
+            name="Grace",
+            note="Product manager from Brooklyn",
+        ),
         _mock_context(),
     )
     assert name_resp.updated is True
     assert name_resp.name == "Grace"
+    assert name_resp.note == "Product manager from Brooklyn"
 
     resp = data_servicer.ListFaces(
         data_pb2.ListFacesRequest(limit=10, offset=0),
@@ -674,6 +681,7 @@ def test_list_faces_rpc(data_servicer):
     assert resp.total_count == 1
     assert resp.entries[0].face_id == store_resp.face_id
     assert resp.entries[0].name == "Grace"
+    assert resp.entries[0].note == "Product manager from Brooklyn"
     assert resp.entries[0].seen_count >= 1
     assert resp.entries[0].collage_image_count == 1
 
