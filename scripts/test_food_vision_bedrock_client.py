@@ -22,7 +22,7 @@ import time
 
 from PIL import Image
 
-from apps.food_macros import FoodMacrosServicer, FoodVisionBedrockClient, OpenFoodFactsClient
+from apps.food_macros import BarcodeScanner, FoodMacrosServicer, FoodVisionBedrockClient, OpenFoodFactsClient
 from generated import data_pb2, frontend_pb2, sensor_pb2
 
 
@@ -112,6 +112,7 @@ def _build_servicer(image_path: Path) -> tuple[FoodMacrosServicer, _FakeDataStub
     servicer = FoodMacrosServicer.__new__(FoodMacrosServicer)
     servicer._vision = FoodVisionBedrockClient()
     servicer._food = OpenFoodFactsClient()
+    servicer._barcode_scanner = BarcodeScanner()
     servicer._sensor = _FakeSensorStub(image_path)
     servicer._data = _FakeDataStub()
     servicer._frontend = _FakeFrontendStub()

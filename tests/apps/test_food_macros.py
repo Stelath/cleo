@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from PIL import Image
 import pytest
 
-from apps.food_macros import FoodDetection, FoodMacrosServicer, extract_food_macros
+from apps.food_macros import BarcodeScanner, FoodDetection, FoodMacrosServicer, extract_food_macros
 from generated import sensor_pb2, tool_pb2
 
 
@@ -84,7 +84,10 @@ class TestFoodMacrosServicer:
     def test_execute_uses_barcode_lookup(self, mock_grpc_context, mocker):
         mocker.patch("apps.food_macros.grpc.insecure_channel")
         vision = MagicMock()
-        vision.identify.return_value = FoodDetection(barcode="1234567890123", product_name="Protein Bar")
+        vision.identify.return_value = FoodDetection(
+            has_visible_barcode=True,
+            product_name="Protein Bar",
+        )
         food = MagicMock()
         food.get_product_by_barcode.return_value = {
             "code": "1234567890123",
@@ -99,7 +102,13 @@ class TestFoodMacrosServicer:
                 "proteins_serving": 21,
             },
         }
-        servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
+        barcode_scanner = MagicMock(spec=BarcodeScanner)
+        barcode_scanner.scan.return_value = "1234567890123"
+        servicer = FoodMacrosServicer(
+            vision_client=vision,
+            food_client=food,
+            barcode_scanner=barcode_scanner,
+        )
         servicer._sensor = MagicMock()
         servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
             data=b"\xff\x00\x00",
@@ -120,7 +129,57 @@ class TestFoodMacrosServicer:
         assert "Protein Bar" in response.result_text
         servicer._data.StoreFoodMacros.assert_called_once()
         servicer._frontend.ShowCard.assert_called_once()
+        barcode_scanner.scan.assert_called_once()
         food.get_product_by_barcode.assert_called_once_with("1234567890123")
+
+    def test_execute_falls_back_to_name_search_when_barcode_scan_fails(
+        self, mock_grpc_context, mocker
+    ):
+        mocker.patch("apps.food_macros.grpc.insecure_channel")
+        vision = MagicMock()
+        vision.identify.return_value = FoodDetection(
+            has_visible_barcode=True,
+            product_name="Greek yogurt",
+        )
+        food = MagicMock()
+        food.search_products_by_name.return_value = [{"code": "999888777"}]
+        food.get_product_by_barcode.return_value = {
+            "code": "999888777",
+            "product_name": "Greek Yogurt",
+            "nutriments": {
+                "energy-kcal_100g": 70,
+                "fat_100g": 0,
+                "carbohydrates_100g": 4,
+                "proteins_100g": 10,
+            },
+        }
+        barcode_scanner = MagicMock(spec=BarcodeScanner)
+        barcode_scanner.scan.return_value = None
+        servicer = FoodMacrosServicer(
+            vision_client=vision,
+            food_client=food,
+            barcode_scanner=barcode_scanner,
+        )
+        servicer._sensor = MagicMock()
+        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
+            data=b"\x00\xff\x00",
+            width=1,
+            height=1,
+        )
+        servicer._data = MagicMock()
+        servicer._data.StoreFoodMacros.return_value = MagicMock(id=9)
+        servicer._frontend = MagicMock()
+
+        request = tool_pb2.ToolRequest(
+            tool_name="food_macros",
+            parameters_json="{}",
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+
+        assert response.success
+        barcode_scanner.scan.assert_called_once()
+        food.search_products_by_name.assert_called_once_with("Greek yogurt")
+        food.get_product_by_barcode.assert_called_once_with("999888777")
 
     def test_execute_falls_back_to_name_search(self, mock_grpc_context, mocker):
         mocker.patch("apps.food_macros.grpc.insecure_channel")

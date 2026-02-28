@@ -14,6 +14,10 @@ from urllib.request import Request, urlopen
 
 import grpc
 from PIL import Image
+try:
+    from pyzbar.pyzbar import decode as pyzbar_decode
+except ImportError:  # pragma: no cover - handled at runtime if zbar/pyzbar is unavailable
+    pyzbar_decode = None
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
@@ -39,6 +43,7 @@ class FoodDetection:
     """Structured food identifier result from the vision model."""
 
     barcode: str | None = None
+    has_visible_barcode: bool = False
     product_name: str | None = None
     is_composite_meal: bool = False
     estimated_calories_kcal: float | None = None
@@ -47,8 +52,24 @@ class FoodDetection:
     estimated_carbs_g: float | None = None
 
 
+class BarcodeScanner:
+    """Reads visible barcodes directly from image bytes."""
+
+    def scan(self, image_bytes: bytes) -> str | None:
+        if pyzbar_decode is None:
+            log.warning("food_macros.pyzbar_unavailable")
+            return None
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            for decoded in pyzbar_decode(image):
+                barcode = _normalize_barcode(decoded.data.decode("utf-8", errors="ignore"))
+                if barcode:
+                    return barcode
+        return None
+
+
 class FoodVisionBedrockClient:
-    """Bedrock client used to extract a barcode or product name from a camera frame."""
+    """Bedrock client used to identify food and detect barcode visibility."""
 
     def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = _BEDROCK_REGION):
         self._model_id = model_id
@@ -60,16 +81,17 @@ class FoodVisionBedrockClient:
             self._client = boto3.client("bedrock-runtime", region_name=region)
 
     def identify(self, image_bytes: bytes, user_query: str = "") -> FoodDetection:
-        """Return the best-effort barcode and product name from the provided image."""
+        """Return the best-effort food identification from the provided image."""
         prompt = (
             "Inspect this image of a food package. "
-            "If you can read a barcode, return it. "
+            "If a barcode is visibly present anywhere in the image, set has_visible_barcode to true. "
+            "Do not transcribe or guess the barcode digits. "
             "If this is a composite meal with multiple visible items (for example a hamburger, fries, and a drink), "
             "set is_composite_meal to true and estimate the total meal calories, protein, fat, and carbs directly "
             "instead of naming a packaged product. "
             "Otherwise return the clearest product name you can infer from the packaging. "
             "Reply with JSON only using this schema: "
-            '{"barcode": "digits or null", "product_name": "string or null", '
+            '{"has_visible_barcode": true|false, "product_name": "string or null", '
             '"is_composite_meal": true|false, "estimated_calories_kcal": number or null, '
             '"estimated_protein_g": number or null, "estimated_fat_g": number or null, '
             '"estimated_carbs_g": number or null}.'
@@ -101,6 +123,7 @@ class FoodVisionBedrockClient:
         ).strip()
         payload = _parse_json_object(text)
         barcode = _normalize_barcode(payload.get("barcode")) if payload else None
+        has_visible_barcode = _coerce_bool(payload.get("has_visible_barcode")) if payload else False
         product_name_value = payload.get("product_name") if payload else None
         product_name = (
             str(product_name_value).strip()
@@ -109,6 +132,7 @@ class FoodVisionBedrockClient:
         )
         return FoodDetection(
             barcode=barcode,
+            has_visible_barcode=has_visible_barcode or bool(barcode),
             product_name=product_name or None,
             is_composite_meal=bool(payload.get("is_composite_meal")) if payload else False,
             estimated_calories_kcal=(
@@ -233,9 +257,11 @@ class FoodMacrosServicer(ToolServiceBase):
         sensor_address: str = SENSOR_ADDRESS,
         vision_client: FoodVisionBedrockClient | None = None,
         food_client: OpenFoodFactsClient | None = None,
+        barcode_scanner: BarcodeScanner | None = None,
     ):
         self._vision = vision_client or FoodVisionBedrockClient()
         self._food = food_client or OpenFoodFactsClient()
+        self._barcode_scanner = barcode_scanner or BarcodeScanner()
         self._data_channel = grpc.insecure_channel(data_address)
         self._data = data_pb2_grpc.DataServiceStub(self._data_channel)
         self._frontend_channel = grpc.insecure_channel(frontend_address)
@@ -316,7 +342,15 @@ class FoodMacrosServicer(ToolServiceBase):
 
         product = None
         lookup_label = ""
-        if detection.barcode:
+        scanned_barcode = None
+        if detection.has_visible_barcode:
+            scanned_barcode = self._barcode_scanner.scan(image_bytes)
+            if scanned_barcode:
+                product = self._food.get_product_by_barcode(scanned_barcode)
+                lookup_label = "barcode scan"
+            else:
+                log.info("food_macros.barcode_visible_but_scan_failed")
+        elif detection.barcode:
             product = self._food.get_product_by_barcode(detection.barcode)
             lookup_label = "barcode"
 
@@ -332,7 +366,7 @@ class FoodMacrosServicer(ToolServiceBase):
         macros = extract_food_macros(product)
         product_name = str(product.get("product_name") or search_term or "Unknown food").strip()
         brand = str(product.get("brands") or "").strip()
-        barcode = _normalize_barcode(product.get("code")) or detection.barcode or ""
+        barcode = _normalize_barcode(product.get("code")) or scanned_barcode or detection.barcode or ""
 
         stored = self._data.StoreFoodMacros(
             data_pb2.StoreFoodMacrosRequest(
@@ -469,6 +503,20 @@ def _coerce_number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1"}:
+            return True
+        if normalized in {"false", "no", "0", ""}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return False
 
 
 def _normalize_barcode(value: Any) -> str | None:
