@@ -34,5 +34,4 @@ done
 # Ensure __init__.py exists
 touch "$OUT_DIR/__init__.py"
 
-echo "Generated stubs in $OUT_DIR:"
-ls -la "$OUT_DIR"/*.py
+echo "Generated stubs in $OUT_DIR"

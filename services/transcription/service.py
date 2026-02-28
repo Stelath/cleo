@@ -565,17 +565,25 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
                 trigger_router.observe(result)
                 yield result
             trigger_router.finalize()
+        except grpc.RpcError as exc:
+            if context is not None:
+                context.set_code(grpc.StatusCode.UNAVAILABLE)
+                context.set_details(str(exc))
+                return
+            raise
         except RuntimeError as exc:
             if context is not None:
                 context.set_code(grpc.StatusCode.UNAVAILABLE)
                 context.set_details(str(exc))
-            else:
-                log.warning("transcription.stream_unavailable", error=str(exc))
+                return
+            raise
         except Exception as exc:
-            log.exception("transcription.stream_failed", error=str(exc))
             if context is not None:
+                log.exception("transcription.stream_failed", error=str(exc))
                 context.set_code(grpc.StatusCode.INTERNAL)
                 context.set_details(f"Transcription failed: {exc}")
+                return
+            raise
         finally:
             trigger_router.finalize()
 

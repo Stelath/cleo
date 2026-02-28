@@ -2,36 +2,42 @@
 
 ## Commands
 
-Use `uv` (Astral's Python package manager) for dependency management. Use `uv run` to execute commands — it automatically resolves the project's virtual environment.
+Use Bazel as the primary setup/build/run/test entrypoint. Use `uv` for direct Python commands.
 
 ```bash
-# Install/sync dependencies
-uv sync                  # install from uv.lock
-uv sync --extra test     # include pytest + pytest-mock
+# One-time bootstrap (installs Bazel/Bazelisk if missing, then runs setup)
+bash scripts/bootstrap_bazel.sh
 
-# Run all tests
+# Setup / install
+bazel run //:setup
+
+# Backend
+bazel run //:backend_build
+bazel run //:backend_run
+bazel run //:backend_test
+
+# Frontend
+bazel run //:frontend_install
+bazel run //:frontend_build
+bazel run //:frontend_test
+bazel run //:frontend_run
+bazel run //:frontend_run -- --web
+
+# Full app (backend + frontend)
+bazel run //:run_full_app
+bazel run //:run_full_app -- --web
+
+# Direct Python commands (when not using Bazel wrappers)
+uv sync --extra test
 uv run pytest -v
-
-# Run a single test file
-uv run pytest tests/data/vector/test_faiss_db.py -v
-
-# Run a single test by name
-uv run pytest -k "test_add_and_search" -v
-
-# Run tests in a directory
-uv run pytest tests/services/ -v
-
-# Regenerate gRPC stubs after editing .proto files
 uv run bash protos/generate.sh
+uv run python -m services.main
 
 # Build viture-sensors (Rust/PyO3 driver) — needed after Rust changes
-cd packages/viture-luma-interop-layer/viture-sensors && uv run maturin develop --release && cd -
-
-# Start the platform
-uv run python -m services.main
+uv run maturin develop --release --manifest-path packages/viture-luma-interop-layer/viture-sensors/Cargo.toml
 ```
 
-**Important:** Always use `uv run` to execute commands — it ensures the correct Python (3.10–3.12) and project dependencies are used.
+**Important:** Prefer Bazel targets for orchestration. For direct Python execution, always use `uv run` to ensure the correct Python (3.10–3.12) and project dependencies are used.
 
 ## Architecture
 

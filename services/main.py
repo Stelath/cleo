@@ -3,6 +3,7 @@
 import multiprocessing
 import signal
 import threading
+import time
 
 import grpc
 import structlog
@@ -27,6 +28,9 @@ from services.config import (
 )
 
 log = structlog.get_logger()
+
+_PROCESS_TERMINATE_TIMEOUT_SECONDS = 5
+_PROCESS_KILL_TIMEOUT_SECONDS = 2
 
 
 def _run_sensor_service() -> None:
@@ -97,47 +101,47 @@ def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
         channel.close()
 
 
+def _stop_processes(processes: list[multiprocessing.Process]) -> None:
+    for proc in processes:
+        if proc.is_alive():
+            log.info("runtime.terminating_process", process=proc.name, pid=proc.pid)
+            proc.terminate()
+
+    join_deadline = time.monotonic() + _PROCESS_TERMINATE_TIMEOUT_SECONDS
+    for proc in processes:
+        remaining = max(0.0, join_deadline - time.monotonic())
+        proc.join(timeout=remaining)
+
+    still_running = [proc for proc in processes if proc.is_alive()]
+    for proc in still_running:
+        log.warning("runtime.force_kill_process", process=proc.name, pid=proc.pid)
+        proc.kill()
+
+    kill_deadline = time.monotonic() + _PROCESS_KILL_TIMEOUT_SECONDS
+    for proc in still_running:
+        remaining = max(0.0, kill_deadline - time.monotonic())
+        proc.join(timeout=remaining)
+
+    for proc in processes:
+        if proc.is_alive():
+            log.error("runtime.process_stuck", process=proc.name, pid=proc.pid)
+
+
 def main() -> None:
     log.info("runtime.starting")
 
-    processes = [
-        multiprocessing.Process(target=_run_sensor_service, daemon=True, name="sensor-service"),
-        multiprocessing.Process(target=_run_data_service, daemon=True, name="data-service"),
-        multiprocessing.Process(target=_run_assistant_service, daemon=True, name="assistant-service"),
-        multiprocessing.Process(
-            target=_run_transcription_service,
-            daemon=True,
-            name="transcription-service",
-        ),
-        multiprocessing.Process(target=_run_color_blind_service, daemon=True, name="color-blind-tool"),
-        multiprocessing.Process(
-            target=_run_frontend_service,
-            daemon=True,
-            name="frontend-service",
-        ),
-        multiprocessing.Process(
-            target=_run_video_service,
-            daemon=True,
-            name="video-service",
-        ),
-        multiprocessing.Process(target=_run_notetaking_service, daemon=True, name="notetaking-tool"),
-        multiprocessing.Process(target=_run_navigator_service, daemon=True, name="navigator-tool"),
-    ]
-
-    for proc in processes:
-        proc.start()
-
-    _wait_for_grpc(SENSOR_ADDRESS)
-    _wait_for_grpc(DATA_ADDRESS)
-    _wait_for_grpc(ASSISTANT_ADDRESS)
-    _wait_for_grpc(TRANSCRIPTION_ADDRESS)
-    _wait_for_grpc(COLOR_BLIND_ADDRESS)
-    _wait_for_grpc(FRONTEND_ADDRESS)
-    _wait_for_grpc(NOTETAKING_ADDRESS)
-    _wait_for_grpc(NAVIGATOR_ADDRESS)
-    log.info("runtime.services_ready")
-
+    processes: list[multiprocessing.Process] = []
     shutdown_event = threading.Event()
+
+    def _start_process(target, name: str) -> multiprocessing.Process:
+        proc = multiprocessing.Process(target=target, daemon=True, name=name)
+        proc.start()
+        processes.append(proc)
+        return proc
+
+    def _abort_if_shutdown_requested() -> None:
+        if shutdown_event.is_set():
+            raise KeyboardInterrupt
 
     def _shutdown(signum, frame) -> None:
         del frame
@@ -146,14 +150,57 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
-    shutdown_event.wait()
 
-    log.info("runtime.stopping")
-    for proc in processes:
-        proc.terminate()
-    for proc in processes:
-        proc.join(timeout=5)
-    log.info("runtime.stopped")
+    try:
+        # Core dependencies first so downstream services do not spam retries.
+        _abort_if_shutdown_requested()
+        _start_process(_run_sensor_service, "sensor-service")
+        _wait_for_grpc(SENSOR_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_data_service, "data-service")
+        _wait_for_grpc(DATA_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_assistant_service, "assistant-service")
+        _wait_for_grpc(ASSISTANT_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_frontend_service, "frontend-service")
+        _wait_for_grpc(FRONTEND_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_transcription_service, "transcription-service")
+        _wait_for_grpc(TRANSCRIPTION_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_video_service, "video-service")
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_color_blind_service, "color-blind-tool")
+        _wait_for_grpc(COLOR_BLIND_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_notetaking_service, "notetaking-tool")
+        _wait_for_grpc(NOTETAKING_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_navigator_service, "navigator-tool")
+        _wait_for_grpc(NAVIGATOR_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        log.info("runtime.services_ready")
+        shutdown_event.wait()
+    except KeyboardInterrupt:
+        log.info("runtime.interrupted")
+        raise SystemExit(130)
+    except Exception as exc:
+        log.exception("runtime.failed", error=str(exc))
+        raise
+    finally:
+        log.info("runtime.stopping")
+        _stop_processes(processes)
+        log.info("runtime.stopped")
 
 
 if __name__ == "__main__":

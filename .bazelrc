@@ -1,0 +1,4 @@
+common --enable_bzlmod
+build --announce_rc
+run --announce_rc
+test --test_output=errors

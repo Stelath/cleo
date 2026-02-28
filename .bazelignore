@@ -1,0 +1,6 @@
+.venv
+.pytest_cache
+frontend/viture-luma-display/node_modules
+frontend/viture-luma-display/dist
+packages/viture-luma-interop-layer/viture-sensors/target
+packages/viture-luma-interop-layer/viture-sensors/.venv
