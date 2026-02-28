@@ -11,6 +11,7 @@ from services.transcription.service import (
     _ASSISTANT_RESPONSE_LOG_MAX_CHARS,
     AmazonTranscribeBackend,
     AssistantCommandClient,
+    DataClient,
     FrontendTranscriptDebugClient,
     SensorTranscriptionPipeline,
     TriggerRouter,
@@ -121,6 +122,117 @@ def test_assistant_command_truncates_long_response_text(
         tool_name="",
         response_text=expected,
     )
+
+
+@patch("services.transcription.service.data_pb2_grpc.DataServiceStub")
+@patch("services.transcription.service.grpc.insecure_channel")
+def test_data_client_stores_diarized_turns_with_generic_speaker_tags(
+    mock_channel_cls,
+    mock_stub_cls,
+):
+    mock_channel_cls.return_value = MagicMock()
+    stub = MagicMock()
+    mock_stub_cls.return_value = stub
+
+    client = DataClient(address="localhost:50053")
+    result = transcription_pb2.TranscriptionResult(
+        text="ignored aggregate",
+        confidence=0.91,
+        start_time=10.0,
+        end_time=12.0,
+        speaker_turns=[
+            transcription_pb2.SpeakerTurn(
+                speaker_label="spk_9",
+                text="first",
+                start_time=10.1,
+                end_time=10.3,
+            ),
+            transcription_pb2.SpeakerTurn(
+                speaker_label="spk_2",
+                text="second",
+                start_time=10.4,
+                end_time=10.6,
+            ),
+            transcription_pb2.SpeakerTurn(
+                speaker_label="spk_9",
+                text="third",
+                start_time=10.7,
+                end_time=11.0,
+            ),
+        ],
+    )
+
+    client.store_transcription(result)
+
+    assert stub.StoreTranscription.call_count == 3
+    requests = [call.args[0] for call in stub.StoreTranscription.call_args_list]
+    assert [req.text for req in requests] == [
+        "Speaker 1: first",
+        "Speaker 2: second",
+        "Speaker 1: third",
+    ]
+    assert [req.start_time for req in requests] == [10.1, 10.4, 10.7]
+    assert [req.end_time for req in requests] == [10.3, 10.6, 11.0]
+
+
+@patch("services.transcription.service.data_pb2_grpc.DataServiceStub")
+@patch("services.transcription.service.grpc.insecure_channel")
+def test_data_client_keeps_speaker_aliases_across_results(
+    mock_channel_cls,
+    mock_stub_cls,
+):
+    mock_channel_cls.return_value = MagicMock()
+    stub = MagicMock()
+    mock_stub_cls.return_value = stub
+
+    client = DataClient(address="localhost:50053")
+    client.store_transcription(
+        transcription_pb2.TranscriptionResult(
+            text="",
+            confidence=0.9,
+            start_time=1.0,
+            end_time=2.0,
+            speaker_turns=[
+                transcription_pb2.SpeakerTurn(
+                    speaker_label="spk_0",
+                    text="hello",
+                    start_time=1.1,
+                    end_time=1.3,
+                )
+            ],
+        )
+    )
+    client.store_transcription(
+        transcription_pb2.TranscriptionResult(
+            text="",
+            confidence=0.9,
+            start_time=2.0,
+            end_time=3.0,
+            speaker_turns=[
+                transcription_pb2.SpeakerTurn(
+                    speaker_label="spk_1",
+                    text="world",
+                    start_time=2.1,
+                    end_time=2.3,
+                ),
+                transcription_pb2.SpeakerTurn(
+                    speaker_label="spk_0",
+                    text="again",
+                    start_time=2.4,
+                    end_time=2.7,
+                ),
+            ],
+        )
+    )
+
+    texts = [
+        call.args[0].text for call in stub.StoreTranscription.call_args_list
+    ]
+    assert texts == [
+        "Speaker 1: hello",
+        "Speaker 2: world",
+        "Speaker 1: again",
+    ]
 
 
 class _RecordingCommandClient:

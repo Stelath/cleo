@@ -43,6 +43,7 @@ _DEBUG_TRANSCRIPTION_HUD_ENV = "CLEO_DEBUG_TRANSCRIPTION_HUD"
 _DEBUG_TRANSCRIPT_MAX_CHARS = 180
 _DEBUG_TRANSCRIPT_MAX_LINES = 5
 _ASSISTANT_RESPONSE_LOG_MAX_CHARS = 240
+_SPEAKER_ALIAS_RESET_SECONDS = 90.0
 _TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
 _TRIGGER_CAPTURE_SECONDS = 3.0
 _TRIGGER_PREROLL_SECONDS = 0.75
@@ -172,6 +173,9 @@ class DataClient:
 
     def __init__(self, address: str = DATA_ADDRESS, timeout: float = 5.0):
         self._timeout = timeout
+        self._speaker_aliases: dict[str, str] = {}
+        self._next_speaker_alias = 1
+        self._last_alias_activity_at = 0.0
         self._channel = grpc.insecure_channel(
             address,
             options=[
@@ -184,12 +188,61 @@ class DataClient:
     def close(self) -> None:
         self._channel.close()
 
-    def store_transcription(self, result: transcription_pb2.TranscriptionResult) -> None:
-        text = result.text.strip()
-        if not text:
-            return
+    def _speaker_turn_rows(
+        self,
+        result: transcription_pb2.TranscriptionResult,
+    ) -> list[tuple[str, float, float]]:
+        rows: list[tuple[str, float, float]] = []
+        reference_time = result.end_time if result.end_time > 0 else time.time()
+        self._maybe_reset_speaker_aliases(reference_time)
 
+        for turn in result.speaker_turns:
+            turn_text = turn.text.strip()
+            if not turn_text:
+                continue
+
+            label_key = turn.speaker_label.strip() or "__unknown__"
+            speaker_alias = self._speaker_aliases.get(label_key)
+            if speaker_alias is None:
+                speaker_alias = f"Speaker {self._next_speaker_alias}"
+                self._next_speaker_alias += 1
+                self._speaker_aliases[label_key] = speaker_alias
+
+            start_time = turn.start_time if turn.start_time > 0 else result.start_time
+            end_time = turn.end_time if turn.end_time > 0 else result.end_time
+            rows.append((f"{speaker_alias}: {turn_text}", start_time, end_time))
+
+        return rows
+
+    def _maybe_reset_speaker_aliases(self, reference_time: float) -> None:
+        if (
+            self._last_alias_activity_at > 0.0
+            and reference_time - self._last_alias_activity_at > _SPEAKER_ALIAS_RESET_SECONDS
+        ):
+            self._speaker_aliases.clear()
+            self._next_speaker_alias = 1
+        self._last_alias_activity_at = reference_time
+
+    def store_transcription(self, result: transcription_pb2.TranscriptionResult) -> None:
         try:
+            speaker_rows = self._speaker_turn_rows(result)
+            if speaker_rows:
+                for text, start_time, end_time in speaker_rows:
+                    self._stub.StoreTranscription(
+                        data_pb2.StoreTranscriptionRequest(
+                            text=text,
+                            confidence=result.confidence,
+                            start_time=start_time,
+                            end_time=end_time,
+                        ),
+                        timeout=self._timeout,
+                    )
+                return
+
+            text = result.text.strip()
+            if not text:
+                return
+
             self._stub.StoreTranscription(
                 data_pb2.StoreTranscriptionRequest(
                     text=text,
