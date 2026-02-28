@@ -1,12 +1,10 @@
 """gRPC Transcription Service using NVIDIA Parakeet ASR via NeMo."""
 
+import logging
 import signal
-import struct
 import tempfile
 import threading
-import time
 from concurrent import futures
-from pathlib import Path
 
 import grpc
 import numpy as np
@@ -20,6 +18,7 @@ log = structlog.get_logger()
 _DEFAULT_SAMPLE_RATE = 48000
 # Accumulate ~3 seconds of audio before running inference
 _ACCUMULATION_SECONDS = 3.0
+_QUIET_LOGGERS = ("nemo", "nemo_logger")
 
 
 def _load_parakeet_model():
@@ -30,6 +29,33 @@ def _load_parakeet_model():
     model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-0.6b-v2")
     log.info("parakeet.model_loaded")
     return model
+
+
+class _QuietNeMoLogs:
+    """Temporarily suppress noisy NeMo inference warnings."""
+
+    def __enter__(self):
+        self._prior_levels: list[tuple[logging.Logger, int]] = []
+        self._nemo_verbosity_cm = None
+        for name in _QUIET_LOGGERS:
+            logger = logging.getLogger(name)
+            self._prior_levels.append((logger, logger.level))
+            logger.setLevel(logging.ERROR)
+        try:
+            from nemo.utils import logging as nemo_logging
+
+            self._nemo_verbosity_cm = nemo_logging.temp_verbosity(nemo_logging.ERROR)
+            self._nemo_verbosity_cm.__enter__()
+        except Exception:
+            self._nemo_verbosity_cm = None
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._nemo_verbosity_cm is not None:
+            self._nemo_verbosity_cm.__exit__(exc_type, exc, tb)
+        for logger, level in self._prior_levels:
+            logger.setLevel(level)
+        return False
 
 
 class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceServicer):
@@ -44,10 +70,15 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
 
         NeMo's transcribe() requires file paths, so we write a temp WAV file.
         """
+        logging.getLogger("nemo_logger").setLevel(logging.ERROR)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
             sf.write(tmp.name, audio, sample_rate)
             with self._inference_lock:
-                results = self._model.transcribe([tmp.name])
+                with _QuietNeMoLogs():
+                    try:
+                        results = self._model.transcribe([tmp.name], batch_size=1, verbose=False)
+                    except TypeError:
+                        results = self._model.transcribe([tmp.name])
             # Results may be a list of strings or list of Hypothesis objects
             if results and isinstance(results[0], str):
                 return results[0]
