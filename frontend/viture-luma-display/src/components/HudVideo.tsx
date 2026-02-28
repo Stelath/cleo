@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { getPositionStyle } from '../../lib/hud/position';
-import { getVideoBounds } from '../../lib/hud/sizing';
-import type { HudComponentHandle } from '../../lib/hud/types';
+import { getPositionStyle } from '../lib/hud/position';
+import { getVideoBounds } from '../lib/hud/sizing';
+import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
 interface HudVideoProps {

@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { listen, emit } from '@tauri-apps/api/event';
 
-import HudVideo from '../components/hud/HudVideo';
-import HudImage from '../components/hud/HudImage';
-import HudHtmlOverlay from '../components/hud/HudHtmlOverlay';
-import HudThrobber from '../components/hud/HudThrobber';
-import HudText from '../components/hud/HudText';
-import HudProgress from '../components/hud/HudProgress';
-import HudToast from '../components/hud/HudToast';
-import HudStatusBar from '../components/hud/HudStatusBar';
-import HudCardStack from '../components/hud/HudCardStack';
+import HudVideo from '../components/HudVideo';
+import HudImage from '../components/HudImage';
+import HudHtmlOverlay from '../components/HudHtmlOverlay';
+import HudThrobber from '../components/HudThrobber';
+import HudText from '../components/HudText';
+import HudProgress from '../components/HudProgress';
+import HudToast from '../components/HudToast';
+import HudStatusBar from '../components/HudStatusBar';
+import HudCardStack from '../components/HudCardStack';
 import type { HudComponentHandle } from '../lib/hud/types';
 
 type HudTestWindow = Window & {
