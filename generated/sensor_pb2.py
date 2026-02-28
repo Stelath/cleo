@@ -24,27 +24,29 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0csensor.proto\x12\x0b\x63leo.sensor\"C\n\rStreamRequest\x12\x0b\n\x03\x66ps\x18\x01 \x01(\x02\x12\x10\n\x08\x63hunk_ms\x18\x02 \x01(\x05\x12\x13\n\x0bsample_rate\x18\x03 \x01(\x05\"\x10\n\x0e\x43\x61ptureRequest\"9\n\rRecordRequest\x12\x13\n\x0b\x64uration_ms\x18\x01 \x01(\x05\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\"\xcb\x01\n\x10\x43\x61meraFrameChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x10\n\x08\x66rame_id\x18\x02 \x01(\t\x12\x13\n\x0b\x63hunk_index\x18\x03 \x01(\x05\x12\x0f\n\x07is_last\x18\x04 \x01(\x08\x12\r\n\x05width\x18\x05 \x01(\x05\x12\x0e\n\x06height\x18\x06 \x01(\x05\x12\x11\n\ttimestamp\x18\x07 \x01(\x01\x12,\n\x08\x65ncoding\x18\x08 \x01(\x0e\x32\x1a.cleo.sensor.FrameEncoding\x12\x11\n\tkey_frame\x18\t \x01(\x08\"W\n\nAudioChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\x12\x13\n\x0bnum_samples\x18\x03 \x01(\x05\x12\x11\n\ttimestamp\x18\x04 \x01(\x01\"P\n\x07IMUData\x12\r\n\x05\x61\x63\x63\x65l\x18\x01 \x03(\x02\x12\x0c\n\x04gyro\x18\x02 \x03(\x02\x12\x12\n\nquaternion\x18\x03 \x03(\x02\x12\x14\n\x0ctimestamp_ns\x18\x04 \x01(\x04*{\n\rFrameEncoding\x12\x1e\n\x1a\x46RAME_ENCODING_UNSPECIFIED\x10\x00\x12\x17\n\x13\x46RAME_ENCODING_JPEG\x10\x01\x12\x17\n\x13\x46RAME_ENCODING_H264\x10\x02\x12\x18\n\x14\x46RAME_ENCODING_RGB24\x10\x03\x32\xf5\x02\n\rSensorService\x12K\n\x0cStreamCamera\x12\x1a.cleo.sensor.StreamRequest\x1a\x1d.cleo.sensor.CameraFrameChunk0\x01\x12\x44\n\x0bStreamAudio\x12\x1a.cleo.sensor.StreamRequest\x1a\x17.cleo.sensor.AudioChunk0\x01\x12?\n\tStreamIMU\x12\x1a.cleo.sensor.StreamRequest\x1a\x14.cleo.sensor.IMUData0\x01\x12L\n\x0c\x43\x61ptureFrame\x12\x1b.cleo.sensor.CaptureRequest\x1a\x1d.cleo.sensor.CameraFrameChunk0\x01\x12\x42\n\x0bRecordAudio\x12\x1a.cleo.sensor.RecordRequest\x1a\x17.cleo.sensor.AudioChunkb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0csensor.proto\x12\x0b\x63leo.sensor\"8\n\x18GetBufferedFramesRequest\x12\x1c\n\x14max_duration_seconds\x18\x01 \x01(\x02\"C\n\rStreamRequest\x12\x0b\n\x03\x66ps\x18\x01 \x01(\x02\x12\x10\n\x08\x63hunk_ms\x18\x02 \x01(\x05\x12\x13\n\x0bsample_rate\x18\x03 \x01(\x05\"\x10\n\x0e\x43\x61ptureRequest\"9\n\rRecordRequest\x12\x13\n\x0b\x64uration_ms\x18\x01 \x01(\x05\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\"\xcb\x01\n\x10\x43\x61meraFrameChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x10\n\x08\x66rame_id\x18\x02 \x01(\t\x12\x13\n\x0b\x63hunk_index\x18\x03 \x01(\x05\x12\x0f\n\x07is_last\x18\x04 \x01(\x08\x12\r\n\x05width\x18\x05 \x01(\x05\x12\x0e\n\x06height\x18\x06 \x01(\x05\x12\x11\n\ttimestamp\x18\x07 \x01(\x01\x12,\n\x08\x65ncoding\x18\x08 \x01(\x0e\x32\x1a.cleo.sensor.FrameEncoding\x12\x11\n\tkey_frame\x18\t \x01(\x08\"W\n\nAudioChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\x12\x13\n\x0bnum_samples\x18\x03 \x01(\x05\x12\x11\n\ttimestamp\x18\x04 \x01(\x01\"P\n\x07IMUData\x12\r\n\x05\x61\x63\x63\x65l\x18\x01 \x03(\x02\x12\x0c\n\x04gyro\x18\x02 \x03(\x02\x12\x12\n\nquaternion\x18\x03 \x03(\x02\x12\x14\n\x0ctimestamp_ns\x18\x04 \x01(\x04*{\n\rFrameEncoding\x12\x1e\n\x1a\x46RAME_ENCODING_UNSPECIFIED\x10\x00\x12\x17\n\x13\x46RAME_ENCODING_JPEG\x10\x01\x12\x17\n\x13\x46RAME_ENCODING_H264\x10\x02\x12\x18\n\x14\x46RAME_ENCODING_RGB24\x10\x03\x32\xd2\x03\n\rSensorService\x12K\n\x0cStreamCamera\x12\x1a.cleo.sensor.StreamRequest\x1a\x1d.cleo.sensor.CameraFrameChunk0\x01\x12\x44\n\x0bStreamAudio\x12\x1a.cleo.sensor.StreamRequest\x1a\x17.cleo.sensor.AudioChunk0\x01\x12?\n\tStreamIMU\x12\x1a.cleo.sensor.StreamRequest\x1a\x14.cleo.sensor.IMUData0\x01\x12L\n\x0c\x43\x61ptureFrame\x12\x1b.cleo.sensor.CaptureRequest\x1a\x1d.cleo.sensor.CameraFrameChunk0\x01\x12\x42\n\x0bRecordAudio\x12\x1a.cleo.sensor.RecordRequest\x1a\x17.cleo.sensor.AudioChunk\x12[\n\x11GetBufferedFrames\x12%.cleo.sensor.GetBufferedFramesRequest\x1a\x1d.cleo.sensor.CameraFrameChunk0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'sensor_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_FRAMEENCODING']._serialized_start=552
-  _globals['_FRAMEENCODING']._serialized_end=675
-  _globals['_STREAMREQUEST']._serialized_start=29
-  _globals['_STREAMREQUEST']._serialized_end=96
-  _globals['_CAPTUREREQUEST']._serialized_start=98
-  _globals['_CAPTUREREQUEST']._serialized_end=114
-  _globals['_RECORDREQUEST']._serialized_start=116
-  _globals['_RECORDREQUEST']._serialized_end=173
-  _globals['_CAMERAFRAMECHUNK']._serialized_start=176
-  _globals['_CAMERAFRAMECHUNK']._serialized_end=379
-  _globals['_AUDIOCHUNK']._serialized_start=381
-  _globals['_AUDIOCHUNK']._serialized_end=468
-  _globals['_IMUDATA']._serialized_start=470
-  _globals['_IMUDATA']._serialized_end=550
-  _globals['_SENSORSERVICE']._serialized_start=678
-  _globals['_SENSORSERVICE']._serialized_end=1051
+  _globals['_FRAMEENCODING']._serialized_start=610
+  _globals['_FRAMEENCODING']._serialized_end=733
+  _globals['_GETBUFFEREDFRAMESREQUEST']._serialized_start=29
+  _globals['_GETBUFFEREDFRAMESREQUEST']._serialized_end=85
+  _globals['_STREAMREQUEST']._serialized_start=87
+  _globals['_STREAMREQUEST']._serialized_end=154
+  _globals['_CAPTUREREQUEST']._serialized_start=156
+  _globals['_CAPTUREREQUEST']._serialized_end=172
+  _globals['_RECORDREQUEST']._serialized_start=174
+  _globals['_RECORDREQUEST']._serialized_end=231
+  _globals['_CAMERAFRAMECHUNK']._serialized_start=234
+  _globals['_CAMERAFRAMECHUNK']._serialized_end=437
+  _globals['_AUDIOCHUNK']._serialized_start=439
+  _globals['_AUDIOCHUNK']._serialized_end=526
+  _globals['_IMUDATA']._serialized_start=528
+  _globals['_IMUDATA']._serialized_end=608
+  _globals['_SENSORSERVICE']._serialized_start=736
+  _globals['_SENSORSERVICE']._serialized_end=1202
 # @@protoc_insertion_point(module_scope)
