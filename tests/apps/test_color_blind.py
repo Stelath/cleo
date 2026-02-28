@@ -63,7 +63,12 @@ class TestColorBlindnessServicer:
         frame_resp.height = 10
         servicer.sensor_stub.CaptureFrame.return_value = frame_resp
 
-        mocker.patch("apps.color_blind.cv2.imwrite")
+        servicer.frontend_stub = mocker.MagicMock()
+        mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
+        mocker.patch(
+            "apps.color_blind.cv2.imencode",
+            return_value=(True, np.frombuffer(b"jpeg-bytes", dtype=np.uint8)),
+        )
         
         request = tool_pb2.ToolRequest(
             tool_name="color_blindness_assist",
@@ -72,6 +77,7 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert response.success
         assert "Applied deuteranopia correction" in response.result_text
+        servicer.frontend_stub.ShowImage.assert_called_once()
 
     def test_tool_name(self):
         assert ColorBlindnessServicer().tool_name == "color_blindness_assist"
@@ -107,7 +113,12 @@ class TestColorBlindnessServicer:
         frame_resp.height = 10
         servicer.sensor_stub.CaptureFrame.return_value = frame_resp
 
+        servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
+        mocker.patch(
+            "apps.color_blind.cv2.imencode",
+            return_value=(True, np.frombuffer(b"jpeg-bytes", dtype=np.uint8)),
+        )
 
         request = tool_pb2.ToolRequest(
             tool_name="color_blindness_assist",
@@ -116,6 +127,7 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert response.success
         assert "Applied protanopia correction" in response.result_text
+        servicer.frontend_stub.ShowImage.assert_called_once()
 
     def test_execute_reports_imwrite_failure(self, mock_grpc_context, mocker):
         """If cv2.imwrite fails, execute should return failure."""
@@ -133,6 +145,7 @@ class TestColorBlindnessServicer:
         frame_resp.height = 10
         servicer.sensor_stub.CaptureFrame.return_value = frame_resp
 
+        servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=False)
 
         request = tool_pb2.ToolRequest(
@@ -142,3 +155,36 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert not response.success
         assert "Failed to save" in response.result_text
+        servicer.frontend_stub.ShowImage.assert_not_called()
+
+    def test_execute_reports_imencode_failure(self, mock_grpc_context, mocker):
+        """If cv2.imencode fails, execute should return failure."""
+        mocker.patch("apps.color_blind.grpc.insecure_channel")
+        servicer = ColorBlindnessServicer()
+
+        servicer.data_stub = mocker.MagicMock()
+        pref_resp = mocker.MagicMock(found=False)
+        servicer.data_stub.GetPreference.return_value = pref_resp
+
+        servicer.sensor_stub = mocker.MagicMock()
+        frame_resp = mocker.MagicMock()
+        frame_resp.data = b"\x00" * 300
+        frame_resp.width = 10
+        frame_resp.height = 10
+        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+
+        servicer.frontend_stub = mocker.MagicMock()
+        mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
+        mocker.patch(
+            "apps.color_blind.cv2.imencode",
+            return_value=(False, None),
+        )
+
+        request = tool_pb2.ToolRequest(
+            tool_name="color_blindness_assist",
+            parameters_json="{}",
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+        assert not response.success
+        assert "Failed to encode" in response.result_text
+        servicer.frontend_stub.ShowImage.assert_not_called()

@@ -8,8 +8,21 @@ from pathlib import Path
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from services.config import COLOR_BLIND_PORT, SENSOR_ADDRESS, DATA_ADDRESS, VIDEO_STORAGE_DIR
-from generated import data_pb2, data_pb2_grpc, sensor_pb2, sensor_pb2_grpc
+from services.config import (
+    COLOR_BLIND_PORT,
+    SENSOR_ADDRESS,
+    DATA_ADDRESS,
+    FRONTEND_ADDRESS,
+    VIDEO_STORAGE_DIR,
+)
+from generated import (
+    data_pb2,
+    data_pb2_grpc,
+    frontend_pb2,
+    frontend_pb2_grpc,
+    sensor_pb2,
+    sensor_pb2_grpc,
+)
 
 log = structlog.get_logger()
 
@@ -78,6 +91,9 @@ class ColorBlindnessServicer(ToolServiceBase):
         self.sensor_channel = grpc.insecure_channel(SENSOR_ADDRESS)
         self.sensor_stub = sensor_pb2_grpc.SensorServiceStub(self.sensor_channel)
 
+        self.frontend_channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+        self.frontend_stub = frontend_pb2_grpc.FrontendServiceStub(self.frontend_channel)
+
     @property
     def tool_name(self) -> str:
         return "color_blindness_assist"
@@ -130,6 +146,19 @@ class ColorBlindnessServicer(ToolServiceBase):
             if not written:
                 log.error("color_blind.imwrite_failed", path=str(output_file))
                 return False, f"Failed to save corrected frame to {output_file}"
+
+            encoded, encoded_img = cv2.imencode(".jpg", bgr_img)
+            if not encoded:
+                log.error("color_blind.imencode_failed")
+                return False, "Failed to encode corrected frame for frontend display"
+
+            self.frontend_stub.ShowImage(
+                frontend_pb2.ImageRequest(
+                    data=encoded_img.tobytes(),
+                    mime_type="image/jpeg",
+                    position="center",
+                )
+            )
 
             return True, f"Applied {correction_type} correction to frame and saved to {output_file}"
 
