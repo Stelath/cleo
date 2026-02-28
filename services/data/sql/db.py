@@ -55,6 +55,12 @@ class CleoSQLite:
                 registered_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -200,6 +206,25 @@ class CleoSQLite:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    # ── Preferences ──
+
+    def get_preference(self, key: str) -> str | None:
+        """Get a preference value by key."""
+        row = self._conn.execute(
+            "SELECT value FROM preferences WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set_preference(self, key: str, value: str) -> None:
+        """Set a preference value by key."""
+        self._conn.execute(
+            "INSERT INTO preferences (key, value, updated_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, time.time()),
+        )
+        self._conn.commit()
 
     def close(self):
         self._conn.close()

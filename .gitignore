@@ -220,6 +220,7 @@ uv.lock
 
 transcription_output.txt
 .claude
+gemini.md
 .uv_lock
 *.db
 *.index
