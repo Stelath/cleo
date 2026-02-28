@@ -358,6 +358,28 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             total_count=total,
         )
 
+    def StoreFoodMacros(self, request, context):
+        row_id = self._sqlite.insert_food_macros(
+            product_name=request.product_name,
+            brand=request.brand or None,
+            barcode=request.barcode or None,
+            basis=request.basis or "per serving",
+            calories_kcal=request.calories_kcal,
+            protein_g=request.protein_g,
+            fat_g=request.fat_g,
+            carbs_g=request.carbs_g,
+            serving_size=request.serving_size or None,
+            serving_quantity=request.serving_quantity or None,
+            recorded_at=request.recorded_at or None,
+        )
+        log.info(
+            "data_service.food_macros_stored",
+            id=row_id,
+            product_name=request.product_name,
+            barcode=request.barcode or None,
+        )
+        return data_pb2.StoreFoodMacrosResponse(id=row_id)
+
 
 def serve(port: int = DATA_PORT):
     """Start the DataService gRPC server."""

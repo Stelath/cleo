@@ -104,6 +104,11 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.NoteSummariesRequest.SerializeToString,
                 response_deserializer=data__pb2.NoteSummariesResponse.FromString,
                 _registered_method=True)
+        self.StoreFoodMacros = channel.unary_unary(
+                '/cleo.data.DataService/StoreFoodMacros',
+                request_serializer=data__pb2.StoreFoodMacrosRequest.SerializeToString,
+                response_deserializer=data__pb2.StoreFoodMacrosResponse.FromString,
+                _registered_method=True)
 
 
 class DataServiceServicer(object):
@@ -207,6 +212,13 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StoreFoodMacros(self, request, context):
+        """Store extracted food macro information for later recall
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -279,6 +291,11 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.GetNoteSummaries,
                     request_deserializer=data__pb2.NoteSummariesRequest.FromString,
                     response_serializer=data__pb2.NoteSummariesResponse.SerializeToString,
+            ),
+            'StoreFoodMacros': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreFoodMacros,
+                    request_deserializer=data__pb2.StoreFoodMacrosRequest.FromString,
+                    response_serializer=data__pb2.StoreFoodMacrosResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -659,6 +676,33 @@ class DataService(object):
             '/cleo.data.DataService/GetNoteSummaries',
             data__pb2.NoteSummariesRequest.SerializeToString,
             data__pb2.NoteSummariesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreFoodMacros(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/StoreFoodMacros',
+            data__pb2.StoreFoodMacrosRequest.SerializeToString,
+            data__pb2.StoreFoodMacrosResponse.FromString,
             options,
             channel_credentials,
             insecure,

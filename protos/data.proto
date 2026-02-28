@@ -44,6 +44,9 @@ service DataService {
 
   // Get paginated note summaries
   rpc GetNoteSummaries(NoteSummariesRequest) returns (NoteSummariesResponse);
+
+  // Store extracted food macro information for later recall
+  rpc StoreFoodMacros(StoreFoodMacrosRequest) returns (StoreFoodMacrosResponse);
 }
 
 // ── Store Transcription ──
@@ -257,4 +260,24 @@ message NoteSummaryEntry {
 message NoteSummariesResponse {
   repeated NoteSummaryEntry entries = 1;
   int32 total_count = 2;
+}
+
+// ── Food Macros ──
+
+message StoreFoodMacrosRequest {
+  string product_name = 1;
+  string brand = 2;
+  string barcode = 3;
+  string basis = 4;
+  double calories_kcal = 5;
+  double protein_g = 6;
+  double fat_g = 7;
+  double carbs_g = 8;
+  string serving_size = 9;
+  double serving_quantity = 10;
+  double recorded_at = 11;
+}
+
+message StoreFoodMacrosResponse {
+  int64 id = 1;
 }

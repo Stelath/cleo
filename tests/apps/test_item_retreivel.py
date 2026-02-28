@@ -9,8 +9,6 @@ from generated import data_pb2
 from services.video.service import _encode_frames_to_mp4
 from tests.video.conftest import requires_bedrock
 
-pytest_plugins = ("tests.video.conftest",)
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ITEM_IMAGE_PATH = ROOT_DIR / "monster.jpeg"
 VIDEO_WITH_ITEM_PATH = ROOT_DIR / "vid_w_monster.mp4"

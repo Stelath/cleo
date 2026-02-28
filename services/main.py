@@ -15,6 +15,8 @@ from services.config import (
     COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
+    FOOD_MACROS_ADDRESS,
+    FOOD_MACROS_PORT,
     FRONTEND_ADDRESS,
     FRONTEND_PORT,
     NAVIGATOR_ADDRESS,
@@ -79,6 +81,12 @@ def _run_notetaking_service() -> None:
     from apps.notetaking import serve
 
     serve(port=NOTETAKING_PORT)
+
+
+def _run_food_macros_service() -> None:
+    from apps.food_macros import serve
+
+    serve(port=FOOD_MACROS_PORT)
 
 
 def _run_navigator_service() -> None:
@@ -183,6 +191,10 @@ def main() -> None:
 
         _start_process(_run_notetaking_service, "notetaking-tool")
         _wait_for_grpc(NOTETAKING_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_food_macros_service, "food-macros-tool")
+        _wait_for_grpc(FOOD_MACROS_ADDRESS)
         _abort_if_shutdown_requested()
 
         _start_process(_run_navigator_service, "navigator-tool")
