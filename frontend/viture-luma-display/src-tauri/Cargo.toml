@@ -1,0 +1,31 @@
+[package]
+name = "viture-luma-display"
+version = "0.1.0"
+description = "VITURE HUD display app"
+authors = ["viture-hud"]
+edition = "2021"
+
+[lib]
+name = "viture_luma_display_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+tonic-build = "0.12"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
+prost = "0.13"
+base64 = "0.22"
+cpal = "0.15"
+hound = "3.5"
+dirs = "5"
+http = "1"
+uuid = { version = "1", features = ["v4"] }

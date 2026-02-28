@@ -14,6 +14,8 @@ from services.config import (
     COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
+    FRONTEND_ADDRESS,
+    FRONTEND_PORT,
     NAVIGATION_ASSIST_ADDRESS,
     NAVIGATION_ASSIST_PORT,
     NOTETAKING_ADDRESS,
@@ -71,10 +73,18 @@ def _run_navigation_assist_service() -> None:
     serve(port=NAVIGATION_ASSIST_PORT)
 
 
+def _run_frontend_service() -> None:
+    from services.frontend_service import serve
+
+    serve(port=FRONTEND_PORT)
+
+
 def _run_video_service() -> None:
     from services.video.service import serve
 
     serve()
+
+
 def _run_notetaking_service() -> None:
     from apps.notetaking import serve
 
@@ -119,6 +129,11 @@ def main() -> None:
             name="navigation-assist-tool",
         ),
         multiprocessing.Process(
+            target=_run_frontend_service,
+            daemon=True,
+            name="frontend-service",
+        ),
+        multiprocessing.Process(
             target=_run_video_service,
             daemon=True,
             name="video-service",
@@ -136,6 +151,7 @@ def main() -> None:
     _wait_for_grpc(COLOR_BLIND_ADDRESS)
     _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
     _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
+    _wait_for_grpc(FRONTEND_ADDRESS)
     _wait_for_grpc(NOTETAKING_ADDRESS)
     log.info("runtime.services_ready")
 

@@ -1,0 +1,130 @@
+"""Frontend service: bridges the Cleo service graph to Tauri HUD clients via gRPC."""
+
+import queue
+import signal
+import threading
+from concurrent import futures
+
+import grpc
+import structlog
+
+from generated import frontend_pb2, frontend_pb2_grpc
+from services.broadcast import BroadcastHub
+from services.config import FRONTEND_PORT
+
+log = structlog.get_logger()
+
+PROTOCOL_VERSION = "1.0.0"
+
+
+class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
+    """gRPC servicer with typed RPCs that fan out DisplayUpdates to Tauri clients."""
+
+    def __init__(self):
+        self._hub = BroadcastHub(maxsize=256)
+        self._stop_event = threading.Event()
+        log.info("frontend_service.init")
+
+    def _publish_update(self, **kwargs) -> frontend_pb2.FrontendResponse:
+        """Wrap a typed request in a DisplayUpdate and publish to all subscribers."""
+        update = frontend_pb2.DisplayUpdate(**kwargs)
+        self._hub.publish(update)
+        return frontend_pb2.FrontendResponse(ok=True)
+
+    # ── Typed push RPCs ──
+
+    def ShowNotification(self, request, context):
+        log.info("frontend_service.show_notification", title=request.title)
+        return self._publish_update(notification=request)
+
+    def ShowImage(self, request, context):
+        log.info("frontend_service.show_image", mime=request.mime_type)
+        return self._publish_update(image=request)
+
+    def ShowProgress(self, request, context):
+        log.info("frontend_service.show_progress", label=request.label, value=request.value)
+        return self._publish_update(progress=request)
+
+    def ShowText(self, request, context):
+        log.info("frontend_service.show_text")
+        return self._publish_update(text=request)
+
+    def ShowCard(self, request, context):
+        log.info("frontend_service.show_card", count=len(request.cards))
+        return self._publish_update(card=request)
+
+    def Clear(self, request, context):
+        log.info("frontend_service.clear")
+        return self._publish_update(clear=request)
+
+    def PlayAudio(self, request, context):
+        log.info("frontend_service.play_audio", sample_rate=request.sample_rate)
+        return self._publish_update(play_audio=request)
+
+    def PlayAudioFile(self, request, context):
+        log.info("frontend_service.play_audio_file", path=request.path)
+        return self._publish_update(play_audio_file=request)
+
+    def RenderHtml(self, request, context):
+        log.info("frontend_service.render_html")
+        return self._publish_update(render_html=request)
+
+    # ── Streaming (Tauri subscribes here) ──
+
+    def StreamUpdates(self, request, context):
+        client_id = request.client_id or "anonymous"
+        log.info("frontend_service.stream_updates", client_id=client_id)
+
+        sid, q = self._hub.subscribe()
+        try:
+            while context.is_active() and not self._stop_event.is_set():
+                try:
+                    update = q.get(timeout=1.0)
+                    yield update
+                except queue.Empty:
+                    continue
+        finally:
+            self._hub.unsubscribe(sid)
+            log.info("frontend_service.stream_ended", client_id=client_id)
+
+    # ── User actions & status (unchanged) ──
+
+    def SendUserAction(self, request, context):
+        action_type = request.WhichOneof("action")
+        log.info("frontend_service.user_action", action=action_type)
+        return frontend_pb2.ActionResponse(ok=True)
+
+    def GetStatus(self, request, context):
+        return frontend_pb2.StatusResponse(
+            protocol_version=PROTOCOL_VERSION,
+            ready=True,
+        )
+
+    def shutdown(self) -> None:
+        log.info("frontend_service.shutdown")
+        self._stop_event.set()
+
+
+def serve(port: int = FRONTEND_PORT) -> None:
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=4),
+        options=[
+            ("grpc.max_send_message_length", 64 * 1024 * 1024),
+            ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+        ],
+    )
+    servicer = FrontendServiceServicer()
+    frontend_pb2_grpc.add_FrontendServiceServicer_to_server(servicer, server)
+    server.add_insecure_port(f"[::]:{port}")
+    server.start()
+    log.info("frontend_service.started", port=port)
+
+    def _shutdown(signum, frame):
+        del frame
+        log.info("frontend_service.signal", signal=signum)
+        servicer.shutdown()
+        server.stop(grace=2)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+    server.wait_for_termination()
