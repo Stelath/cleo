@@ -15,12 +15,10 @@ from services.config import (
     COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
-    FRONTEND_ADDRESS,
-    FRONTEND_PORT,
     FOOD_MACROS_ADDRESS,
     FOOD_MACROS_PORT,
-    NAVIGATION_ASSIST_ADDRESS,
-    NAVIGATION_ASSIST_PORT,
+    FRONTEND_ADDRESS,
+    FRONTEND_PORT,
     NAVIGATOR_ADDRESS,
     NAVIGATOR_PORT,
     NOTETAKING_ADDRESS,
@@ -89,6 +87,8 @@ def _run_food_macros_service() -> None:
     from apps.food_macros import serve
 
     serve(port=FOOD_MACROS_PORT)
+
+
 def _run_navigator_service() -> None:
     from apps.navigator import serve
 
@@ -138,55 +138,7 @@ def _stop_processes(processes: list[multiprocessing.Process]) -> None:
 def main() -> None:
     log.info("runtime.starting")
 
-    processes = [
-        multiprocessing.Process(target=_run_sensor_service, daemon=True, name="sensor-service"),
-        multiprocessing.Process(target=_run_data_service, daemon=True, name="data-service"),
-        multiprocessing.Process(target=_run_assistant_service, daemon=True, name="assistant-service"),
-        multiprocessing.Process(
-            target=_run_transcription_service,
-            daemon=True,
-            name="transcription-service",
-        ),
-        multiprocessing.Process(target=_run_color_blind_service, daemon=True, name="color-blind-tool"),
-        multiprocessing.Process(
-            target=_run_object_recognition_service,
-            daemon=True,
-            name="object-recognition-tool",
-        ),
-        multiprocessing.Process(
-            target=_run_navigation_assist_service,
-            daemon=True,
-            name="navigation-assist-tool",
-        ),
-        multiprocessing.Process(
-            target=_run_frontend_service,
-            daemon=True,
-            name="frontend-service",
-        ),
-        multiprocessing.Process(
-            target=_run_video_service,
-            daemon=True,
-            name="video-service",
-        ),
-        multiprocessing.Process(target=_run_notetaking_service, daemon=True, name="notetaking-tool"),
-        multiprocessing.Process(target=_run_food_macros_service, daemon=True, name="food-macros-tool"),
-    ]
-
-    for proc in processes:
-        proc.start()
-
-    _wait_for_grpc(SENSOR_ADDRESS)
-    _wait_for_grpc(DATA_ADDRESS)
-    _wait_for_grpc(ASSISTANT_ADDRESS)
-    _wait_for_grpc(TRANSCRIPTION_ADDRESS)
-    _wait_for_grpc(COLOR_BLIND_ADDRESS)
-    _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
-    _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
-    _wait_for_grpc(FRONTEND_ADDRESS)
-    _wait_for_grpc(NOTETAKING_ADDRESS)
-    _wait_for_grpc(FOOD_MACROS_ADDRESS)
-    log.info("runtime.services_ready")
-
+    processes: list[multiprocessing.Process] = []
     shutdown_event = threading.Event()
 
     def _start_process(target, name: str) -> multiprocessing.Process:
@@ -239,6 +191,10 @@ def main() -> None:
 
         _start_process(_run_notetaking_service, "notetaking-tool")
         _wait_for_grpc(NOTETAKING_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_food_macros_service, "food-macros-tool")
+        _wait_for_grpc(FOOD_MACROS_ADDRESS)
         _abort_if_shutdown_requested()
 
         _start_process(_run_navigator_service, "navigator-tool")
