@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMMON_SH=""
+if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" && -f "${BUILD_WORKSPACE_DIRECTORY}/tools/bazel/common.sh" ]]; then
+    COMMON_SH="${BUILD_WORKSPACE_DIRECTORY}/tools/bazel/common.sh"
+elif [[ -n "${RUNFILES_DIR:-}" && -f "${RUNFILES_DIR}/_main/tools/bazel/common.sh" ]]; then
+    COMMON_SH="${RUNFILES_DIR}/_main/tools/bazel/common.sh"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$SCRIPT_DIR/common.sh" ]]; then
+        COMMON_SH="$SCRIPT_DIR/common.sh"
+    fi
+fi
+
+if [[ -z "$COMMON_SH" ]]; then
+    echo "ERROR: Could not locate tools/bazel/common.sh" >&2
+    exit 1
+fi
+
+# shellcheck source=tools/bazel/common.sh
+source "$COMMON_SH"
+
+cd_workspace_root
+
+WEBSITE_DIR="website"
+ensure_frontend_deps "$WEBSITE_DIR"
+pnpm_install "$WEBSITE_DIR"
+
+echo "Starting website in web mode (vite dev server)..."
+if [[ $# -gt 0 ]]; then
+    exec pnpm --dir "$WEBSITE_DIR" run dev -- "$@"
+fi
+exec pnpm --dir "$WEBSITE_DIR" run dev

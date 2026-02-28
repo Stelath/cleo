@@ -73,6 +73,20 @@ sh_binary(
 )
 
 sh_binary(
+    name = "website_install",
+    srcs = ["tools/bazel/website_install.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "website_run",
+    srcs = ["tools/bazel/website_run.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
     name = "run_full_app",
     srcs = ["tools/bazel/run_full_app.sh"],
     data = [":bazel_script_lib"],

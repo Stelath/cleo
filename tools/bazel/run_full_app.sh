@@ -44,33 +44,46 @@ generate_protos
 ensure_viture_sensors
 
 FRONTEND_DIR="frontend/viture-luma-display"
+WEBSITE_DIR="website"
 ensure_frontend_deps "$FRONTEND_DIR"
 pnpm_install "$FRONTEND_DIR"
+ensure_frontend_deps "$WEBSITE_DIR"
+pnpm_install "$WEBSITE_DIR"
 
 BACKEND_PID=""
+WEBSITE_PID=""
 BACKEND_STOP_TIMEOUT_SECONDS=12
+WEBSITE_STOP_TIMEOUT_SECONDS=12
 
-stop_backend() {
-    if [[ -z "$BACKEND_PID" ]] || ! kill -0 "$BACKEND_PID" &>/dev/null; then
+stop_process() {
+    local pid
+    local label
+    local timeout_seconds
+
+    pid="$1"
+    label="$2"
+    timeout_seconds="$3"
+
+    if [[ -z "$pid" ]] || ! kill -0 "$pid" &>/dev/null; then
         return
     fi
 
-    echo "Stopping backend process ($BACKEND_PID)..."
-    kill "$BACKEND_PID" &>/dev/null || true
+    echo "Stopping ${label} process (${pid})..."
+    kill "$pid" &>/dev/null || true
 
     local elapsed
     elapsed=0
-    while kill -0 "$BACKEND_PID" &>/dev/null && [[ "$elapsed" -lt "$BACKEND_STOP_TIMEOUT_SECONDS" ]]; do
+    while kill -0 "$pid" &>/dev/null && [[ "$elapsed" -lt "$timeout_seconds" ]]; do
         sleep 1
         elapsed=$((elapsed + 1))
     done
 
-    if kill -0 "$BACKEND_PID" &>/dev/null; then
-        echo "Backend did not exit after ${BACKEND_STOP_TIMEOUT_SECONDS}s; force-killing..."
-        kill -9 "$BACKEND_PID" &>/dev/null || true
+    if kill -0 "$pid" &>/dev/null; then
+        echo "${label} did not exit after ${timeout_seconds}s; force-killing..."
+        kill -9 "$pid" &>/dev/null || true
     fi
 
-    wait "$BACKEND_PID" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
 }
 
 cleanup() {
@@ -78,7 +91,8 @@ cleanup() {
     exit_code=$?
     trap - EXIT INT TERM
 
-    stop_backend
+    stop_process "$WEBSITE_PID" "website" "$WEBSITE_STOP_TIMEOUT_SECONDS"
+    stop_process "$BACKEND_PID" "backend" "$BACKEND_STOP_TIMEOUT_SECONDS"
 
     exit "$exit_code"
 }
@@ -92,6 +106,16 @@ sleep 2
 if ! kill -0 "$BACKEND_PID" &>/dev/null; then
     echo "ERROR: Backend exited before frontend launch." >&2
     wait "$BACKEND_PID"
+fi
+
+echo "Starting website..."
+pnpm --dir "$WEBSITE_DIR" run dev &
+WEBSITE_PID=$!
+
+sleep 2
+if ! kill -0 "$WEBSITE_PID" &>/dev/null; then
+    echo "ERROR: Website exited before frontend launch." >&2
+    wait "$WEBSITE_PID"
 fi
 
 if [[ "$MODE" == "web" ]]; then
