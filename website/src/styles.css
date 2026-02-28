@@ -94,8 +94,7 @@ button {
 .top-bar h2,
 .surface-panel h3,
 .stat-card h3,
-.note-card h4,
-.app-card h4 {
+.note-card h4 {
   margin: 0;
   font-family: "Fraunces", "Iowan Old Style", serif;
   font-weight: 600;
@@ -105,8 +104,7 @@ button {
 .brand-block p,
 .surface-panel p,
 .detail-panel p,
-.note-card p,
-.app-card p {
+.note-card p {
   margin-top: 0;
 }
 
@@ -179,7 +177,6 @@ button {
 .kv-row,
 .table-head,
 .table-row,
-.app-card-top,
 .toolbar,
 .panel-heading,
 .top-bar,
@@ -241,14 +238,12 @@ button {
 }
 
 .stacked-layout,
-.notes-grid,
-.apps-grid {
+.notes-grid {
   display: grid;
   gap: 18px;
 }
 
-.notes-grid,
-.apps-grid {
+.notes-grid {
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
 }
 
@@ -415,9 +410,7 @@ button {
 .table-row.active,
 .table-row:hover,
 .note-card:hover,
-.note-card.active,
-.app-card:hover,
-.app-card.active {
+.note-card.active {
   background: rgba(241, 255, 249, 0.88);
 }
 
@@ -456,8 +449,7 @@ button {
   gap: 12px;
 }
 
-.note-card,
-.app-card {
+.note-card {
   width: 100%;
   border: 0;
   padding: 18px;
@@ -622,7 +614,6 @@ button {
 @media (max-width: 1180px) {
   .app-shell,
   .notes-grid,
-  .apps-grid,
   .hero-grid,
   .memory-grid {
     grid-template-columns: 1fr;

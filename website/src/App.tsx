@@ -6,7 +6,6 @@ type Section =
   | "Faces"
   | "Notes"
   | "Nutrition"
-  | "Apps"
   | "Preferences"
   | "System";
 
@@ -68,7 +67,6 @@ const sections: Section[] = [
   "Faces",
   "Notes",
   "Nutrition",
-  "Apps",
   "Preferences",
   "System",
 ];
@@ -148,6 +146,11 @@ function App() {
   const selectedNote = noteEntries.find((entry) => entry.id === selectedNoteId) ?? noteEntries[0] ?? null;
   const selectedMemoryClip =
     memoryResults.find((entry) => entry.clipId === selectedMemoryClipId) ?? memoryResults[0] ?? null;
+  const latestFoodEntry = foodEntries[0] ?? null;
+  const mostSeenFace = faceEntries.reduce<FaceEntry | null>(
+    (current, entry) => (current === null || entry.seenCount > current.seenCount ? entry : current),
+    null,
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -438,7 +441,7 @@ function App() {
         <div className="brand-block">
           <p className="eyebrow">Cleo</p>
           <h1>Control Center</h1>
-          <p className="muted">Personal memory dashboard for notes, history, nutrition, and system controls.</p>
+          <p className="muted">A clean review surface for memory search, notes, faces, nutrition, and system status.</p>
         </div>
         <nav className="nav-list" aria-label="Primary">
           {sections.map((item) => (
@@ -493,7 +496,7 @@ function App() {
               type="button"
               onClick={() => startTransition(() => setSection("Preferences"))}
             >
-              Edit Preferences
+              Adjust View
             </button>
           </div>
         </header>
@@ -511,32 +514,68 @@ function App() {
               <section className="surface-panel">
                 <div className="panel-heading">
                   <div>
-                    <p className="eyebrow">Live Data</p>
-                    <h3>Current website wiring</h3>
+                    <p className="eyebrow">Ready For Demo</p>
+                    <h3>Everything here reflects live saved data</h3>
                   </div>
                 </div>
-                <div className="empty-state">
-                  <h4>Notes, nutrition, memory search, and faces are live</h4>
-                  <p>
-                    The website no longer renders fake records. Notes, nutrition, and face groups read from the
-                    backend, and memory search queries saved video embeddings through the website API.
-                  </p>
+                <div className="activity-list">
+                  <div className="activity-row">
+                    <span className="pill success">Memory</span>
+                    <div>
+                      <strong>Semantic clip search is ready.</strong>
+                      <p className="muted">Search by description or jump directly to a time window.</p>
+                    </div>
+                  </div>
+                  <div className="activity-row">
+                    <span className="pill success">Notes</span>
+                    <div>
+                      <strong>Saved note summaries are browsable.</strong>
+                      <p className="muted">Open any session to show the full summary and timing.</p>
+                    </div>
+                  </div>
+                  <div className="activity-row">
+                    <span className="pill success">Faces</span>
+                    <div>
+                      <strong>Tracked identities can be reviewed and named.</strong>
+                      <p className="muted">Each card shows sightings, confidence, and representative images.</p>
+                    </div>
+                  </div>
                 </div>
               </section>
 
               <section className="surface-panel accent-panel">
-                <p className="eyebrow">Next Up</p>
-                <h3>Connect the remaining sections</h3>
-                <p>
-                  Apps still need live backend routes. The other sections on this dashboard now render persisted data.
-                </p>
-                <div className="quick-link-row">
-                  <button className="ghost-button" type="button" onClick={() => setSection("Faces")}>
-                    View Faces
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setSection("Memory")}>
-                    View Memory
-                  </button>
+                <p className="eyebrow">Live Snapshot</p>
+                <h3>Best places to start the walkthrough</h3>
+                <div className="activity-list">
+                  <div className="activity-row">
+                    <span className="pill">Latest note</span>
+                    <div>
+                      <strong>{selectedNote ? truncateText(selectedNote.summaryText, 64) : "No saved notes yet"}</strong>
+                      <p className="muted">
+                        {selectedNote ? `Captured ${formatUnixTimestamp(selectedNote.createdAt)}` : "Record a note and it will appear here."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="activity-row">
+                    <span className="pill">Top face</span>
+                    <div>
+                      <strong>{mostSeenFace ? mostSeenFace.name.trim() || `Face #${mostSeenFace.faceId}` : "No saved faces yet"}</strong>
+                      <p className="muted">
+                        {mostSeenFace ? `${mostSeenFace.seenCount} sightings, last seen ${formatUnixTimestamp(mostSeenFace.lastSeen)}` : "Face groups will show up after detections are stored."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="activity-row">
+                    <span className="pill">Latest meal</span>
+                    <div>
+                      <strong>{latestFoodEntry ? latestFoodEntry.productName : "No nutrition entry yet"}</strong>
+                      <p className="muted">
+                        {latestFoodEntry
+                          ? `${formatNumber(latestFoodEntry.caloriesKcal)} kcal logged ${formatUnixTimestamp(latestFoodEntry.recordedAt)}`
+                          : "Logged meals will appear here automatically."}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </section>
             </div>
@@ -710,7 +749,7 @@ function App() {
                 {!faceLoading && !faceError && faceEntries.length === 0 && (
                   <div className="empty-state face-empty-state">
                     <h4>No faces saved yet</h4>
-                    <p>Face groups will appear here after face detection stores embeddings.</p>
+                    <p>Face groups will appear here after Cleo sees and clusters people.</p>
                   </div>
                 )}
                 {!faceLoading &&
@@ -840,7 +879,7 @@ function App() {
               {!selectedNote && (
                 <div className="empty-state">
                   <h4>No note selected</h4>
-                  <p>This panel will activate once note data is loaded from the backend.</p>
+                  <p>Select a saved note to review the full summary.</p>
                 </div>
               )}
               {selectedNote && (
@@ -908,7 +947,7 @@ function App() {
                 {!foodLoading && !foodError && foodEntries.length === 0 && (
                   <div className="empty-state">
                     <h4>No food macros saved yet</h4>
-                    <p>Use the food macro tool once and the entry will appear here.</p>
+                    <p>Captured meals will appear here once nutrition logging is used.</p>
                   </div>
                 )}
                 {!foodLoading &&
@@ -930,32 +969,13 @@ function App() {
           </section>
         )}
 
-        {section === "Apps" && (
-          <section className="apps-grid">
-            <section className="surface-panel">
-              <div className="empty-state">
-                <h4>No app integrations loaded</h4>
-                <p>Static app cards were removed. Connect the apps API before enabling this section.</p>
-              </div>
-            </section>
-
-            <aside className="surface-panel detail-panel">
-              <p className="eyebrow">Integration Detail</p>
-              <div className="empty-state">
-                <h4>No app selected</h4>
-                <p>This panel will show live integration metadata after the apps endpoint is wired.</p>
-              </div>
-            </aside>
-          </section>
-        )}
-
         {section === "Preferences" && (
           <section className="stacked-layout">
             <section className="surface-panel">
               <div className="panel-heading">
                 <div>
-                  <p className="eyebrow">Persistent Preferences</p>
-                  <h3>Structured client-side schema</h3>
+                  <p className="eyebrow">Display Preferences</p>
+                  <h3>Tune the interface for the current viewer</h3>
                 </div>
               </div>
 
@@ -1015,7 +1035,7 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Operational Visibility</p>
-                  <h3>Connected services</h3>
+                  <h3>Live website health</h3>
                 </div>
               </div>
               <div className="stats-grid">
@@ -1040,8 +1060,16 @@ function App() {
                   value={memoryLoading ? "Loading" : memoryError ? "Error" : "Healthy"}
                   meta={memoryError ?? "Derived from the clip search endpoint"}
                 />
-                <StatCard label="Mock data" value="Removed" meta="This page no longer shows seeded values" />
-                <StatCard label="Apps" value="Pending" meta="Apps are still not connected" />
+                <StatCard
+                  label="Latest note"
+                  value={selectedNote ? formatUnixTimestamp(selectedNote.createdAt) : "Waiting"}
+                  meta={selectedNote ? truncateText(selectedNote.summaryText, 48) : "No note summary saved yet"}
+                />
+                <StatCard
+                  label="Latest meal"
+                  value={latestFoodEntry ? formatUnixTimestamp(latestFoodEntry.recordedAt) : "Waiting"}
+                  meta={latestFoodEntry ? latestFoodEntry.productName : "No nutrition entry saved yet"}
+                />
               </div>
             </section>
           </section>
@@ -1160,8 +1188,6 @@ function sectionHint(section: Section) {
       return "Summaries";
     case "Nutrition":
       return "Food macros";
-    case "Apps":
-      return "Integrations";
     case "Preferences":
       return "Accessibility";
     case "System":
