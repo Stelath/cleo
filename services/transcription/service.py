@@ -1015,12 +1015,6 @@ class AmazonTranscribeBackend:
         async def _send_audio() -> None:
             current = first_request
             while True:
-                if current.reset_context:
-                    log.info(
-                        "transcription.reset_context_ignored",
-                        reason="Amazon Transcribe streams cannot be reset mid-session",
-                    )
-
                 pcm_chunk = _float32_to_pcm16(current.audio_data)
                 if pcm_chunk:
                     await stream.input_stream.send_audio_event(audio_chunk=pcm_chunk)

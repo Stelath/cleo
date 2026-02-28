@@ -23,8 +23,8 @@ message AudioInput {
   // Optional stable stream identity across reconnects
   string stream_id = 4;
 
-  // Force a hard utterance boundary and clear prior context
-  bool reset_context = 5;
+  reserved 5;
+  reserved "reset_context";
 
   // Unix epoch seconds (UTC) for the end of this audio buffer
   double timestamp = 6;
