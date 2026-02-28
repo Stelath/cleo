@@ -1,6 +1,5 @@
 """Tests for assistant.registry — static and dynamic tool registry."""
 
-import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -59,13 +58,11 @@ class TestStaticRegistry:
         assert spec["description"] == "Tool A does things"
         assert spec["inputSchema"]["json"] == sample_tools[0].input_schema
 
-    def test_default_registry_has_four_tools(self):
+    def test_default_registry_is_empty_without_data_address(self):
         registry = ToolRegistry()
-        assert len(registry.tool_names) == 4
-        assert "color_blindness_assist" in registry.tool_names
-        assert "object_recognition" in registry.tool_names
-        assert "navigation_assist" in registry.tool_names
-        assert "notetaking" in registry.tool_names
+        assert registry.tool_names == []
+        assert registry.get("anything") is None
+        assert registry.bedrock_tool_config() == {"tools": []}
 
     def test_empty_registry(self):
         registry = ToolRegistry(tools=[])
@@ -191,8 +188,3 @@ class TestDynamicRegistry:
 
                 # Should still return stale cache
                 assert "resilient_tool" in registry.tool_names
-
-    def test_no_data_address_returns_empty(self):
-        """Dynamic mode with data_address=None returns empty tools."""
-        registry = ToolRegistry()
-        assert registry.tool_names == []
