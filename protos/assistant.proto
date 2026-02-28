@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package cleo.assistant;
+
+service AssistantService {
+  // Process a voice command routed from wake-word detection
+  rpc ProcessCommand(CommandRequest) returns (CommandResponse);
+}
+
+message CommandRequest {
+  // The transcribed text after "hey cleo" wake word
+  string text = 1;
+}
+
+message CommandResponse {
+  // Whether the command was handled successfully
+  bool success = 1;
+
+  // Human-readable response text (for display on AR glasses)
+  string response_text = 2;
+
+  // Name of the tool that was invoked (empty if no tool was used)
+  string tool_name = 3;
+}

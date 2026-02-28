@@ -12,8 +12,16 @@ import grpc
 import structlog
 
 from core.config import (
+    ASSISTANT_ADDRESS,
+    ASSISTANT_PORT,
+    COLOR_BLIND_ADDRESS,
+    COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
+    NAVIGATION_ASSIST_ADDRESS,
+    NAVIGATION_ASSIST_PORT,
+    OBJECT_RECOGNITION_ADDRESS,
+    OBJECT_RECOGNITION_PORT,
     SENSOR_ADDRESS,
     SENSOR_PORT,
     TRANSCRIPTION_ADDRESS,
@@ -35,7 +43,7 @@ _PREROLL_CHUNKS = 1
 
 def _run_sensor_service():
     """Entry point for the sensor service subprocess."""
-    from services.sensor_service import serve
+    from apps.sensor_service import serve
     serve(port=SENSOR_PORT)
 
 
@@ -49,6 +57,30 @@ def _run_data_service():
     """Entry point for the data service subprocess."""
     from data.service import serve
     serve(port=DATA_PORT)
+
+
+def _run_assistant_service():
+    """Entry point for the assistant service subprocess."""
+    from assistant.service import serve
+    serve(port=ASSISTANT_PORT)
+
+
+def _run_color_blind_service():
+    """Entry point for the color blindness tool subprocess."""
+    from apps.color_blind import serve
+    serve(port=COLOR_BLIND_PORT)
+
+
+def _run_object_recognition_service():
+    """Entry point for the object recognition tool subprocess."""
+    from apps.object_recognition import serve
+    serve(port=OBJECT_RECOGNITION_PORT)
+
+
+def _run_navigation_assist_service():
+    """Entry point for the navigation assist tool subprocess."""
+    from apps.navigation_assist import serve
+    serve(port=NAVIGATION_ASSIST_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0):
@@ -255,21 +287,39 @@ def main():
     sensor_proc = multiprocessing.Process(target=_run_sensor_service, daemon=True)
     transcription_proc = multiprocessing.Process(target=_run_transcription_service, daemon=True)
     data_proc = multiprocessing.Process(target=_run_data_service, daemon=True)
+    assistant_proc = multiprocessing.Process(target=_run_assistant_service, daemon=True)
+    color_blind_proc = multiprocessing.Process(target=_run_color_blind_service, daemon=True)
+    object_recognition_proc = multiprocessing.Process(target=_run_object_recognition_service, daemon=True)
+    navigation_assist_proc = multiprocessing.Process(target=_run_navigation_assist_service, daemon=True)
 
-    sensor_proc.start()
-    transcription_proc.start()
-    data_proc.start()
+    all_procs = [
+        sensor_proc,
+        transcription_proc,
+        data_proc,
+        assistant_proc,
+        color_blind_proc,
+        object_recognition_proc,
+        navigation_assist_proc,
+    ]
+
+    for proc in all_procs:
+        proc.start()
     log.info(
         "orchestrator.processes_started",
         sensor_pid=sensor_proc.pid,
         transcription_pid=transcription_proc.pid,
         data_pid=data_proc.pid,
+        assistant_pid=assistant_proc.pid,
     )
 
     # Wait for gRPC servers to be ready
     _wait_for_grpc(SENSOR_ADDRESS)
     _wait_for_grpc(TRANSCRIPTION_ADDRESS)
     _wait_for_grpc(DATA_ADDRESS)
+    _wait_for_grpc(ASSISTANT_ADDRESS)
+    _wait_for_grpc(COLOR_BLIND_ADDRESS)
+    _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
+    _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
 
     # Start processing threads
     frame_processor = FrameProcessor(
@@ -304,12 +354,10 @@ def main():
 
     # Terminate service processes (DataService handles its own FAISS persistence)
     log.info("orchestrator.stopping_processes")
-    sensor_proc.terminate()
-    transcription_proc.terminate()
-    data_proc.terminate()
-    sensor_proc.join(timeout=5)
-    transcription_proc.join(timeout=5)
-    data_proc.join(timeout=5)
+    for proc in all_procs:
+        proc.terminate()
+    for proc in all_procs:
+        proc.join(timeout=5)
 
     log.info("orchestrator.stopped")
 
