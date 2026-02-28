@@ -231,6 +231,49 @@ install_pyaudio_system_deps() {
     esac
 }
 
+install_pyzbar_system_deps() {
+    local kernel_name
+    kernel_name="$(uname -s)"
+
+    case "$kernel_name" in
+        Darwin)
+            if command_exists brew; then
+                brew_install_if_missing zbar
+            else
+                echo "WARNING: Homebrew not found. Install zbar manually if pyzbar cannot load."
+            fi
+            ;;
+        Linux)
+            local distro_id="" distro_like=""
+            if [[ -f /etc/os-release ]]; then
+                # shellcheck disable=SC1091
+                source /etc/os-release
+                distro_id="${ID:-}"
+                distro_like="${ID_LIKE:-}"
+            fi
+
+            if [[ "$distro_id" == "ubuntu" || "$distro_id" == "debian" || "$distro_like" == *"ubuntu"* || "$distro_like" == *"debian"* ]]; then
+                echo "Installing zbar runtime dependency for pyzbar via apt..."
+                apt_install libzbar0
+            else
+                echo "WARNING: Linux distro '$distro_id' is not auto-configured."
+                echo "         Install zbar manually if pyzbar cannot load."
+            fi
+            ;;
+        MINGW* | MSYS* | CYGWIN*)
+            echo "Windows detected. pyzbar may need ZBar DLLs available on PATH."
+            ;;
+        *)
+            if is_windows_platform; then
+                echo "Windows detected. pyzbar may need ZBar DLLs available on PATH."
+            else
+                echo "WARNING: Unsupported OS '$kernel_name'."
+                echo "         Install zbar manually if pyzbar cannot load."
+            fi
+            ;;
+    esac
+}
+
 install_protobuf_system_deps() {
     if command_exists protoc; then
         echo "protoc: $(protoc --version)"
@@ -342,6 +385,9 @@ print(f'  numpy: {numpy.__version__}')
 import structlog
 print(f'  structlog: {structlog.__version__}')
 
+import importlib.metadata as md
+print('  pyzbar: {}'.format(md.version('pyzbar')))
+
 from generated import sensor_pb2, sensor_pb2_grpc
 print('  generated.sensor_pb2: OK')
 
@@ -362,6 +408,7 @@ echo ""
 echo "Ensuring toolchain prerequisites..."
 ensure_uv
 install_pyaudio_system_deps
+install_pyzbar_system_deps
 install_protobuf_system_deps
 install_rust_build_system_deps
 install_tauri_system_deps

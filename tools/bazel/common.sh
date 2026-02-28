@@ -57,7 +57,7 @@ sync_uv_env() {
 ensure_uv_runtime_deps() {
     ensure_uv_env
 
-    if uv run python -c "import grpc, numpy, structlog" &>/dev/null; then
+    if uv run python -c "import grpc, numpy, structlog, importlib.metadata as md; md.version('pyzbar')" &>/dev/null; then
         return
     fi
 

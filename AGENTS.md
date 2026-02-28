@@ -73,4 +73,4 @@ VITURE_HARDWARE=1 uv run pytest tests/integration/ -v
 
 ## Dependencies
 
-Python >=3.10,<3.13. Managed with `uv` and locked in `uv.lock`. The `viture-sensors` package is a Rust/PyO3 extension built with maturin (requires Rust toolchain). PyAudio requires system `portaudio` (macOS: `brew install portaudio`).
+Python >=3.10,<3.13. Managed with `uv` and locked in `uv.lock`. The `viture-sensors` package is a Rust/PyO3 extension built with maturin (requires Rust toolchain). PyAudio requires system `portaudio` (macOS: `brew install portaudio`). `pyzbar` requires the `zbar` shared library (macOS: `brew install zbar`).
