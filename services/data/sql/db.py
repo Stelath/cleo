@@ -60,7 +60,8 @@ class CleoSQLite:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at REAL NOT NULL
-            
+            );
+
             CREATE TABLE IF NOT EXISTS note_summaries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 summary_text TEXT NOT NULL,
