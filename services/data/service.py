@@ -10,7 +10,7 @@ import grpc
 import structlog
 
 from services.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR
-from services.data.embedding import embed_image, embed_text, embed_video
+from services.data.vector.embedding import embed_image, embed_text, embed_video
 from services.data.sql.db import CleoSQLite
 from services.data.vector.faiss_db import FaissDB
 from generated import data_pb2, data_pb2_grpc
@@ -113,14 +113,27 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
     def Search(self, request, context):
         top_k = request.top_k if request.top_k > 0 else 5
         query_type = request.WhichOneof("query")
+        query_embedding_purpose = "VIDEO_RETRIEVAL"
 
         try:
             if query_type == "text":
-                query_vec = embed_text(request.text, dimension=self._embedding_dim)
+                query_vec = embed_text(
+                    request.text,
+                    dimension=self._embedding_dim,
+                    embedding_purpose=query_embedding_purpose,
+                )
             elif query_type == "image_data":
-                query_vec = embed_image(request.image_data, dimension=self._embedding_dim)
+                query_vec = embed_image(
+                    request.image_data,
+                    dimension=self._embedding_dim,
+                    embedding_purpose=query_embedding_purpose,
+                )
             elif query_type == "video_data":
-                query_vec = embed_video(request.video_data, dimension=self._embedding_dim)
+                query_vec = embed_video(
+                    request.video_data,
+                    dimension=self._embedding_dim,
+                    embedding_purpose=query_embedding_purpose,
+                )
             else:
                 context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
                 context.set_details("Search query must contain text, image_data, or video_data")

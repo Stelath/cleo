@@ -2,16 +2,48 @@
 
 import threading
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 
+import cv2
 import numpy as np
 import pytest
 
+from generated import data_pb2
 from services.video.service import (
     VideoClipPipeline,
     VideoDataClient,
     _encode_frames_to_mp4,
 )
+from tests.video.conftest import requires_bedrock
+
+VIDEO_DATA_DIR = Path(__file__).parent / "data"
+
+
+def _downsample_mp4(mp4_path: Path, fps: int = 2, max_seconds: int = 10) -> bytes:
+    """Read an MP4, subsample frames, and re-encode a shorter clip.
+
+    This mirrors what VideoClipPipeline does: it sends a low-FPS,
+    short clip to Bedrock for embedding rather than the full video.
+    """
+    cap = cv2.VideoCapture(str(mp4_path))
+    src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    skip = max(1, int(round(src_fps / fps)))
+    max_frames = fps * max_seconds
+
+    frames: list[np.ndarray] = []
+    idx = 0
+    while cap.isOpened() and len(frames) < max_frames:
+        ret, bgr = cap.read()
+        if not ret:
+            break
+        if idx % skip == 0:
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            frames.append(rgb)
+        idx += 1
+    cap.release()
+
+    return _encode_frames_to_mp4(frames, float(fps))
 
 
 def _make_rgb_frames(n: int, width: int = 64, height: int = 48) -> list[np.ndarray]:
@@ -127,3 +159,65 @@ def test_accumulate_and_encode_integration():
     assert len(call_kwargs.kwargs.get("embed_data", call_kwargs[1].get("embed_data", b""))) > 0
     # num_frames should be 450
     assert call_kwargs.kwargs.get("num_frames", call_kwargs[1].get("num_frames", 0)) == 450
+
+
+# ── Bedrock integration tests ──
+
+
+def _store_both_clips(video_data_client):
+    """Store both test videos and return (run_clip_id, study_clip_id)."""
+    run_path = VIDEO_DATA_DIR / "run_into_room_video.mp4"
+    study_path = VIDEO_DATA_DIR / "study_video.mp4"
+
+    run_mp4 = run_path.read_bytes()
+    study_mp4 = study_path.read_bytes()
+
+    # Downsample for Bedrock embedding (mirrors VideoClipPipeline behaviour)
+    run_embed = _downsample_mp4(run_path)
+    study_embed = _downsample_mp4(study_path)
+
+    run_resp = video_data_client.store_clip(
+        mp4_data=run_mp4,
+        embed_data=run_embed,
+        start_timestamp=0.0,
+        end_timestamp=15.0,
+        num_frames=450,
+    )
+    assert run_resp is not None, "Failed to store run_into_room clip"
+
+    study_resp = video_data_client.store_clip(
+        mp4_data=study_mp4,
+        embed_data=study_embed,
+        start_timestamp=15.0,
+        end_timestamp=30.0,
+        num_frames=450,
+    )
+    assert study_resp is not None, "Failed to store study clip"
+
+    return run_resp.clip_id, study_resp.clip_id
+
+
+@requires_bedrock
+def test_embed_and_search_running_video(video_data_client, data_stub):
+    """Text search for 'running' should rank the running video first."""
+    run_clip_id, _ = _store_both_clips(video_data_client)
+
+    resp = data_stub.Search(
+        data_pb2.SearchRequest(text="person running down the hall", top_k=2),
+        timeout=30.0,
+    )
+    assert len(resp.results) == 2
+    assert resp.results[0].clip_id == run_clip_id
+
+
+@requires_bedrock
+def test_embed_and_search_studying_video(video_data_client, data_stub):
+    """Text search for 'studying' should rank the study video first."""
+    _, study_clip_id = _store_both_clips(video_data_client)
+
+    resp = data_stub.Search(
+        data_pb2.SearchRequest(text="student reading at desk", top_k=2),
+        timeout=30.0,
+    )
+    assert len(resp.results) == 2
+    assert resp.results[0].clip_id == study_clip_id
