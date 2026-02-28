@@ -12,8 +12,8 @@ import grpc
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from generated import data_pb2, data_pb2_grpc
-from services.config import DATA_ADDRESS, NOTETAKING_PORT
+from generated import data_pb2, data_pb2_grpc, frontend_pb2, frontend_pb2_grpc
+from services.config import DATA_ADDRESS, FRONTEND_ADDRESS, NOTETAKING_PORT
 
 log = structlog.get_logger()
 
@@ -137,6 +137,7 @@ class NotetakingServicer(ToolServiceBase):
     def __init__(
         self,
         data_address: str = DATA_ADDRESS,
+        frontend_address: str = FRONTEND_ADDRESS,
         bedrock_client: NoteSummaryBedrockClient | None = None,
     ):
         self._bedrock = bedrock_client or NoteSummaryBedrockClient()
@@ -148,11 +149,14 @@ class NotetakingServicer(ToolServiceBase):
             ],
         )
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
+        self._frontend_channel = grpc.insecure_channel(frontend_address)
+        self._frontend = frontend_pb2_grpc.FrontendServiceStub(self._frontend_channel)
         self._lock = threading.Lock()
         self._session_start: float | None = None
 
     def close(self) -> None:
         self._channel.close()
+        self._frontend_channel.close()
 
     def execute(self, params: dict) -> tuple[bool, str]:
         action = self._resolve_action(params)
@@ -213,6 +217,7 @@ class NotetakingServicer(ToolServiceBase):
             transcripts=len(context.transcripts),
             clips=len(context.clips),
         )
+        self._notify_summary_saved(stored.id)
         return True, summary_text
 
     def _load_note_context(self, start_timestamp: float, stop_timestamp: float) -> NoteContext:
@@ -263,6 +268,22 @@ class NotetakingServicer(ToolServiceBase):
         if transcript_fallback:
             return transcript_fallback
         return "Video was captured during this note session, but no textual summary was generated."
+
+    def _notify_summary_saved(self, note_id: int) -> None:
+        try:
+            self._frontend.ShowNotification(
+                frontend_pb2.NotificationRequest(
+                    title="Note saved",
+                    message=f"Saved note summary #{note_id}",
+                    style="success",
+                )
+            )
+        except Exception as exc:
+            log.warning(
+                "notetaking.summary_notification_failed",
+                note_id=note_id,
+                error=str(exc),
+            )
 
 
 def serve(port: int = NOTETAKING_PORT):

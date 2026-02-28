@@ -176,6 +176,8 @@ class TestNotetakingServicer:
         servicer._bedrock = mock_bedrock
         servicer._data = mock_data
         servicer._channel = MagicMock()
+        servicer._frontend = MagicMock()
+        servicer._frontend_channel = MagicMock()
         servicer._lock = threading.Lock()
         servicer._session_start = None
 
@@ -199,6 +201,7 @@ class TestNotetakingServicer:
         assert stop_response.success
         assert "No transcript or video activity" in stop_response.result_text
         mock_data.StoreNoteSummary.assert_called_once()
+        servicer._frontend.ShowNotification.assert_called_once()
 
     def test_stop_requires_active_session(self, mock_grpc_context):
         import threading
@@ -207,6 +210,8 @@ class TestNotetakingServicer:
         servicer._bedrock = MagicMock()
         servicer._data = MagicMock()
         servicer._channel = MagicMock()
+        servicer._frontend = MagicMock()
+        servicer._frontend_channel = MagicMock()
         servicer._lock = threading.Lock()
         servicer._session_start = None
 
