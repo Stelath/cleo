@@ -15,6 +15,9 @@ service DataService {
   // Get paginated transcription history
   rpc GetTranscriptionLog(TranscriptionLogRequest) returns (TranscriptionLogResponse);
 
+  // Retrieve transcription rows whose timestamps overlap a given time window
+  rpc GetTranscriptionsInRange(TimeRangeRequest) returns (TranscriptionRangeResponse);
+
   // Retrieve a video clip by ID
   rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
 
@@ -32,6 +35,15 @@ service DataService {
 
   // Set a user preference by key
   rpc SetPreference(SetPreferenceRequest) returns (SetPreferenceResponse);
+  
+  // List video clips whose timestamps overlap a given time window
+  rpc GetVideoClipsInRange(TimeRangeRequest) returns (VideoClipRangeResponse);
+
+  // Store a generated note summary for later frontend retrieval
+  rpc StoreNoteSummary(StoreNoteSummaryRequest) returns (StoreNoteSummaryResponse);
+
+  // Get paginated note summaries
+  rpc GetNoteSummaries(NoteSummariesRequest) returns (NoteSummariesResponse);
 }
 
 // ── Store Transcription ──
@@ -117,10 +129,28 @@ message TranscriptionLogResponse {
   int32 total_count = 2;
 }
 
+message TimeRangeRequest {
+  double start_timestamp = 1;
+  double end_timestamp = 2;
+}
+
+message TranscriptionRangeResponse {
+  repeated TranscriptionLogEntry entries = 1;
+}
+
 // ── Get Video Clip ──
 
 message GetVideoClipRequest {
   int64 clip_id = 1;
+}
+
+message VideoClipMetadata {
+  int64 clip_id = 1;
+  string clip_path = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  int32 num_frames = 5;
+  double created_at = 6;
 }
 
 message VideoClipResponse {
@@ -193,4 +223,38 @@ message SetPreferenceRequest {
 
 message SetPreferenceResponse {
   bool success = 1;
+}
+
+message VideoClipRangeResponse {
+  repeated VideoClipMetadata clips = 1;
+}
+
+// ── Note Summaries ──
+
+message StoreNoteSummaryRequest {
+  string summary_text = 1;
+  double start_timestamp = 2;
+  double end_timestamp = 3;
+}
+
+message StoreNoteSummaryResponse {
+  int64 id = 1;
+}
+
+message NoteSummariesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message NoteSummaryEntry {
+  int64 id = 1;
+  string summary_text = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  double created_at = 5;
+}
+
+message NoteSummariesResponse {
+  repeated NoteSummaryEntry entries = 1;
+  int32 total_count = 2;
 }

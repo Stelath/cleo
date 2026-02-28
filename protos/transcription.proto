@@ -25,6 +25,9 @@ message AudioInput {
 
   // Force a hard utterance boundary and clear prior context
   bool reset_context = 5;
+
+  // Unix epoch seconds (UTC) for the end of this audio buffer
+  double timestamp = 6;
 }
 
 message TranscriptionResult {
@@ -34,10 +37,10 @@ message TranscriptionResult {
   // Confidence score [0.0, 1.0]
   float confidence = 2;
 
-  // Start time in seconds relative to stream start
+  // Start time as Unix epoch seconds (UTC)
   double start_time = 3;
 
-  // End time in seconds relative to stream start
+  // End time as Unix epoch seconds (UTC)
   double end_time = 4;
 
   // Whether this is a partial (interim) or final result

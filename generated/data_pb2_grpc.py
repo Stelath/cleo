@@ -54,6 +54,11 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.TranscriptionLogRequest.SerializeToString,
                 response_deserializer=data__pb2.TranscriptionLogResponse.FromString,
                 _registered_method=True)
+        self.GetTranscriptionsInRange = channel.unary_unary(
+                '/cleo.data.DataService/GetTranscriptionsInRange',
+                request_serializer=data__pb2.TimeRangeRequest.SerializeToString,
+                response_deserializer=data__pb2.TranscriptionRangeResponse.FromString,
+                _registered_method=True)
         self.GetVideoClip = channel.unary_unary(
                 '/cleo.data.DataService/GetVideoClip',
                 request_serializer=data__pb2.GetVideoClipRequest.SerializeToString,
@@ -84,6 +89,21 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SetPreferenceRequest.SerializeToString,
                 response_deserializer=data__pb2.SetPreferenceResponse.FromString,
                 _registered_method=True)
+        self.GetVideoClipsInRange = channel.unary_unary(
+                '/cleo.data.DataService/GetVideoClipsInRange',
+                request_serializer=data__pb2.TimeRangeRequest.SerializeToString,
+                response_deserializer=data__pb2.VideoClipRangeResponse.FromString,
+                _registered_method=True)
+        self.StoreNoteSummary = channel.unary_unary(
+                '/cleo.data.DataService/StoreNoteSummary',
+                request_serializer=data__pb2.StoreNoteSummaryRequest.SerializeToString,
+                response_deserializer=data__pb2.StoreNoteSummaryResponse.FromString,
+                _registered_method=True)
+        self.GetNoteSummaries = channel.unary_unary(
+                '/cleo.data.DataService/GetNoteSummaries',
+                request_serializer=data__pb2.NoteSummariesRequest.SerializeToString,
+                response_deserializer=data__pb2.NoteSummariesResponse.FromString,
+                _registered_method=True)
 
 
 class DataServiceServicer(object):
@@ -112,6 +132,13 @@ class DataServiceServicer(object):
 
     def GetTranscriptionLog(self, request, context):
         """Get paginated transcription history
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTranscriptionsInRange(self, request, context):
+        """Retrieve transcription rows whose timestamps overlap a given time window
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -159,6 +186,27 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetVideoClipsInRange(self, request, context):
+        """List video clips whose timestamps overlap a given time window
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StoreNoteSummary(self, request, context):
+        """Store a generated note summary for later frontend retrieval
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetNoteSummaries(self, request, context):
+        """Get paginated note summaries
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -181,6 +229,11 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.GetTranscriptionLog,
                     request_deserializer=data__pb2.TranscriptionLogRequest.FromString,
                     response_serializer=data__pb2.TranscriptionLogResponse.SerializeToString,
+            ),
+            'GetTranscriptionsInRange': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTranscriptionsInRange,
+                    request_deserializer=data__pb2.TimeRangeRequest.FromString,
+                    response_serializer=data__pb2.TranscriptionRangeResponse.SerializeToString,
             ),
             'GetVideoClip': grpc.unary_unary_rpc_method_handler(
                     servicer.GetVideoClip,
@@ -211,6 +264,21 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SetPreference,
                     request_deserializer=data__pb2.SetPreferenceRequest.FromString,
                     response_serializer=data__pb2.SetPreferenceResponse.SerializeToString,
+            ),
+            'GetVideoClipsInRange': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVideoClipsInRange,
+                    request_deserializer=data__pb2.TimeRangeRequest.FromString,
+                    response_serializer=data__pb2.VideoClipRangeResponse.SerializeToString,
+            ),
+            'StoreNoteSummary': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreNoteSummary,
+                    request_deserializer=data__pb2.StoreNoteSummaryRequest.FromString,
+                    response_serializer=data__pb2.StoreNoteSummaryResponse.SerializeToString,
+            ),
+            'GetNoteSummaries': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNoteSummaries,
+                    request_deserializer=data__pb2.NoteSummariesRequest.FromString,
+                    response_serializer=data__pb2.NoteSummariesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -321,6 +389,33 @@ class DataService(object):
             '/cleo.data.DataService/GetTranscriptionLog',
             data__pb2.TranscriptionLogRequest.SerializeToString,
             data__pb2.TranscriptionLogResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTranscriptionsInRange(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetTranscriptionsInRange',
+            data__pb2.TimeRangeRequest.SerializeToString,
+            data__pb2.TranscriptionRangeResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -483,6 +578,87 @@ class DataService(object):
             '/cleo.data.DataService/SetPreference',
             data__pb2.SetPreferenceRequest.SerializeToString,
             data__pb2.SetPreferenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetVideoClipsInRange(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetVideoClipsInRange',
+            data__pb2.TimeRangeRequest.SerializeToString,
+            data__pb2.VideoClipRangeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreNoteSummary(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/StoreNoteSummary',
+            data__pb2.StoreNoteSummaryRequest.SerializeToString,
+            data__pb2.StoreNoteSummaryResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetNoteSummaries(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetNoteSummaries',
+            data__pb2.NoteSummariesRequest.SerializeToString,
+            data__pb2.NoteSummariesResponse.FromString,
             options,
             channel_credentials,
             insecure,

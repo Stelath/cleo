@@ -60,6 +60,13 @@ class CleoSQLite:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at REAL NOT NULL
+            
+            CREATE TABLE IF NOT EXISTS note_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary_text TEXT NOT NULL,
+                start_timestamp REAL NOT NULL,
+                end_timestamp REAL NOT NULL,
+                created_at REAL NOT NULL
             );
             """
         )
@@ -206,6 +213,67 @@ class CleoSQLite:
         )
         self._conn.commit()
         return cur.rowcount > 0
+    def query_transcriptions_in_range(
+        self, start_timestamp: float, end_timestamp: float
+    ) -> list[dict]:
+        """Return transcription rows that overlap the requested time window."""
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM transcriptions
+            WHERE COALESCE(end_time, created_at) >= ?
+              AND COALESCE(start_time, created_at) <= ?
+            ORDER BY COALESCE(start_time, created_at) ASC, id ASC
+            """,
+            (start_timestamp, end_timestamp),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_video_clips_in_range(
+        self, start_timestamp: float, end_timestamp: float
+    ) -> list[dict]:
+        """Return video clips that overlap the requested time window."""
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM video_clips
+            WHERE COALESCE(end_timestamp, created_at) >= ?
+              AND COALESCE(start_timestamp, created_at) <= ?
+            ORDER BY COALESCE(start_timestamp, created_at) ASC, id ASC
+            """,
+            (start_timestamp, end_timestamp),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def insert_note_summary(
+        self,
+        summary_text: str,
+        start_timestamp: float,
+        end_timestamp: float,
+    ) -> int:
+        """Insert a generated note summary row. Returns the new row ID."""
+        cur = self._conn.execute(
+            """
+            INSERT INTO note_summaries (summary_text, start_timestamp, end_timestamp, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (summary_text, start_timestamp, end_timestamp, time.time()),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def query_note_summaries(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Return paginated note summaries and total count."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM note_summaries"
+        ).fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM note_summaries ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
 
     # ── Preferences ──
 
