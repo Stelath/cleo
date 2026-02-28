@@ -14,6 +14,8 @@ from services.config import (
     COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
+    FRONTEND_ADDRESS,
+    FRONTEND_PORT,
     NAVIGATION_ASSIST_ADDRESS,
     NAVIGATION_ASSIST_PORT,
     OBJECT_RECOGNITION_ADDRESS,
@@ -69,6 +71,12 @@ def _run_navigation_assist_service() -> None:
     serve(port=NAVIGATION_ASSIST_PORT)
 
 
+def _run_frontend_service() -> None:
+    from services.frontend_service import serve
+
+    serve(port=FRONTEND_PORT)
+
+
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
     channel = grpc.insecure_channel(address)
     try:
@@ -106,6 +114,11 @@ def main() -> None:
             daemon=True,
             name="navigation-assist-tool",
         ),
+        multiprocessing.Process(
+            target=_run_frontend_service,
+            daemon=True,
+            name="frontend-service",
+        ),
     ]
 
     for proc in processes:
@@ -118,6 +131,7 @@ def main() -> None:
     _wait_for_grpc(COLOR_BLIND_ADDRESS)
     _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
     _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
+    _wait_for_grpc(FRONTEND_ADDRESS)
     log.info("runtime.services_ready")
 
     shutdown_event = threading.Event()

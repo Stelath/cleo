@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package cleo.frontend;
+
+service FrontendService {
+  // Server-side streaming: Tauri client subscribes to receive HUD commands
+  rpc SubscribeHudCommands(SubscribeRequest) returns (stream HudCommand);
+
+  // Unary: Tauri client sends user actions back to the platform
+  rpc SendUserAction(UserAction) returns (ActionResponse);
+
+  // Unary: Check service status and protocol version
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+// ── Subscribe ──
+
+message SubscribeRequest {
+  string client_id = 1;
+}
+
+// ── HUD Commands (server → client) ──
+
+message HudCommand {
+  oneof command {
+    ComponentCommand component = 1;
+    PlayAudioCommand play_audio = 2;
+    PlayAudioFileCommand play_audio_file = 3;
+    RenderHtmlCommand render_html = 4;
+    ClearCommand clear = 5;
+  }
+}
+
+message ComponentCommand {
+  string component = 1;
+  string action = 2;
+  string params_json = 3;
+  bytes media_data = 4;
+  string media_mime = 5;
+}
+
+message PlayAudioCommand {
+  string data_base64 = 1;
+  uint32 sample_rate = 2;
+}
+
+message PlayAudioFileCommand {
+  string path = 1;
+}
+
+message RenderHtmlCommand {
+  string html = 1;
+}
+
+message ClearCommand {}
+
+// ── User Actions (client → server) ──
+
+message UserAction {
+  oneof action {
+    VideoEndedAction video_ended = 1;
+    UserTextInput text_input = 2;
+  }
+}
+
+message VideoEndedAction {}
+
+message UserTextInput {
+  string text = 1;
+}
+
+message ActionResponse {
+  bool ok = 1;
+}
+
+// ── Status ──
+
+message StatusRequest {}
+
+message StatusResponse {
+  string protocol_version = 1;
+  bool ready = 2;
+}
