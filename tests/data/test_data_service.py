@@ -78,6 +78,37 @@ def test_get_nonexistent_clip(sqlite_db):
     assert sqlite_db.get_clip_by_faiss_id(9999) is None
 
 
+def test_query_transcriptions_in_range(sqlite_db):
+    sqlite_db.insert_transcription(text="before", start_time=10.0, end_time=11.0)
+    sqlite_db.insert_transcription(text="inside", start_time=20.0, end_time=21.0)
+    sqlite_db.insert_transcription(text="after", start_time=30.0, end_time=31.0)
+
+    rows = sqlite_db.query_transcriptions_in_range(19.5, 21.5)
+    assert [row["text"] for row in rows] == ["inside"]
+
+
+def test_query_video_clips_in_range(sqlite_db):
+    sqlite_db.insert_video_clip(clip_path="/tmp/a.mp4", start_timestamp=10.0, end_timestamp=11.0)
+    sqlite_db.insert_video_clip(clip_path="/tmp/b.mp4", start_timestamp=20.0, end_timestamp=21.0)
+
+    rows = sqlite_db.query_video_clips_in_range(19.5, 21.5)
+    assert len(rows) == 1
+    assert rows[0]["clip_path"] == "/tmp/b.mp4"
+
+
+def test_insert_and_query_note_summary(sqlite_db):
+    row_id = sqlite_db.insert_note_summary(
+        summary_text="summary",
+        start_timestamp=100.0,
+        end_timestamp=110.0,
+    )
+    assert row_id >= 1
+
+    rows, total = sqlite_db.query_note_summaries(limit=10)
+    assert total == 1
+    assert rows[0]["summary_text"] == "summary"
+
+
 # ── DataService gRPC servicer tests ──
 
 
@@ -193,6 +224,67 @@ def test_get_video_clip_rpc(data_servicer):
     resp = data_servicer.GetVideoClip(get_req, _mock_context())
     assert resp.mp4_data == fake_mp4
     assert resp.num_frames == 20
+
+
+def test_get_transcriptions_in_range_rpc(data_servicer):
+    from generated import data_pb2
+
+    data_servicer.StoreTranscription(
+        data_pb2.StoreTranscriptionRequest(
+            text="captured",
+            start_time=20.0,
+            end_time=21.0,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.GetTranscriptionsInRange(
+        data_pb2.TimeRangeRequest(start_timestamp=19.0, end_timestamp=22.0),
+        _mock_context(),
+    )
+    assert [entry.text for entry in resp.entries] == ["captured"]
+
+
+def test_get_video_clips_in_range_rpc(data_servicer):
+    from generated import data_pb2
+
+    data_servicer.StoreVideoClip(
+        data_pb2.StoreVideoClipRequest(
+            mp4_data=b"\x00" * 100,
+            start_timestamp=20.0,
+            end_timestamp=21.0,
+            num_frames=3,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.GetVideoClipsInRange(
+        data_pb2.TimeRangeRequest(start_timestamp=19.0, end_timestamp=22.0),
+        _mock_context(),
+    )
+    assert len(resp.clips) == 1
+    assert resp.clips[0].num_frames == 3
+
+
+def test_store_and_get_note_summaries_rpc(data_servicer):
+    from generated import data_pb2
+
+    store_resp = data_servicer.StoreNoteSummary(
+        data_pb2.StoreNoteSummaryRequest(
+            summary_text="meeting summary",
+            start_timestamp=100.0,
+            end_timestamp=110.0,
+        ),
+        _mock_context(),
+    )
+    assert store_resp.id >= 1
+
+    resp = data_servicer.GetNoteSummaries(
+        data_pb2.NoteSummariesRequest(limit=10),
+        _mock_context(),
+    )
+    assert resp.total_count == 1
+    assert resp.entries[0].summary_text == "meeting summary"
 
 
 def test_get_nonexistent_clip_rpc(data_servicer):
