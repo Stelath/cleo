@@ -39,9 +39,9 @@ class FrontendServiceStub(object):
                 request_serializer=frontend__pb2.NotificationRequest.SerializeToString,
                 response_deserializer=frontend__pb2.FrontendResponse.FromString,
                 _registered_method=True)
-        self.ShowImage = channel.unary_unary(
-                '/cleo.frontend.FrontendService/ShowImage',
-                request_serializer=frontend__pb2.ImageRequest.SerializeToString,
+        self.StreamImage = channel.stream_unary(
+                '/cleo.frontend.FrontendService/StreamImage',
+                request_serializer=frontend__pb2.ImageChunk.SerializeToString,
                 response_deserializer=frontend__pb2.FrontendResponse.FromString,
                 _registered_method=True)
         self.ShowProgress = channel.unary_unary(
@@ -106,7 +106,7 @@ class FrontendServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ShowImage(self, request, context):
+    def StreamImage(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -184,9 +184,9 @@ def add_FrontendServiceServicer_to_server(servicer, server):
                     request_deserializer=frontend__pb2.NotificationRequest.FromString,
                     response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
             ),
-            'ShowImage': grpc.unary_unary_rpc_method_handler(
-                    servicer.ShowImage,
-                    request_deserializer=frontend__pb2.ImageRequest.FromString,
+            'StreamImage': grpc.stream_unary_rpc_method_handler(
+                    servicer.StreamImage,
+                    request_deserializer=frontend__pb2.ImageChunk.FromString,
                     response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
             ),
             'ShowProgress': grpc.unary_unary_rpc_method_handler(
@@ -278,7 +278,7 @@ class FrontendService(object):
             _registered_method=True)
 
     @staticmethod
-    def ShowImage(request,
+    def StreamImage(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -288,11 +288,11 @@ class FrontendService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_unary(
+            request_iterator,
             target,
-            '/cleo.frontend.FrontendService/ShowImage',
-            frontend__pb2.ImageRequest.SerializeToString,
+            '/cleo.frontend.FrontendService/StreamImage',
+            frontend__pb2.ImageChunk.SerializeToString,
             frontend__pb2.FrontendResponse.FromString,
             options,
             channel_credentials,

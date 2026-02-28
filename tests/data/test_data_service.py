@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from generated import data_pb2
 from services.data.sql.db import CleoSQLite
 
 
@@ -168,6 +169,50 @@ def _mock_context():
     return ctx
 
 
+def _iter_media_chunks(data: bytes, media_id: str, chunk_size: int = 64):
+    if not data:
+        yield data_pb2.MediaChunk(data=b"", media_id=media_id, chunk_index=0, is_last=True)
+        return
+
+    chunk_index = 0
+    total = len(data)
+    for start in range(0, total, chunk_size):
+        end = min(start + chunk_size, total)
+        yield data_pb2.MediaChunk(
+            data=data[start:end],
+            media_id=media_id,
+            chunk_index=chunk_index,
+            is_last=end >= total,
+        )
+        chunk_index += 1
+
+
+def _store_clip_request_iter(
+    *,
+    upload_id: str,
+    mp4_data: bytes,
+    start_timestamp: float,
+    end_timestamp: float,
+    num_frames: int,
+    embed_data: bytes = b"",
+):
+    yield data_pb2.StoreVideoClipChunk(
+        metadata=data_pb2.StoreVideoClipMetadata(
+            upload_id=upload_id,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            num_frames=num_frames,
+        )
+    )
+
+    for chunk in _iter_media_chunks(mp4_data, media_id=f"{upload_id}:mp4"):
+        yield data_pb2.StoreVideoClipChunk(mp4_chunk=chunk)
+
+    if embed_data:
+        for chunk in _iter_media_chunks(embed_data, media_id=f"{upload_id}:embed"):
+            yield data_pb2.StoreVideoClipChunk(embed_chunk=chunk)
+
+
 def test_store_transcription_rpc(data_servicer):
     from generated import data_pb2
 
@@ -179,16 +224,15 @@ def test_store_transcription_rpc(data_servicer):
 
 
 def test_store_video_clip_rpc(data_servicer, tmp_path):
-    from generated import data_pb2
-
     fake_mp4 = b"\x00" * 100
-    req = data_pb2.StoreVideoClipRequest(
+    req_iter = _store_clip_request_iter(
+        upload_id="store-video-1",
         mp4_data=fake_mp4,
         start_timestamp=100.0,
         end_timestamp=110.0,
         num_frames=20,
     )
-    resp = data_servicer.StoreVideoClip(req, _mock_context())
+    resp = data_servicer.StoreVideoClip(req_iter, _mock_context())
     assert resp.clip_id >= 1
     assert resp.faiss_id >= 0
 
@@ -199,16 +243,15 @@ def test_store_video_clip_rpc(data_servicer, tmp_path):
 
 
 def test_search_rpc(data_servicer):
-    from generated import data_pb2
-
     # Store a clip first
-    store_req = data_pb2.StoreVideoClipRequest(
+    store_req_iter = _store_clip_request_iter(
+        upload_id="store-video-2",
         mp4_data=b"\x00" * 100,
         start_timestamp=100.0,
         end_timestamp=110.0,
         num_frames=20,
     )
-    data_servicer.StoreVideoClip(store_req, _mock_context())
+    data_servicer.StoreVideoClip(store_req_iter, _mock_context())
 
     # Search by text
     search_req = data_pb2.SearchRequest(text="test query", top_k=5)
@@ -232,20 +275,24 @@ def test_get_transcription_log_rpc(data_servicer):
 
 
 def test_get_video_clip_rpc(data_servicer):
-    from generated import data_pb2
-
     # Store a clip
     fake_mp4 = b"fake_video_data_here"
-    store_req = data_pb2.StoreVideoClipRequest(
-        mp4_data=fake_mp4, start_timestamp=1.0, end_timestamp=11.0, num_frames=20
+    store_req_iter = _store_clip_request_iter(
+        upload_id="store-video-3",
+        mp4_data=fake_mp4,
+        start_timestamp=1.0,
+        end_timestamp=11.0,
+        num_frames=20,
     )
-    store_resp = data_servicer.StoreVideoClip(store_req, _mock_context())
+    store_resp = data_servicer.StoreVideoClip(store_req_iter, _mock_context())
 
     # Retrieve it
     get_req = data_pb2.GetVideoClipRequest(clip_id=store_resp.clip_id)
-    resp = data_servicer.GetVideoClip(get_req, _mock_context())
-    assert resp.mp4_data == fake_mp4
-    assert resp.num_frames == 20
+    stream = data_servicer.GetVideoClip(get_req, _mock_context())
+    chunks = list(stream)
+    assert chunks
+    assert b"".join(chunk.data for chunk in chunks) == fake_mp4
+    assert chunks[-1].num_frames == 20
 
 
 def test_store_food_macros_rpc(data_servicer):
@@ -292,10 +339,9 @@ def test_get_transcriptions_in_range_rpc(data_servicer):
 
 
 def test_get_video_clips_in_range_rpc(data_servicer):
-    from generated import data_pb2
-
     data_servicer.StoreVideoClip(
-        data_pb2.StoreVideoClipRequest(
+        _store_clip_request_iter(
+            upload_id="store-video-4",
             mp4_data=b"\x00" * 100,
             start_timestamp=20.0,
             end_timestamp=21.0,
@@ -338,5 +384,5 @@ def test_get_nonexistent_clip_rpc(data_servicer):
 
     ctx = _mock_context()
     req = data_pb2.GetVideoClipRequest(clip_id=9999)
-    data_servicer.GetVideoClip(req, ctx)
+    list(data_servicer.GetVideoClip(req, ctx))
     ctx.set_code.assert_called()

@@ -20,9 +20,13 @@ from pathlib import Path
 
 import cv2
 import grpc
-import numpy as np
 
 from generated import sensor_pb2, sensor_pb2_grpc, assistant_pb2, assistant_pb2_grpc
+from services.media.camera_transport import (
+    encode_rgb_to_h264_annexb,
+    encode_rgb_to_jpeg,
+    iter_camera_frame_chunks,
+)
 
 DEMO_IMAGES_DIR = Path(__file__).parent / "demo_images"
 
@@ -33,7 +37,7 @@ class MockSensorServicer(sensor_pb2_grpc.SensorServiceServicer):
     """Serves static images as camera frames on StreamCamera."""
 
     def __init__(self, image_paths: list[Path]):
-        self._frames: list[sensor_pb2.CameraFrame] = []
+        self._frames: list[tuple[bytes, bytes, int, int]] = []
         for p in image_paths:
             img_bgr = cv2.imread(str(p))
             if img_bgr is None:
@@ -41,30 +45,64 @@ class MockSensorServicer(sensor_pb2_grpc.SensorServiceServicer):
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             h, w = img_rgb.shape[:2]
             self._frames.append(
-                sensor_pb2.CameraFrame(
-                    data=img_rgb.tobytes(),
-                    width=w,
-                    height=h,
-                    timestamp=time.time(),
+                (
+                    encode_rgb_to_h264_annexb(img_rgb, fps=1.0),
+                    encode_rgb_to_jpeg(img_rgb),
+                    w,
+                    h,
                 )
             )
         print(f"  MockSensor loaded {len(self._frames)} images", flush=True)
+
+    @staticmethod
+    def _iter_chunks(
+        frame_data: bytes,
+        width: int,
+        height: int,
+        frame_id: str,
+        timestamp: float,
+        encoding: int,
+    ):
+        yield from iter_camera_frame_chunks(
+            data=frame_data,
+            frame_id=frame_id,
+            width=width,
+            height=height,
+            timestamp=timestamp,
+            encoding=encoding,
+            key_frame=True,
+            chunk_bytes=256 * 1024,
+        )
 
     def StreamCamera(self, request, context):
         fps = request.fps if request.fps > 0 else 1.0
         interval = 1.0 / fps
         idx = 0
         while context.is_active():
-            frame = self._frames[idx % len(self._frames)]
-            frame.timestamp = time.time()
-            yield frame
+            h264_data, _, width, height = self._frames[idx % len(self._frames)]
+            timestamp = time.time()
+            frame_id = f"stream-{idx}"
+            yield from self._iter_chunks(
+                h264_data,
+                width,
+                height,
+                frame_id,
+                timestamp,
+                sensor_pb2.FRAME_ENCODING_H264,
+            )
             idx += 1
             time.sleep(interval)
 
     def CaptureFrame(self, request, context):
-        frame = self._frames[0]
-        frame.timestamp = time.time()
-        return frame
+        _, jpeg_data, width, height = self._frames[0]
+        yield from self._iter_chunks(
+            jpeg_data,
+            width,
+            height,
+            "capture-0",
+            time.time(),
+            sensor_pb2.FRAME_ENCODING_JPEG,
+        )
 
 
 def _run_mock_sensor(port: int, image_paths: list[str]):

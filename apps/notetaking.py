@@ -29,7 +29,7 @@ class NoteContext:
     """Captured context for a note session."""
 
     transcripts: list[data_pb2.TranscriptionLogEntry]
-    clips: list[tuple[data_pb2.VideoClipMetadata, data_pb2.VideoClipResponse]]
+    clips: list[tuple[data_pb2.VideoClipMetadata, bytes]]
 
 
 class NoteSummaryBedrockClient:
@@ -50,7 +50,7 @@ class NoteSummaryBedrockClient:
         start_timestamp: float,
         end_timestamp: float,
         transcripts: list[data_pb2.TranscriptionLogEntry],
-        clips: list[tuple[data_pb2.VideoClipMetadata, data_pb2.VideoClipResponse]],
+        clips: list[tuple[data_pb2.VideoClipMetadata, bytes]],
     ) -> str:
         """Generate a concise note summary from transcript text and video clips."""
         transcript_lines = [
@@ -70,7 +70,7 @@ class NoteSummaryBedrockClient:
         )
 
         content: list[dict[str, Any]] = [{"text": prompt}]
-        for metadata, clip in clips:
+        for metadata, clip_mp4_data in clips:
             content.append(
                 {
                     "text": (
@@ -84,7 +84,7 @@ class NoteSummaryBedrockClient:
                 {
                     "video": {
                         "format": "mp4",
-                        "source": {"bytes": clip.mp4_data},
+                        "source": {"bytes": clip_mp4_data},
                     }
                 }
             )
@@ -250,8 +250,20 @@ class NotetakingServicer(ToolServiceBase):
 
         clips = []
         for metadata in clip_metadata_response.clips:
-            clip = self._data.GetVideoClip(data_pb2.GetVideoClipRequest(clip_id=metadata.clip_id))
-            clips.append((metadata, clip))
+            clip_stream = self._data.GetVideoClip(data_pb2.GetVideoClipRequest(clip_id=metadata.clip_id))
+            clip_bytes = bytearray()
+            expected_chunk_index = 0
+            for chunk in clip_stream:
+                if chunk.chunk_index != expected_chunk_index:
+                    raise RuntimeError(
+                        "GetVideoClip returned out-of-order chunks for "
+                        f"clip_id={metadata.clip_id}: expected {expected_chunk_index}, got {chunk.chunk_index}"
+                    )
+                clip_bytes.extend(chunk.data)
+                expected_chunk_index += 1
+                if chunk.is_last:
+                    break
+            clips.append((metadata, bytes(clip_bytes)))
 
         return NoteContext(
             transcripts=list(transcript_response.entries),

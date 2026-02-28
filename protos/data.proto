@@ -6,8 +6,8 @@ service DataService {
   // Store a transcription result in SQLite
   rpc StoreTranscription(StoreTranscriptionRequest) returns (StoreTranscriptionResponse);
 
-  // Store a video clip: save MP4 to disk, embed via Nova, store in FAISS + SQLite
-  rpc StoreVideoClip(StoreVideoClipRequest) returns (StoreVideoClipResponse);
+  // Store a video clip as chunked upload, then embed via Nova and index in FAISS + SQLite
+  rpc StoreVideoClip(stream StoreVideoClipChunk) returns (StoreVideoClipResponse);
 
   // Search by text, image, or video — embed query, search FAISS, join SQLite
   rpc Search(SearchRequest) returns (SearchResponse);
@@ -18,8 +18,8 @@ service DataService {
   // Retrieve transcription rows whose timestamps overlap a given time window
   rpc GetTranscriptionsInRange(TimeRangeRequest) returns (TranscriptionRangeResponse);
 
-  // Retrieve a video clip by ID
-  rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
+  // Retrieve a video clip by ID as chunks
+  rpc GetVideoClip(GetVideoClipRequest) returns (stream VideoClipChunk);
 
   // Register or update an app
   rpc RegisterApp(RegisterAppRequest) returns (RegisterAppResponse);
@@ -64,19 +64,38 @@ message StoreTranscriptionResponse {
 
 // ── Store Video Clip ──
 
-message StoreVideoClipRequest {
-  // Raw MP4 bytes
-  bytes mp4_data = 1;
+message StoreVideoClipMetadata {
+  // Stable upload identity for all chunks in this request stream.
+  string upload_id = 1;
 
-  // Unix epoch seconds for clip boundaries
+  // Unix epoch seconds for clip boundaries.
   double start_timestamp = 2;
   double end_timestamp = 3;
 
-  // Number of frames in the clip
+  // Number of frames in the full clip.
   int32 num_frames = 4;
+}
 
-  // Optional lower-FPS MP4 for embedding. If empty, mp4_data is used.
-  bytes embed_data = 5;
+message MediaChunk {
+  // Payload bytes for this chunk.
+  bytes data = 1;
+
+  // Stable media identity so chunks can be assembled.
+  string media_id = 2;
+
+  // Zero-based chunk index.
+  int32 chunk_index = 3;
+
+  // True if this is the final chunk for media_id.
+  bool is_last = 4;
+}
+
+message StoreVideoClipChunk {
+  oneof payload {
+    StoreVideoClipMetadata metadata = 1;
+    MediaChunk mp4_chunk = 2;
+    MediaChunk embed_chunk = 3;
+  }
 }
 
 message StoreVideoClipResponse {
@@ -156,11 +175,14 @@ message VideoClipMetadata {
   double created_at = 6;
 }
 
-message VideoClipResponse {
-  bytes mp4_data = 1;
-  double start_timestamp = 2;
-  double end_timestamp = 3;
-  int32 num_frames = 4;
+message VideoClipChunk {
+  bytes data = 1;
+  int64 clip_id = 2;
+  int32 chunk_index = 3;
+  bool is_last = 4;
+  double start_timestamp = 5;
+  double end_timestamp = 6;
+  int32 num_frames = 7;
 }
 
 // ── App Registration ──

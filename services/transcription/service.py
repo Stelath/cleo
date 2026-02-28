@@ -41,6 +41,7 @@ _TRANSCRIBE_REGION = (
 )
 _DEBUG_TRANSCRIPTION_HUD_ENV = "CLEO_DEBUG_TRANSCRIPTION_HUD"
 _DEBUG_TRANSCRIPT_MAX_CHARS = 180
+_ASSISTANT_RESPONSE_LOG_MAX_CHARS = 240
 _TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
 _TRIGGER_CAPTURE_SECONDS = 3.0
 _QUEUE_SENTINEL = object()
@@ -119,10 +120,16 @@ class AssistantCommandClient:
                 assistant_pb2.CommandRequest(text=command),
                 timeout=self._timeout,
             )
+            response_text = response.response_text.strip()
+            if len(response_text) > _ASSISTANT_RESPONSE_LOG_MAX_CHARS:
+                response_text = (
+                    f"{response_text[:_ASSISTANT_RESPONSE_LOG_MAX_CHARS - 3]}..."
+                )
             log.info(
                 "transcription.assistant_invoked",
                 success=response.success,
                 tool_name=response.tool_name,
+                response_text=response_text,
             )
         except grpc.RpcError as exc:
             log.warning("transcription.assistant_call_failed", error=str(exc))

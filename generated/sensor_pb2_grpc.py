@@ -37,7 +37,7 @@ class SensorServiceStub(object):
         self.StreamCamera = channel.unary_stream(
                 '/cleo.sensor.SensorService/StreamCamera',
                 request_serializer=sensor__pb2.StreamRequest.SerializeToString,
-                response_deserializer=sensor__pb2.CameraFrame.FromString,
+                response_deserializer=sensor__pb2.CameraFrameChunk.FromString,
                 _registered_method=True)
         self.StreamAudio = channel.unary_stream(
                 '/cleo.sensor.SensorService/StreamAudio',
@@ -49,10 +49,10 @@ class SensorServiceStub(object):
                 request_serializer=sensor__pb2.StreamRequest.SerializeToString,
                 response_deserializer=sensor__pb2.IMUData.FromString,
                 _registered_method=True)
-        self.CaptureFrame = channel.unary_unary(
+        self.CaptureFrame = channel.unary_stream(
                 '/cleo.sensor.SensorService/CaptureFrame',
                 request_serializer=sensor__pb2.CaptureRequest.SerializeToString,
-                response_deserializer=sensor__pb2.CameraFrame.FromString,
+                response_deserializer=sensor__pb2.CameraFrameChunk.FromString,
                 _registered_method=True)
         self.RecordAudio = channel.unary_unary(
                 '/cleo.sensor.SensorService/RecordAudio',
@@ -65,7 +65,7 @@ class SensorServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def StreamCamera(self, request, context):
-        """Server-side streaming: continuous camera frames at requested FPS
+        """Server-side streaming: continuous camera frames as chunked H.264 payloads.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -86,7 +86,7 @@ class SensorServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def CaptureFrame(self, request, context):
-        """Unary: capture a single frame
+        """Server-side streaming: capture a single still frame as chunked JPEG payload.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -105,7 +105,7 @@ def add_SensorServiceServicer_to_server(servicer, server):
             'StreamCamera': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamCamera,
                     request_deserializer=sensor__pb2.StreamRequest.FromString,
-                    response_serializer=sensor__pb2.CameraFrame.SerializeToString,
+                    response_serializer=sensor__pb2.CameraFrameChunk.SerializeToString,
             ),
             'StreamAudio': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamAudio,
@@ -117,10 +117,10 @@ def add_SensorServiceServicer_to_server(servicer, server):
                     request_deserializer=sensor__pb2.StreamRequest.FromString,
                     response_serializer=sensor__pb2.IMUData.SerializeToString,
             ),
-            'CaptureFrame': grpc.unary_unary_rpc_method_handler(
+            'CaptureFrame': grpc.unary_stream_rpc_method_handler(
                     servicer.CaptureFrame,
                     request_deserializer=sensor__pb2.CaptureRequest.FromString,
-                    response_serializer=sensor__pb2.CameraFrame.SerializeToString,
+                    response_serializer=sensor__pb2.CameraFrameChunk.SerializeToString,
             ),
             'RecordAudio': grpc.unary_unary_rpc_method_handler(
                     servicer.RecordAudio,
@@ -154,7 +154,7 @@ class SensorService(object):
             target,
             '/cleo.sensor.SensorService/StreamCamera',
             sensor__pb2.StreamRequest.SerializeToString,
-            sensor__pb2.CameraFrame.FromString,
+            sensor__pb2.CameraFrameChunk.FromString,
             options,
             channel_credentials,
             insecure,
@@ -230,12 +230,12 @@ class SensorService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/cleo.sensor.SensorService/CaptureFrame',
             sensor__pb2.CaptureRequest.SerializeToString,
-            sensor__pb2.CameraFrame.FromString,
+            sensor__pb2.CameraFrameChunk.FromString,
             options,
             channel_credentials,
             insecure,

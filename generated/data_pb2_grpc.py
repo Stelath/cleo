@@ -39,9 +39,9 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.StoreTranscriptionRequest.SerializeToString,
                 response_deserializer=data__pb2.StoreTranscriptionResponse.FromString,
                 _registered_method=True)
-        self.StoreVideoClip = channel.unary_unary(
+        self.StoreVideoClip = channel.stream_unary(
                 '/cleo.data.DataService/StoreVideoClip',
-                request_serializer=data__pb2.StoreVideoClipRequest.SerializeToString,
+                request_serializer=data__pb2.StoreVideoClipChunk.SerializeToString,
                 response_deserializer=data__pb2.StoreVideoClipResponse.FromString,
                 _registered_method=True)
         self.Search = channel.unary_unary(
@@ -59,10 +59,10 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.TimeRangeRequest.SerializeToString,
                 response_deserializer=data__pb2.TranscriptionRangeResponse.FromString,
                 _registered_method=True)
-        self.GetVideoClip = channel.unary_unary(
+        self.GetVideoClip = channel.unary_stream(
                 '/cleo.data.DataService/GetVideoClip',
                 request_serializer=data__pb2.GetVideoClipRequest.SerializeToString,
-                response_deserializer=data__pb2.VideoClipResponse.FromString,
+                response_deserializer=data__pb2.VideoClipChunk.FromString,
                 _registered_method=True)
         self.RegisterApp = channel.unary_unary(
                 '/cleo.data.DataService/RegisterApp',
@@ -121,8 +121,8 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StoreVideoClip(self, request, context):
-        """Store a video clip: save MP4 to disk, embed via Nova, store in FAISS + SQLite
+    def StoreVideoClip(self, request_iterator, context):
+        """Store a video clip as chunked upload, then embed via Nova and index in FAISS + SQLite
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -150,7 +150,7 @@ class DataServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def GetVideoClip(self, request, context):
-        """Retrieve a video clip by ID
+        """Retrieve a video clip by ID as chunks
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -227,9 +227,9 @@ def add_DataServiceServicer_to_server(servicer, server):
                     request_deserializer=data__pb2.StoreTranscriptionRequest.FromString,
                     response_serializer=data__pb2.StoreTranscriptionResponse.SerializeToString,
             ),
-            'StoreVideoClip': grpc.unary_unary_rpc_method_handler(
+            'StoreVideoClip': grpc.stream_unary_rpc_method_handler(
                     servicer.StoreVideoClip,
-                    request_deserializer=data__pb2.StoreVideoClipRequest.FromString,
+                    request_deserializer=data__pb2.StoreVideoClipChunk.FromString,
                     response_serializer=data__pb2.StoreVideoClipResponse.SerializeToString,
             ),
             'Search': grpc.unary_unary_rpc_method_handler(
@@ -247,10 +247,10 @@ def add_DataServiceServicer_to_server(servicer, server):
                     request_deserializer=data__pb2.TimeRangeRequest.FromString,
                     response_serializer=data__pb2.TranscriptionRangeResponse.SerializeToString,
             ),
-            'GetVideoClip': grpc.unary_unary_rpc_method_handler(
+            'GetVideoClip': grpc.unary_stream_rpc_method_handler(
                     servicer.GetVideoClip,
                     request_deserializer=data__pb2.GetVideoClipRequest.FromString,
-                    response_serializer=data__pb2.VideoClipResponse.SerializeToString,
+                    response_serializer=data__pb2.VideoClipChunk.SerializeToString,
             ),
             'RegisterApp': grpc.unary_unary_rpc_method_handler(
                     servicer.RegisterApp,
@@ -336,7 +336,7 @@ class DataService(object):
             _registered_method=True)
 
     @staticmethod
-    def StoreVideoClip(request,
+    def StoreVideoClip(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -346,11 +346,11 @@ class DataService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
+        return grpc.experimental.stream_unary(
+            request_iterator,
             target,
             '/cleo.data.DataService/StoreVideoClip',
-            data__pb2.StoreVideoClipRequest.SerializeToString,
+            data__pb2.StoreVideoClipChunk.SerializeToString,
             data__pb2.StoreVideoClipResponse.FromString,
             options,
             channel_credentials,
@@ -454,12 +454,12 @@ class DataService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/cleo.data.DataService/GetVideoClip',
             data__pb2.GetVideoClipRequest.SerializeToString,
-            data__pb2.VideoClipResponse.FromString,
+            data__pb2.VideoClipChunk.FromString,
             options,
             channel_credentials,
             insecure,

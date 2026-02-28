@@ -1,6 +1,7 @@
 """Assistant gRPC service: receives commands, routes via Bedrock tool-use."""
 
 import json
+import os
 import signal
 from concurrent import futures
 
@@ -16,6 +17,15 @@ from generated import tool_pb2, tool_pb2_grpc
 
 log = structlog.get_logger()
 
+_DEBUG_ASSISTANT_HUD_ENV = "CLEO_DEBUG_ASSISTANT_HUD"
+_DEBUG_ASSISTANT_HUD_MAX_CHARS = 180
+
+
+def _truncate(value: str, *, max_chars: int = _DEBUG_ASSISTANT_HUD_MAX_CHARS) -> str:
+    if len(value) <= max_chars:
+        return value
+    return f"{value[: max_chars - 3]}..."
+
 
 class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
     """Receives transcribed commands, uses Bedrock to pick a tool, calls it via gRPC."""
@@ -27,6 +37,29 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
     ):
         self._registry = registry or ToolRegistry()
         self._bedrock = bedrock_client or BedrockClient()
+        enabled = os.getenv(_DEBUG_ASSISTANT_HUD_ENV, "").strip().lower()
+        self._debug_hud_enabled = enabled in {"1", "true", "yes", "on"}
+        if self._debug_hud_enabled:
+            log.info("assistant.debug_hud_enabled", env_var=_DEBUG_ASSISTANT_HUD_ENV)
+
+    def _show_llm_debug_response(self, text: str) -> None:
+        if not self._debug_hud_enabled or not text:
+            return
+
+        channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+        try:
+            stub = frontend_pb2_grpc.FrontendServiceStub(channel)
+            stub.ShowText(
+                frontend_pb2.TextRequest(
+                    text=f"LLM: {_truncate(text)}",
+                    position="top-right",
+                ),
+                timeout=2,
+            )
+        except grpc.RpcError as e:
+            log.warning("assistant.debug_hud_publish_failed", error=str(e))
+        finally:
+            channel.close()
 
     def _show_tool_debug_notification(self, tool_name: str) -> None:
         """Best-effort HUD notification so the user can see which tool was invoked."""
@@ -75,12 +108,17 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             )
 
         if isinstance(result, TextResult):
+            self._show_llm_debug_response(result.text)
             log.info("assistant.text_response", text=result.text[:100])
             return assistant_pb2.CommandResponse(
                 success=True,
                 response_text=result.text,
                 tool_name="",
             )
+
+        self._show_llm_debug_response(
+            f"tool={result.tool_name} params={json.dumps(result.parameters, default=str)}"
+        )
 
         # ToolUseResult — look up the tool and call it via gRPC
         tool_def = self._registry.get(result.tool_name)

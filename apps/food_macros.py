@@ -14,12 +14,22 @@ from urllib.request import Request, urlopen
 
 import grpc
 from PIL import Image
-from pyzbar.pyzbar import decode as pyzbar_decode
 import structlog
+
+try:
+    from pyzbar.pyzbar import decode as pyzbar_decode
+except ImportError:
+    pyzbar_decode = None
 
 from apps.tool_base import ToolServiceBase, serve_tool
 from generated import data_pb2, data_pb2_grpc, frontend_pb2, frontend_pb2_grpc, sensor_pb2, sensor_pb2_grpc
 from services.config import DATA_ADDRESS, FOOD_MACROS_PORT, FRONTEND_ADDRESS, SENSOR_ADDRESS
+from services.media.camera_transport import (
+    AssembledCameraFrame,
+    CameraFrameAssembler,
+    assembled_frame_to_rgb,
+    encode_rgb_to_jpeg,
+)
 
 log = structlog.get_logger()
 
@@ -275,11 +285,11 @@ class FoodMacrosServicer(ToolServiceBase):
         query = str(params.get("query", "")).strip()
         log.info("food_macros.execute", query=query)
 
-        frame = self._sensor.CaptureFrame(sensor_pb2.CaptureRequest())
-        if not frame.data:
+        captured_frame = self._capture_frame()
+        if captured_frame is None or not captured_frame.data:
             return False, "Failed to capture a camera frame for food lookup"
 
-        image_bytes = _camera_frame_to_jpeg(frame)
+        image_bytes = _captured_frame_to_jpeg(captured_frame)
         detection = self._vision.identify(image_bytes, user_query=query)
 
         if detection.is_composite_meal:
@@ -396,6 +406,15 @@ class FoodMacrosServicer(ToolServiceBase):
         )
         return True, f"{product_name}: {summary} ({macros['basis']})"
 
+    def _capture_frame(self) -> AssembledCameraFrame | None:
+        stream = self._sensor.CaptureFrame(sensor_pb2.CaptureRequest())
+        assembler = CameraFrameAssembler()
+        for chunk in stream:
+            frame = assembler.push(chunk)
+            if frame is not None:
+                return frame
+        return None
+
     def _show_macro_card(
         self,
         *,
@@ -481,11 +500,11 @@ def _resolve_product_from_hits(
     return None
 
 
-def _camera_frame_to_jpeg(frame: sensor_pb2.CameraFrame) -> bytes:
-    image = Image.frombytes("RGB", (frame.width, frame.height), frame.data)
-    buffer = BytesIO()
-    image.save(buffer, format="JPEG")
-    return buffer.getvalue()
+def _captured_frame_to_jpeg(frame: AssembledCameraFrame) -> bytes:
+    if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
+        return frame.data
+    frame_rgb = assembled_frame_to_rgb(frame)
+    return encode_rgb_to_jpeg(frame_rgb)
 
 
 def _pick_number(data: dict[str, Any], key: str) -> float | None:

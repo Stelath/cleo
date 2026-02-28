@@ -19,6 +19,13 @@ _SYSTEM_PROMPT = (
     "Use the provided tools when the user's request matches a tool's purpose. "
     "If no tool fits, respond with a short helpful text answer."
 )
+_LOG_TEXT_MAX_CHARS = 400
+
+
+def _truncate(value: str, max_chars: int = _LOG_TEXT_MAX_CHARS) -> str:
+    if len(value) <= max_chars:
+        return value
+    return f"{value[: max_chars - 3]}..."
 
 
 @dataclass
@@ -51,12 +58,26 @@ class BedrockClient:
 
     def converse(self, user_text: str, tool_config: dict) -> ToolUseResult | TextResult:
         """Send user text to Bedrock and return either a tool-use or text result."""
-        response = self._client.converse(
-            modelId=self._model_id,
-            system=[{"text": _SYSTEM_PROMPT}],
-            messages=[{"role": "user", "content": [{"text": user_text}]}],
-            toolConfig=tool_config,
+        tools = tool_config.get("tools", []) if isinstance(tool_config, dict) else []
+        log.info(
+            "assistant.llm_prompt",
+            model_id=self._model_id,
+            tool_count=len(tools),
+            system_prompt=_truncate(_SYSTEM_PROMPT),
+            user_text=_truncate(user_text),
         )
+
+        converse_args: dict[str, Any] = {
+            "modelId": self._model_id,
+            "system": [{"text": _SYSTEM_PROMPT}],
+            "messages": [{"role": "user", "content": [{"text": user_text}]}],
+        }
+        if tools:
+            converse_args["toolConfig"] = tool_config
+        else:
+            log.warning("assistant.no_tools_registered")
+
+        response = self._client.converse(**converse_args)
 
         stop_reason = response.get("stopReason", "")
         output_message = response.get("output", {}).get("message", {})
@@ -72,6 +93,14 @@ class BedrockClient:
         for block in content_blocks:
             if "toolUse" in block:
                 tool_use = block["toolUse"]
+                log.info(
+                    "assistant.llm_response",
+                    response_kind="tool_use",
+                    stop_reason=stop_reason,
+                    tool_name=tool_use.get("name", ""),
+                    tool_use_id=tool_use.get("toolUseId", ""),
+                    parameters=tool_use.get("input", {}),
+                )
                 return ToolUseResult(
                     tool_use_id=tool_use["toolUseId"],
                     tool_name=tool_use["name"],
@@ -83,5 +112,11 @@ class BedrockClient:
         for block in content_blocks:
             if "text" in block:
                 text_parts.append(block["text"])
-
-        return TextResult(text="\n".join(text_parts) if text_parts else "")
+        text_result = "\n".join(text_parts) if text_parts else ""
+        log.info(
+            "assistant.llm_response",
+            response_kind="text",
+            stop_reason=stop_reason,
+            text=_truncate(text_result),
+        )
+        return TextResult(text=text_result)

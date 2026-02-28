@@ -6,6 +6,7 @@ import signal
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import cv2
@@ -22,10 +23,34 @@ from services.config import (
     VIDEO_CLIP_FPS,
     VIDEO_EMBED_FPS,
 )
+from services.media.camera_transport import (
+    CameraFrameAssembler,
+    assembled_frame_to_rgb,
+    downsample_mp4_for_embedding,
+    encode_rgb_to_h264_annexb,
+    h264_frames_to_mp4,
+)
 
 log = structlog.get_logger()
 
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
+_MEDIA_CHUNK_BYTES = 256 * 1024
+_MP4_CODEC = "avc1"
+
+
+def _open_mp4_writer(
+    path: str,
+    fps: float,
+    width: int,
+    height: int,
+) -> cv2.VideoWriter | None:
+    """Open an MP4 writer using the avc1 (H.264) codec."""
+    fourcc = cv2.VideoWriter_fourcc(*_MP4_CODEC)
+    writer = cv2.VideoWriter(path, fourcc, fps, (width, height))
+    if writer.isOpened():
+        return writer
+    writer.release()
+    return None
 
 
 class VideoDataClient:
@@ -53,20 +78,53 @@ class VideoDataClient:
         end_timestamp: float,
         num_frames: int,
     ) -> data_pb2.StoreVideoClipResponse | None:
-        try:
-            return self._stub.StoreVideoClip(
-                data_pb2.StoreVideoClipRequest(
-                    mp4_data=mp4_data,
-                    embed_data=embed_data,
+        upload_id = uuid.uuid4().hex
+
+        def _request_iter():
+            yield data_pb2.StoreVideoClipChunk(
+                metadata=data_pb2.StoreVideoClipMetadata(
+                    upload_id=upload_id,
                     start_timestamp=start_timestamp,
                     end_timestamp=end_timestamp,
                     num_frames=num_frames,
-                ),
-                timeout=self._timeout,
+                )
             )
+
+            for chunk in _iter_media_chunks(mp4_data, media_id=f"{upload_id}:mp4"):
+                yield data_pb2.StoreVideoClipChunk(mp4_chunk=chunk)
+
+            if embed_data:
+                for chunk in _iter_media_chunks(embed_data, media_id=f"{upload_id}:embed"):
+                    yield data_pb2.StoreVideoClipChunk(embed_chunk=chunk)
+
+        try:
+            return self._stub.StoreVideoClip(_request_iter(), timeout=self._timeout)
         except grpc.RpcError as exc:
             log.warning("video.store_clip_failed", error=str(exc))
             return None
+
+
+def _iter_media_chunks(data: bytes, media_id: str, chunk_bytes: int = _MEDIA_CHUNK_BYTES):
+    if not data:
+        yield data_pb2.MediaChunk(
+            data=b"",
+            media_id=media_id,
+            chunk_index=0,
+            is_last=True,
+        )
+        return
+
+    total = len(data)
+    chunk_index = 0
+    for start in range(0, total, chunk_bytes):
+        end = min(start + chunk_bytes, total)
+        yield data_pb2.MediaChunk(
+            data=data[start:end],
+            media_id=media_id,
+            chunk_index=chunk_index,
+            is_last=end >= total,
+        )
+        chunk_index += 1
 
 
 def _encode_frames_to_mp4(frames: list[np.ndarray], fps: float) -> bytes:
@@ -75,16 +133,14 @@ def _encode_frames_to_mp4(frames: list[np.ndarray], fps: float) -> bytes:
         return b""
 
     height, width = frames[0].shape[:2]
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     tmp_path = tmp.name
     tmp.close()
 
     try:
-        writer = cv2.VideoWriter(tmp_path, fourcc, fps, (width, height))
-        if not writer.isOpened():
-            log.error("video.writer_open_failed", path=tmp_path)
+        writer = _open_mp4_writer(tmp_path, fps, width, height)
+        if writer is None:
+            log.error("video.writer_open_failed", path=tmp_path, codec=_MP4_CODEC)
             return b""
 
         for frame in frames:
@@ -119,8 +175,6 @@ class VideoClipPipeline(threading.Thread):
         self._embed_fps = embed_fps
         self._clip_duration = clip_duration
         self._target_frames = int(clip_fps * clip_duration)
-        # Keep every Nth frame for embed stream (30/5 = every 6th)
-        self._embed_every_n = max(1, int(clip_fps / embed_fps))
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -162,104 +216,93 @@ class VideoClipPipeline(threading.Thread):
         stream = sensor_stub.StreamCamera(stream_request)
 
         # State for current clip window
-        writer = None
-        tmp_path = None
-        embed_frames: list[np.ndarray] = []
+        h264_frames: list[bytes] = []
         frame_count = 0
         start_timestamp = 0.0
         end_timestamp = 0.0
-        width = 0
-        height = 0
 
         try:
-            for camera_frame in stream:
+            for frame in self._iter_camera_frames(stream):
                 if self._stop_event.is_set():
                     break
 
-                frame_np = np.frombuffer(camera_frame.data, dtype=np.uint8).reshape(
-                    camera_frame.height, camera_frame.width, 3
-                )
-
                 # Start a new clip window
-                if writer is None:
-                    width = camera_frame.width
-                    height = camera_frame.height
-                    start_timestamp = camera_frame.timestamp
-                    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-                    tmp_path = tmp.name
-                    tmp.close()
-                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    writer = cv2.VideoWriter(tmp_path, fourcc, self._clip_fps, (width, height))
-                    if not writer.isOpened():
-                        log.error("video.writer_open_failed", path=tmp_path)
-                        Path(tmp_path).unlink(missing_ok=True)
-                        writer = None
-                        tmp_path = None
-                        continue
-                    embed_frames = []
+                if not h264_frames:
+                    start_timestamp = frame.timestamp
                     frame_count = 0
 
-                # Write frame to full-rate MP4 (RGB -> BGR)
-                bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
-                writer.write(bgr)
-                end_timestamp = camera_frame.timestamp
-                frame_count += 1
+                if frame.encoding == sensor_pb2.FRAME_ENCODING_H264:
+                    h264_payload = frame.data
+                else:
+                    frame_rgb = assembled_frame_to_rgb(frame)
+                    h264_payload = encode_rgb_to_h264_annexb(
+                        frame_rgb,
+                        fps=self._clip_fps,
+                    )
 
-                # Keep every Nth frame for embed stream
-                if (frame_count - 1) % self._embed_every_n == 0:
-                    embed_frames.append(frame_np.copy())
+                h264_frames.append(h264_payload)
+                end_timestamp = frame.timestamp
+                frame_count += 1
 
                 # Clip window complete
                 if frame_count >= self._target_frames:
                     self._finalize_clip(
-                        writer, tmp_path, embed_frames,
+                        h264_frames,
                         start_timestamp, end_timestamp, frame_count,
                         data_client,
                     )
-                    writer = None
-                    tmp_path = None
-                    embed_frames = []
+                    h264_frames = []
                     frame_count = 0
         finally:
             # Flush partial window if we have >= 2 seconds of footage
             min_frames = int(self._clip_fps * 2)
-            if writer is not None and frame_count >= min_frames:
+            if h264_frames and frame_count >= min_frames:
                 self._finalize_clip(
-                    writer, tmp_path, embed_frames,
+                    h264_frames,
                     start_timestamp, end_timestamp, frame_count,
                     data_client,
                 )
-            elif writer is not None:
-                writer.release()
-                if tmp_path:
-                    Path(tmp_path).unlink(missing_ok=True)
+
+    @staticmethod
+    def _iter_camera_frames(stream):
+        assembler = CameraFrameAssembler()
+
+        for chunk in stream:
+            try:
+                frame = assembler.push(chunk)
+            except ValueError as exc:
+                log.warning(
+                    "video.frame_chunk_invalid",
+                    error=str(exc),
+                )
+                continue
+
+            if frame is not None:
+                yield frame
 
     def _finalize_clip(
         self,
-        writer: cv2.VideoWriter,
-        tmp_path: str | None,
-        embed_frames: list[np.ndarray],
+        h264_frames: list[bytes],
         start_timestamp: float,
         end_timestamp: float,
         num_frames: int,
         data_client: VideoDataClient,
     ) -> None:
-        writer.release()
-
-        mp4_data = b""
-        if tmp_path:
-            try:
-                mp4_data = Path(tmp_path).read_bytes()
-            except Exception as exc:
-                log.error("video.read_clip_failed", error=str(exc))
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
+        try:
+            mp4_data = h264_frames_to_mp4(h264_frames, self._clip_fps)
+        except Exception as exc:
+            log.error("video.h264_to_mp4_failed", error=str(exc))
+            return
 
         if not mp4_data:
             log.warning("video.empty_clip", num_frames=num_frames)
             return
 
-        embed_data = _encode_frames_to_mp4(embed_frames, self._embed_fps)
+        try:
+            embed_data = downsample_mp4_for_embedding(mp4_data, self._embed_fps)
+        except Exception as exc:
+            log.warning("video.embed_downsample_failed", error=str(exc))
+            embed_data = b""
 
         resp = data_client.store_clip(
             mp4_data=mp4_data,

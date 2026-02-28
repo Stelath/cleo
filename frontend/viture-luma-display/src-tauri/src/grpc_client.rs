@@ -17,6 +17,80 @@ use frontend_proto::{StreamRequest, UserAction, VideoEndedAction};
 
 /// Maximum reconnection backoff delay in seconds.
 const MAX_BACKOFF_SECS: u64 = 30;
+const MAX_GRPC_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Debug)]
+struct AssembledImage {
+    mime: String,
+    position: String,
+    duration_ms: u32,
+    data: Vec<u8>,
+}
+
+#[derive(Debug, Default)]
+struct ImageChunkAssembler {
+    image_id: Option<String>,
+    expected_chunk_index: i32,
+    mime: String,
+    position: String,
+    duration_ms: u32,
+    data: Vec<u8>,
+}
+
+impl ImageChunkAssembler {
+    fn reset(&mut self) {
+        self.image_id = None;
+        self.expected_chunk_index = 0;
+        self.mime.clear();
+        self.position.clear();
+        self.duration_ms = 0;
+        self.data.clear();
+    }
+
+    fn ingest(&mut self, chunk: frontend_proto::ImageChunk) -> Result<Option<AssembledImage>> {
+        if self.image_id.is_none() {
+            self.image_id = Some(chunk.image_id.clone());
+            self.expected_chunk_index = 0;
+            self.mime = chunk.mime_type.clone();
+            self.position = chunk.position.clone();
+            self.duration_ms = chunk.duration_ms;
+            self.data.clear();
+        }
+
+        if self.image_id.as_deref() != Some(chunk.image_id.as_str()) {
+            self.reset();
+            return Err(AppError::Grpc("image chunk stream switched image_id mid-transfer".to_string()));
+        }
+
+        if chunk.chunk_index != self.expected_chunk_index {
+            self.reset();
+            return Err(AppError::Grpc(format!(
+                "image chunk gap: expected {}, got {}",
+                self.expected_chunk_index, chunk.chunk_index
+            )));
+        }
+
+        self.data.extend_from_slice(&chunk.data);
+        self.expected_chunk_index += 1;
+
+        if !chunk.is_last {
+            return Ok(None);
+        }
+
+        let assembled = AssembledImage {
+            mime: if self.mime.is_empty() {
+                "application/octet-stream".to_string()
+            } else {
+                self.mime.clone()
+            },
+            position: self.position.clone(),
+            duration_ms: self.duration_ms,
+            data: std::mem::take(&mut self.data),
+        };
+        self.reset();
+        Ok(Some(assembled))
+    }
+}
 
 pub async fn start(
     app: tauri::AppHandle,
@@ -53,7 +127,9 @@ async fn run_session(
 ) -> Result<()> {
     let mut client = FrontendServiceClient::connect(grpc_address.to_string())
         .await
-        .map_err(|error| AppError::Grpc(format!("failed to connect: {error}")))?;
+        .map_err(|error| AppError::Grpc(format!("failed to connect: {error}")))?
+        .max_decoding_message_size(MAX_GRPC_MESSAGE_BYTES)
+        .max_encoding_message_size(MAX_GRPC_MESSAGE_BYTES);
 
     log::info!("connected to gRPC server");
 
@@ -68,6 +144,7 @@ async fn run_session(
 
     let mut stream = response.into_inner();
     let mut event_rx = state.event_tx().subscribe();
+    let mut image_assembler = ImageChunkAssembler::default();
 
     // Keep a clone of the client for sending user actions
     let mut action_client = client.clone();
@@ -77,7 +154,13 @@ async fn run_session(
             message = stream.message() => {
                 match message {
                     Ok(Some(display_update)) => {
-                        if let Err(error) = handle_display_update(app, state, media_store, display_update).await {
+                        if let Err(error) = handle_display_update(
+                            app,
+                            state,
+                            media_store,
+                            &mut image_assembler,
+                            display_update,
+                        ).await {
                             log::error!("error handling display update: {error}");
                         }
                     }
@@ -119,6 +202,7 @@ async fn handle_display_update(
     app: &tauri::AppHandle,
     state: &AppState,
     media_store: &MediaStore,
+    image_assembler: &mut ImageChunkAssembler,
     display_update: frontend_proto::DisplayUpdate,
 ) -> Result<()> {
     let variant = display_update
@@ -146,29 +230,29 @@ async fn handle_display_update(
                 }),
             )?;
         }
-        DisplayVariant::Image(img) => {
-            let mime = if img.mime_type.is_empty() {
-                "application/octet-stream".to_string()
-            } else {
-                img.mime_type
-            };
-            let media_id = media_store.insert(mime, img.data);
-            let media_url = format!("hud-media://localhost/{media_id}");
+        DisplayVariant::ImageChunk(chunk) => {
+            if let Some(img) = image_assembler.ingest(chunk)? {
+                let media_id = media_store.insert(img.mime, img.data);
+                let media_url = format!("hud-media://localhost/{media_id}");
 
-            let mut params = serde_json::Map::new();
-            params.insert("src".to_string(), serde_json::Value::String(media_url));
-            if !img.position.is_empty() {
-                params.insert("position".to_string(), serde_json::Value::String(img.position));
+                let mut params = serde_json::Map::new();
+                params.insert("src".to_string(), serde_json::Value::String(media_url));
+                if !img.position.is_empty() {
+                    params.insert("position".to_string(), serde_json::Value::String(img.position));
+                }
+                if img.duration_ms > 0 {
+                    params.insert("duration_ms".to_string(), serde_json::json!(img.duration_ms));
+                }
+                app.emit_to(
+                    "hud",
+                    "hud:command",
+                    serde_json::json!({
+                        "component": "image",
+                        "action": "show",
+                        "params": params
+                    }),
+                )?;
             }
-            app.emit_to(
-                "hud",
-                "hud:command",
-                serde_json::json!({
-                    "component": "image",
-                    "action": "show",
-                    "params": params
-                }),
-            )?;
         }
         DisplayVariant::Progress(prog) => {
             let action = if !prog.visible {

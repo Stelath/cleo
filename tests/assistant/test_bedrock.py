@@ -1,6 +1,6 @@
 """Tests for assistant.bedrock — Bedrock Converse API client."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -84,6 +84,19 @@ class TestBedrockClient:
         assert call_kwargs["toolConfig"] == tool_config
         assert call_kwargs["messages"][0]["content"][0]["text"] == "test input"
 
+    def test_converse_omits_empty_tool_config(self, mock_boto3_client):
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "end_turn",
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+        }
+
+        client = BedrockClient(client=mock_boto3_client, model_id="test-model")
+        client.converse("test input", tool_config={"tools": []})
+
+        call_kwargs = mock_boto3_client.converse.call_args[1]
+        assert call_kwargs["modelId"] == "test-model"
+        assert "toolConfig" not in call_kwargs
+
     def test_bedrock_error_propagates(self, mock_boto3_client):
         mock_boto3_client.converse.side_effect = Exception("Bedrock unavailable")
 
@@ -155,3 +168,59 @@ class TestBedrockClient:
         call_kwargs = mock_boto3_client.converse.call_args[1]
         system_texts = [b["text"] for b in call_kwargs["system"]]
         assert any("Cleo" in t for t in system_texts)
+
+    @patch("services.assistant.bedrock.log")
+    def test_logs_prompt_and_text_response(self, mock_log, mock_boto3_client):
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "end_turn",
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [{"text": "The weather is nice today."}],
+                }
+            },
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        client.converse("what's the weather?", tool_config={"tools": []})
+
+        assert any(
+            call.args[0] == "assistant.llm_prompt" for call in mock_log.info.call_args_list
+        )
+        assert any(
+            call.args[0] == "assistant.llm_response" and call.kwargs.get("response_kind") == "text"
+            for call in mock_log.info.call_args_list
+        )
+
+    @patch("services.assistant.bedrock.log")
+    def test_logs_prompt_and_tool_response(self, mock_log, mock_boto3_client):
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "tool_use",
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "tu_123",
+                                "name": "color_blindness_assist",
+                                "input": {"query": "what color is this?"},
+                            }
+                        }
+                    ],
+                }
+            },
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        client.converse("help me with colors", tool_config={"tools": []})
+
+        assert any(
+            call.args[0] == "assistant.llm_prompt" for call in mock_log.info.call_args_list
+        )
+        assert any(
+            call.args[0] == "assistant.llm_response"
+            and call.kwargs.get("response_kind") == "tool_use"
+            and call.kwargs.get("tool_name") == "color_blindness_assist"
+            for call in mock_log.info.call_args_list
+        )

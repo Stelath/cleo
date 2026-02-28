@@ -14,6 +14,7 @@ from services.video.service import (
     VideoClipPipeline,
     VideoDataClient,
     _encode_frames_to_mp4,
+    _open_mp4_writer,
 )
 from tests.video.conftest import requires_bedrock
 
@@ -70,6 +71,27 @@ def test_encode_frames_empty_list():
     assert result == b""
 
 
+def test_open_mp4_writer_success():
+    mock_writer = MagicMock()
+    mock_writer.isOpened.return_value = True
+
+    with patch("services.video.service.cv2.VideoWriter", return_value=mock_writer):
+        writer = _open_mp4_writer("/tmp/test.mp4", fps=30.0, width=64, height=48)
+
+    assert writer is mock_writer
+
+
+def test_open_mp4_writer_returns_none_on_failure():
+    mock_writer = MagicMock()
+    mock_writer.isOpened.return_value = False
+
+    with patch("services.video.service.cv2.VideoWriter", return_value=mock_writer):
+        writer = _open_mp4_writer("/tmp/test.mp4", fps=30.0, width=64, height=48)
+
+    assert writer is None
+    mock_writer.release.assert_called_once()
+
+
 # ── VideoDataClient ──
 
 
@@ -110,18 +132,23 @@ def test_accumulate_and_encode_integration():
     from generated import sensor_pb2
 
     width, height = 64, 48
-    num_frames = 450
+    num_frames = 60
 
-    # Build mock CameraFrame objects
+    # Build mock CameraFrameChunk objects
     mock_frames = []
     for i in range(num_frames):
         data = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8).tobytes()
         mock_frames.append(
-            sensor_pb2.CameraFrame(
+            sensor_pb2.CameraFrameChunk(
                 data=data,
+                frame_id=f"frame-{i}",
+                chunk_index=0,
+                is_last=True,
                 width=width,
                 height=height,
                 timestamp=1000.0 + i / 30.0,
+                encoding=sensor_pb2.FRAME_ENCODING_RGB24,
+                key_frame=True,
             )
         )
 
@@ -144,12 +171,17 @@ def test_accumulate_and_encode_integration():
     pipeline = VideoClipPipeline(
         sensor_address="localhost:1",
         data_address="localhost:1",
+        clip_fps=30.0,
+        clip_duration=2.0,
     )
 
     # Run _stream_loop directly (not via thread) with mocked dependencies
-    pipeline._stream_loop(mock_sensor_stub, mock_data_client)
+    with patch("services.video.service.encode_rgb_to_h264_annexb", return_value=b"\x00\x00\x00\x01frame"):
+        with patch("services.video.service.h264_frames_to_mp4", return_value=b"mp4-bytes"):
+            with patch("services.video.service.downsample_mp4_for_embedding", return_value=b"embed-bytes"):
+                pipeline._stream_loop(mock_sensor_stub, mock_data_client)
 
-    # Should have been called once for 450 frames
+    # Should have been called once for target frames
     assert mock_data_client.store_clip.call_count == 1
 
     call_kwargs = mock_data_client.store_clip.call_args
@@ -157,8 +189,8 @@ def test_accumulate_and_encode_integration():
     assert len(call_kwargs.kwargs.get("mp4_data", call_kwargs[1].get("mp4_data", b""))) > 0
     # embed_data (5 FPS clip) should be non-empty
     assert len(call_kwargs.kwargs.get("embed_data", call_kwargs[1].get("embed_data", b""))) > 0
-    # num_frames should be 450
-    assert call_kwargs.kwargs.get("num_frames", call_kwargs[1].get("num_frames", 0)) == 450
+    # num_frames should be target clip frame count
+    assert call_kwargs.kwargs.get("num_frames", call_kwargs[1].get("num_frames", 0)) == num_frames
 
 
 # ── Bedrock integration tests ──

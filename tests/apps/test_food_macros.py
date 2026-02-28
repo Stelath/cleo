@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from io import BytesIO
 from unittest.mock import MagicMock
 
 from PIL import Image
@@ -13,6 +14,28 @@ from generated import sensor_pb2, tool_pb2
 
 
 _IMAGE_DIR = Path(__file__).resolve().parent.parent / "image"
+
+
+def _capture_stream_from_rgb(rgb: tuple[int, int, int] = (255, 0, 0)):
+    image = Image.new("RGB", (1, 1), rgb)
+    buf = BytesIO()
+    image.save(buf, format="JPEG")
+    jpeg = buf.getvalue()
+    return iter(
+        [
+            sensor_pb2.CameraFrameChunk(
+                data=jpeg,
+                frame_id="test-frame",
+                chunk_index=0,
+                is_last=True,
+                width=1,
+                height=1,
+                timestamp=1000.0,
+                encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+                key_frame=True,
+            )
+        ]
+    )
 
 
 def test_extract_food_macros_prefers_serving_values():
@@ -50,11 +73,7 @@ class TestFoodMacrosServicer:
         food = MagicMock()
         servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\xff\x00\x00",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((255, 0, 0))
         servicer._data = MagicMock()
         servicer._data.StoreFoodMacros.return_value = MagicMock(id=11)
         servicer._frontend = MagicMock()
@@ -110,11 +129,7 @@ class TestFoodMacrosServicer:
             barcode_scanner=barcode_scanner,
         )
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\xff\x00\x00",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((255, 0, 0))
         servicer._data = MagicMock()
         servicer._data.StoreFoodMacros.return_value = MagicMock(id=7)
         servicer._frontend = MagicMock()
@@ -161,11 +176,7 @@ class TestFoodMacrosServicer:
             barcode_scanner=barcode_scanner,
         )
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\x00\xff\x00",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((0, 255, 0))
         servicer._data = MagicMock()
         servicer._data.StoreFoodMacros.return_value = MagicMock(id=9)
         servicer._frontend = MagicMock()
@@ -199,11 +210,7 @@ class TestFoodMacrosServicer:
         }
         servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\x00\xff\x00",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((0, 255, 0))
         servicer._data = MagicMock()
         servicer._data.StoreFoodMacros.return_value = MagicMock(id=9)
         servicer._frontend = MagicMock()
@@ -225,11 +232,7 @@ class TestFoodMacrosServicer:
         food = MagicMock()
         servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\x00\x00\xff",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((0, 0, 255))
 
         request = tool_pb2.ToolRequest(
             tool_name="food_macros",
@@ -257,11 +260,7 @@ class TestFoodMacrosServicer:
         food = MagicMock()
         servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
         servicer._sensor = MagicMock()
-        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
-            data=b"\x00\x00\xff",
-            width=1,
-            height=1,
-        )
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((0, 0, 255))
 
         request = tool_pb2.ToolRequest(
             tool_name="food_macros",
@@ -294,15 +293,23 @@ def test_live_food_macros_pipeline_prints_estimated_macros(mock_grpc_context, mo
     with Image.open(image_path) as image:
         rgb_image = image.convert("RGB")
         width, height = rgb_image.size
-        frame = sensor_pb2.CameraFrame(
-            data=rgb_image.tobytes(),
+        buf = BytesIO()
+        rgb_image.save(buf, format="JPEG")
+        frame = sensor_pb2.CameraFrameChunk(
+            data=buf.getvalue(),
+            frame_id="live-test",
+            chunk_index=0,
+            is_last=True,
             width=width,
             height=height,
+            timestamp=1000.0,
+            encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+            key_frame=True,
         )
 
     servicer = FoodMacrosServicer()
     servicer._sensor = MagicMock()
-    servicer._sensor.CaptureFrame.return_value = frame
+    servicer._sensor.CaptureFrame.return_value = iter([frame])
 
     captured = {}
 

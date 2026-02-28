@@ -127,7 +127,7 @@ def _build_synthetic_context(
             )
         )
 
-    clips: list[tuple[data_pb2.VideoClipMetadata, data_pb2.VideoClipResponse]] = []
+    clips: list[tuple[data_pb2.VideoClipMetadata, bytes]] = []
     for index, raw_path in enumerate(mp4_paths):
         path = Path(raw_path)
         mp4_data = path.read_bytes()
@@ -141,12 +141,7 @@ def _build_synthetic_context(
             num_frames=0,
             created_at=time.time(),
         )
-        clip = data_pb2.VideoClipResponse(
-            mp4_data=mp4_data,
-            start_timestamp=clip_start,
-            end_timestamp=clip_end,
-            num_frames=0,
-        )
+        clip = mp4_data
         clips.append((metadata, clip))
 
     return NoteContext(transcripts=transcript_entries, clips=clips)

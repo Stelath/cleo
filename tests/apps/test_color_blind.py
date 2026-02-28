@@ -5,6 +5,7 @@ import numpy as np
 
 from apps.color_blind import ColorBlindnessServicer
 from generated import data_pb2, sensor_pb2, tool_pb2
+from services.config import SENSOR_ADDRESS
 
 
 def test_color_blind_correction_math():
@@ -45,6 +46,19 @@ def test_daltonization_unknown_type_returns_original():
 
 
 class TestColorBlindnessServicer:
+    def test_sensor_channel_allows_large_frames(self, mocker):
+        mock_insecure_channel = mocker.patch("apps.color_blind.grpc.insecure_channel")
+
+        ColorBlindnessServicer()
+
+        sensor_calls = [
+            call for call in mock_insecure_channel.call_args_list if call.args[0] == SENSOR_ADDRESS
+        ]
+        assert len(sensor_calls) == 1
+        options = dict(sensor_calls[0].kwargs["options"])
+        assert options["grpc.max_receive_message_length"] == 32 * 1024 * 1024
+        assert options["grpc.max_send_message_length"] == 32 * 1024 * 1024
+
     def test_execute_returns_success(self, mock_grpc_context, mocker):
         mocker.patch("apps.color_blind.grpc.insecure_channel")
         servicer = ColorBlindnessServicer()
@@ -57,11 +71,15 @@ class TestColorBlindnessServicer:
         servicer.data_stub.GetPreference.return_value = pref_resp
 
         servicer.sensor_stub = mocker.MagicMock()
-        frame_resp = mocker.MagicMock()
-        frame_resp.data = b"\x00" * 300
-        frame_resp.width = 10
-        frame_resp.height = 10
-        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+        frame_chunk = mocker.MagicMock()
+        frame_chunk.data = b"\x00" * 300
+        frame_chunk.frame_id = "frame-1"
+        frame_chunk.chunk_index = 0
+        frame_chunk.is_last = True
+        frame_chunk.width = 10
+        frame_chunk.height = 10
+        frame_chunk.encoding = sensor_pb2.FRAME_ENCODING_RGB24
+        servicer.sensor_stub.CaptureFrame.return_value = iter([frame_chunk])
 
         servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
@@ -77,7 +95,7 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert response.success
         assert "Applied deuteranopia correction" in response.result_text
-        servicer.frontend_stub.ShowImage.assert_called_once()
+        servicer.frontend_stub.StreamImage.assert_called_once()
 
     def test_tool_name(self):
         assert ColorBlindnessServicer().tool_name == "color_blindness_assist"
@@ -107,11 +125,15 @@ class TestColorBlindnessServicer:
         servicer.data_stub.GetPreference.return_value = pref_resp
 
         servicer.sensor_stub = mocker.MagicMock()
-        frame_resp = mocker.MagicMock()
-        frame_resp.data = b"\x00" * 300
-        frame_resp.width = 10
-        frame_resp.height = 10
-        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+        frame_chunk = mocker.MagicMock()
+        frame_chunk.data = b"\x00" * 300
+        frame_chunk.frame_id = "frame-2"
+        frame_chunk.chunk_index = 0
+        frame_chunk.is_last = True
+        frame_chunk.width = 10
+        frame_chunk.height = 10
+        frame_chunk.encoding = sensor_pb2.FRAME_ENCODING_RGB24
+        servicer.sensor_stub.CaptureFrame.return_value = iter([frame_chunk])
 
         servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
@@ -127,7 +149,7 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert response.success
         assert "Applied protanopia correction" in response.result_text
-        servicer.frontend_stub.ShowImage.assert_called_once()
+        servicer.frontend_stub.StreamImage.assert_called_once()
 
     def test_execute_reports_imwrite_failure(self, mock_grpc_context, mocker):
         """If cv2.imwrite fails, execute should return failure."""
@@ -139,11 +161,15 @@ class TestColorBlindnessServicer:
         servicer.data_stub.GetPreference.return_value = pref_resp
 
         servicer.sensor_stub = mocker.MagicMock()
-        frame_resp = mocker.MagicMock()
-        frame_resp.data = b"\x00" * 300
-        frame_resp.width = 10
-        frame_resp.height = 10
-        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+        frame_chunk = mocker.MagicMock()
+        frame_chunk.data = b"\x00" * 300
+        frame_chunk.frame_id = "frame-3"
+        frame_chunk.chunk_index = 0
+        frame_chunk.is_last = True
+        frame_chunk.width = 10
+        frame_chunk.height = 10
+        frame_chunk.encoding = sensor_pb2.FRAME_ENCODING_RGB24
+        servicer.sensor_stub.CaptureFrame.return_value = iter([frame_chunk])
 
         servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=False)
@@ -155,7 +181,7 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert not response.success
         assert "Failed to save" in response.result_text
-        servicer.frontend_stub.ShowImage.assert_not_called()
+        servicer.frontend_stub.StreamImage.assert_not_called()
 
     def test_execute_reports_imencode_failure(self, mock_grpc_context, mocker):
         """If cv2.imencode fails, execute should return failure."""
@@ -167,11 +193,15 @@ class TestColorBlindnessServicer:
         servicer.data_stub.GetPreference.return_value = pref_resp
 
         servicer.sensor_stub = mocker.MagicMock()
-        frame_resp = mocker.MagicMock()
-        frame_resp.data = b"\x00" * 300
-        frame_resp.width = 10
-        frame_resp.height = 10
-        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+        frame_chunk = mocker.MagicMock()
+        frame_chunk.data = b"\x00" * 300
+        frame_chunk.frame_id = "frame-4"
+        frame_chunk.chunk_index = 0
+        frame_chunk.is_last = True
+        frame_chunk.width = 10
+        frame_chunk.height = 10
+        frame_chunk.encoding = sensor_pb2.FRAME_ENCODING_RGB24
+        servicer.sensor_stub.CaptureFrame.return_value = iter([frame_chunk])
 
         servicer.frontend_stub = mocker.MagicMock()
         mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
@@ -187,4 +217,4 @@ class TestColorBlindnessServicer:
         response = servicer.Execute(request, mock_grpc_context)
         assert not response.success
         assert "Failed to encode" in response.result_text
-        servicer.frontend_stub.ShowImage.assert_not_called()
+        servicer.frontend_stub.StreamImage.assert_not_called()

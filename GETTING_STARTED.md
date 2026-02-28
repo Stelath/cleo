@@ -101,6 +101,10 @@ RUN_TRANSCRIPTION_E2E=1 uv run pytest tests/transcription/ -v
 ```text
 cleo/
 ├── services/               # Runtime + service implementations
+│   └── media/
+│       ├── sensor_service.py
+│       ├── broadcast.py
+│       └── camera_transport.py
 ├── apps/                   # Tool app services invoked by assistant
 ├── frontend/
 │   └── viture-luma-display # Tauri + React frontend

@@ -17,6 +17,8 @@ from generated import data_pb2, data_pb2_grpc
 
 log = structlog.get_logger()
 
+_MEDIA_CHUNK_BYTES = 256 * 1024
+
 
 class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
     """Manages persistent storage: SQLite for metadata, FAISS for vectors, disk for video."""
@@ -61,17 +63,90 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
     # ── StoreVideoClip ──
 
-    def StoreVideoClip(self, request, context):
+    def StoreVideoClip(self, request_iterator, context):
+        metadata_msg = None
+        mp4_parts: list[bytes] = []
+        embed_parts: list[bytes] = []
+        mp4_media_id: str | None = None
+        embed_media_id: str | None = None
+        expected_mp4_chunk = 0
+        expected_embed_chunk = 0
+        mp4_complete = False
+        embed_complete = False
+
+        for item in request_iterator:
+            payload = item.WhichOneof("payload")
+            if payload == "metadata":
+                metadata_msg = item.metadata
+                continue
+
+            if payload == "mp4_chunk":
+                chunk = item.mp4_chunk
+                if mp4_media_id is None:
+                    mp4_media_id = chunk.media_id
+                if chunk.media_id != mp4_media_id:
+                    context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                    context.set_details("StoreVideoClip mp4 media_id changed mid-stream")
+                    return data_pb2.StoreVideoClipResponse()
+                if chunk.chunk_index != expected_mp4_chunk:
+                    context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                    context.set_details(
+                        f"StoreVideoClip mp4 chunk gap: expected {expected_mp4_chunk}, got {chunk.chunk_index}"
+                    )
+                    return data_pb2.StoreVideoClipResponse()
+                mp4_parts.append(chunk.data)
+                expected_mp4_chunk += 1
+                if chunk.is_last:
+                    mp4_complete = True
+                continue
+
+            if payload == "embed_chunk":
+                chunk = item.embed_chunk
+                if embed_media_id is None:
+                    embed_media_id = chunk.media_id
+                if chunk.media_id != embed_media_id:
+                    context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                    context.set_details("StoreVideoClip embed media_id changed mid-stream")
+                    return data_pb2.StoreVideoClipResponse()
+                if chunk.chunk_index != expected_embed_chunk:
+                    context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                    context.set_details(
+                        f"StoreVideoClip embed chunk gap: expected {expected_embed_chunk}, got {chunk.chunk_index}"
+                    )
+                    return data_pb2.StoreVideoClipResponse()
+                embed_parts.append(chunk.data)
+                expected_embed_chunk += 1
+                if chunk.is_last:
+                    embed_complete = True
+                continue
+
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("StoreVideoClip request item must contain metadata, mp4_chunk, or embed_chunk")
+            return data_pb2.StoreVideoClipResponse()
+
+        if metadata_msg is None:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("StoreVideoClip metadata is required")
+            return data_pb2.StoreVideoClipResponse()
+
+        if not mp4_complete:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("StoreVideoClip stream ended before final mp4 chunk")
+            return data_pb2.StoreVideoClipResponse()
+
+        mp4_data = b"".join(mp4_parts)
+        embed_data = b"".join(embed_parts) if embed_complete else b""
+
         ts = time.time()
 
         # 1. Save MP4 to disk
         clip_name = f"clip_{ts:.6f}.mp4"
         clip_path = self._video_dir / clip_name
-        clip_path.write_bytes(request.mp4_data)
+        clip_path.write_bytes(mp4_data)
 
         # 2. Embed video via Nova
         try:
-            embed_source = request.embed_data if request.embed_data else request.mp4_data
+            embed_source = embed_data if embed_data else mp4_data
             embedding = embed_video(embed_source, dimension=self._embedding_dim)
         except Exception as e:
             log.error("data_service.embed_error", error=str(e))
@@ -82,19 +157,19 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         # 3. Insert metadata into SQLite
         clip_id = self._sqlite.insert_video_clip(
             clip_path=str(clip_path),
-            start_timestamp=request.start_timestamp,
-            end_timestamp=request.end_timestamp,
-            num_frames=request.num_frames,
+            start_timestamp=metadata_msg.start_timestamp,
+            end_timestamp=metadata_msg.end_timestamp,
+            num_frames=metadata_msg.num_frames,
             embedding_dimension=self._embedding_dim,
         )
 
         # 4. Store embedding in FAISS
-        metadata = {
+        faiss_metadata = {
             "clip_id": clip_id,
-            "start_timestamp": request.start_timestamp,
-            "end_timestamp": request.end_timestamp,
+            "start_timestamp": metadata_msg.start_timestamp,
+            "end_timestamp": metadata_msg.end_timestamp,
         }
-        faiss_id = self._faiss.add(embedding, metadata)
+        faiss_id = self._faiss.add(embedding, faiss_metadata)
 
         # 5. Link FAISS ID back to SQLite
         self._sqlite.update_clip_faiss_id(clip_id, faiss_id)
@@ -104,7 +179,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             clip_id=clip_id,
             faiss_id=faiss_id,
             path=str(clip_path),
-            num_frames=request.num_frames,
+            num_frames=metadata_msg.num_frames,
         )
         return data_pb2.StoreVideoClipResponse(clip_id=clip_id, faiss_id=faiss_id)
 
@@ -292,20 +367,42 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         if clip is None:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Clip {request.clip_id} not found")
-            return data_pb2.VideoClipResponse()
+            return
 
         clip_path = Path(clip["clip_path"])
         if not clip_path.exists():
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Clip file missing: {clip_path}")
-            return data_pb2.VideoClipResponse()
+            return
 
-        return data_pb2.VideoClipResponse(
-            mp4_data=clip_path.read_bytes(),
-            start_timestamp=clip["start_timestamp"] or 0.0,
-            end_timestamp=clip["end_timestamp"] or 0.0,
-            num_frames=clip["num_frames"] or 0,
-        )
+        mp4_data = clip_path.read_bytes()
+        total = len(mp4_data)
+
+        if total == 0:
+            yield data_pb2.VideoClipChunk(
+                data=b"",
+                clip_id=clip["id"],
+                chunk_index=0,
+                is_last=True,
+                start_timestamp=clip["start_timestamp"] or 0.0,
+                end_timestamp=clip["end_timestamp"] or 0.0,
+                num_frames=clip["num_frames"] or 0,
+            )
+            return
+
+        chunk_index = 0
+        for start in range(0, total, _MEDIA_CHUNK_BYTES):
+            end = min(start + _MEDIA_CHUNK_BYTES, total)
+            yield data_pb2.VideoClipChunk(
+                data=mp4_data[start:end],
+                clip_id=clip["id"],
+                chunk_index=chunk_index,
+                is_last=end >= total,
+                start_timestamp=clip["start_timestamp"] or 0.0,
+                end_timestamp=clip["end_timestamp"] or 0.0,
+                num_frames=clip["num_frames"] or 0,
+            )
+            chunk_index += 1
 
     def GetVideoClipsInRange(self, request, context):
         rows = self._sqlite.query_video_clips_in_range(

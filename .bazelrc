@@ -1,5 +1,5 @@
 common --enable_bzlmod
-build --announce_rc
-run --announce_rc
 test --test_output=errors
 run:debug --run_under='env CLEO_DEBUG_TRANSCRIPTION_HUD=1'
+build:verbose --announce_rc
+run:verbose --announce_rc

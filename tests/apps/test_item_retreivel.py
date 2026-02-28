@@ -9,10 +9,10 @@ from generated import data_pb2
 from services.video.service import _encode_frames_to_mp4
 from tests.video.conftest import requires_bedrock
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-ITEM_IMAGE_PATH = ROOT_DIR / "monster.jpeg"
-VIDEO_WITH_ITEM_PATH = ROOT_DIR / "vid_w_monster.mp4"
-VIDEO_WITHOUT_ITEM_PATH = ROOT_DIR / "vid_wo_monster.mp4"
+TESTDATA_DIR = Path(__file__).resolve().parent / "testdata"
+ITEM_IMAGE_PATH = TESTDATA_DIR / "monster.jpeg"
+VIDEO_WITH_ITEM_PATH = TESTDATA_DIR / "vid_w_monster.mp4"
+VIDEO_WITHOUT_ITEM_PATH = TESTDATA_DIR / "vid_wo_monster.mp4"
 
 
 def _downsample_mp4(mp4_path: Path, fps: int = 2, max_seconds: int = 10) -> bytes:

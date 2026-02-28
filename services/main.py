@@ -36,7 +36,7 @@ _PROCESS_KILL_TIMEOUT_SECONDS = 2
 
 
 def _run_sensor_service() -> None:
-    from services.sensor_service import serve
+    from services.media.sensor_service import serve
 
     serve(port=SENSOR_PORT)
 

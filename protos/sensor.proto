@@ -3,8 +3,8 @@ syntax = "proto3";
 package cleo.sensor;
 
 service SensorService {
-  // Server-side streaming: continuous camera frames at requested FPS
-  rpc StreamCamera(StreamRequest) returns (stream CameraFrame);
+  // Server-side streaming: continuous camera frames as chunked H.264 payloads.
+  rpc StreamCamera(StreamRequest) returns (stream CameraFrameChunk);
 
   // Server-side streaming: continuous audio chunks
   rpc StreamAudio(StreamRequest) returns (stream AudioChunk);
@@ -12,8 +12,8 @@ service SensorService {
   // Server-side streaming: continuous IMU readings
   rpc StreamIMU(StreamRequest) returns (stream IMUData);
 
-  // Unary: capture a single frame
-  rpc CaptureFrame(CaptureRequest) returns (CameraFrame);
+  // Server-side streaming: capture a single still frame as chunked JPEG payload.
+  rpc CaptureFrame(CaptureRequest) returns (stream CameraFrameChunk);
 
   // Unary: record a fixed-duration audio clip
   rpc RecordAudio(RecordRequest) returns (AudioChunk);
@@ -32,6 +32,13 @@ message StreamRequest {
 
 message CaptureRequest {}
 
+enum FrameEncoding {
+  FRAME_ENCODING_UNSPECIFIED = 0;
+  FRAME_ENCODING_JPEG = 1;
+  FRAME_ENCODING_H264 = 2;
+  FRAME_ENCODING_RGB24 = 3;
+}
+
 message RecordRequest {
   // Duration in milliseconds
   int32 duration_ms = 1;
@@ -40,16 +47,31 @@ message RecordRequest {
   int32 sample_rate = 2;
 }
 
-message CameraFrame {
-  // Raw RGB pixel data (height * width * 3 bytes)
+message CameraFrameChunk {
+  // Chunk bytes for an encoded frame payload.
   bytes data = 1;
 
-  // Frame dimensions
-  int32 width = 2;
-  int32 height = 3;
+  // Stable frame identity so clients can assemble chunks.
+  string frame_id = 2;
 
-  // Capture timestamp (Unix epoch seconds, float)
-  double timestamp = 4;
+  // Zero-based position of this chunk for frame_id.
+  int32 chunk_index = 3;
+
+  // True if this is the final chunk for frame_id.
+  bool is_last = 4;
+
+  // Frame dimensions (repeated on all chunks for simplicity).
+  int32 width = 5;
+  int32 height = 6;
+
+  // Capture timestamp (Unix epoch seconds, float).
+  double timestamp = 7;
+
+  // Encoding for the frame payload bytes represented by this chunk stream.
+  FrameEncoding encoding = 8;
+
+  // True if this frame is an intra/key frame in the encoded stream.
+  bool key_frame = 9;
 }
 
 message AudioChunk {

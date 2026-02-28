@@ -1,6 +1,6 @@
 # transcription_service
 
-subscribes to the sensor_service to be called whenever a fresh audio chunk
+subscribes to the SensorService (`services/media/sensor_service.py`) to be called whenever a fresh audio chunk
 comes into the system. 
 
 Needs to do a rolling buffer of the last 5 seconds of audio and 1 second into the future of the
@@ -17,5 +17,4 @@ with the timestamp of when the audio was recorded so it can be used for recall l
 
 We will run the model using Amazon Transcribe Streaming. 
 Credentials are already setup using awscli.
-
 

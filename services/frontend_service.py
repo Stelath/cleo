@@ -9,7 +9,7 @@ import grpc
 import structlog
 
 from generated import frontend_pb2, frontend_pb2_grpc
-from services.broadcast import BroadcastHub
+from services.media.broadcast import BroadcastHub
 from services.config import FRONTEND_PORT
 
 log = structlog.get_logger()
@@ -37,9 +37,35 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
         log.info("frontend_service.show_notification", title=request.title)
         return self._publish_update(notification=request)
 
-    def ShowImage(self, request, context):
-        log.info("frontend_service.show_image", mime=request.mime_type)
-        return self._publish_update(image=request)
+    def StreamImage(self, request_iterator, context):
+        expected_index = 0
+        image_id = None
+
+        for chunk in request_iterator:
+            if image_id is None:
+                image_id = chunk.image_id
+                expected_index = 0
+
+            if chunk.image_id != image_id:
+                context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                context.set_details("StreamImage image_id changed mid-stream")
+                return frontend_pb2.FrontendResponse(ok=False)
+
+            if chunk.chunk_index != expected_index:
+                context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                context.set_details(
+                    f"StreamImage chunk gap: expected {expected_index}, got {chunk.chunk_index}"
+                )
+                return frontend_pb2.FrontendResponse(ok=False)
+
+            self._publish_update(image_chunk=chunk)
+            expected_index += 1
+
+            if chunk.is_last:
+                break
+
+        log.info("frontend_service.stream_image", image_id=image_id)
+        return frontend_pb2.FrontendResponse(ok=True)
 
     def ShowProgress(self, request, context):
         log.info("frontend_service.show_progress", label=request.label, value=request.value)

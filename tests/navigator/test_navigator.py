@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from generated import sensor_pb2
 
 from apps.navigator import (
     NavigatorBedrockClient,
@@ -18,16 +19,16 @@ from apps.navigator import (
 
 class TestRgbToJpeg:
     def test_basic_conversion(self):
-        width, height = 64, 48
-        frame_data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
-        jpeg = _rgb_to_jpeg(frame_data, width, height)
+        height, width = 48, 64
+        frame_rgb = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+        jpeg = _rgb_to_jpeg(frame_rgb)
         assert jpeg[:2] == b"\xff\xd8"  # JPEG magic bytes
 
     def test_quality_affects_size(self):
-        width, height = 64, 48
-        frame_data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
-        low_q = _rgb_to_jpeg(frame_data, width, height, quality=10)
-        high_q = _rgb_to_jpeg(frame_data, width, height, quality=95)
+        height, width = 48, 64
+        frame_rgb = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+        low_q = _rgb_to_jpeg(frame_rgb, quality=10)
+        high_q = _rgb_to_jpeg(frame_rgb, quality=95)
         assert len(low_q) < len(high_q)
 
 
@@ -103,6 +104,7 @@ def _make_fake_frame(width: int = 64, height: int = 48) -> MagicMock:
     frame.width = width
     frame.height = height
     frame.timestamp = 1000.0
+    frame.encoding = sensor_pb2.FRAME_ENCODING_RGB24
     return frame
 
 

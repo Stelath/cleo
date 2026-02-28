@@ -34,6 +34,11 @@ def servicer(registry_with_tool, mock_bedrock):
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_assistant_debug_hud_env(monkeypatch):
+    monkeypatch.delenv("CLEO_DEBUG_ASSISTANT_HUD", raising=False)
+
+
 class TestAssistantService:
     def test_empty_command(self, servicer, mock_grpc_context):
         request = assistant_pb2.CommandRequest(text="")
@@ -92,6 +97,37 @@ class TestAssistantService:
                 duration_ms=2000,
             )
         )
+
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
+    def test_debug_hud_shows_llm_response_text(
+        self,
+        mock_frontend_stub_cls,
+        mock_channel,
+        registry_with_tool,
+        mock_bedrock,
+        mock_grpc_context,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("CLEO_DEBUG_ASSISTANT_HUD", "1")
+
+        mock_bedrock.converse.return_value = TextResult(text="Hello from Cleo!")
+        mock_frontend_stub = MagicMock()
+        mock_frontend_stub_cls.return_value = mock_frontend_stub
+
+        servicer = AssistantServiceServicer(
+            registry=registry_with_tool,
+            bedrock_client=mock_bedrock,
+        )
+
+        request = assistant_pb2.CommandRequest(text="hello")
+        response = servicer.ProcessCommand(request, mock_grpc_context)
+
+        assert response.success
+        show_text_call = mock_frontend_stub.ShowText.call_args
+        assert show_text_call is not None
+        assert show_text_call.args[0].text == "LLM: Hello from Cleo!"
+        assert show_text_call.kwargs["timeout"] == 2
 
     def test_unknown_tool_from_bedrock(self, servicer, mock_bedrock, mock_grpc_context):
         mock_bedrock.converse.return_value = ToolUseResult(

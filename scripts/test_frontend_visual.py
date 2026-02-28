@@ -48,6 +48,40 @@ def _make_tiny_png() -> bytes:
     return signature + _chunk(b"IHDR", ihdr_data) + _chunk(b"IDAT", idat_data) + _chunk(b"IEND", b"")
 
 
+def _stream_image_chunks(
+    image_data: bytes,
+    *,
+    image_id: str,
+    mime_type: str,
+    position: str,
+):
+    chunk_size = 64
+    chunk_index = 0
+    total = len(image_data)
+    if total == 0:
+        yield frontend_pb2.ImageChunk(
+            data=b"",
+            image_id=image_id,
+            chunk_index=0,
+            is_last=True,
+            mime_type=mime_type,
+            position=position,
+        )
+        return
+
+    for start in range(0, total, chunk_size):
+        end = min(start + chunk_size, total)
+        yield frontend_pb2.ImageChunk(
+            data=image_data[start:end],
+            image_id=image_id,
+            chunk_index=chunk_index,
+            is_last=end >= total,
+            mime_type=mime_type,
+            position=position,
+        )
+        chunk_index += 1
+
+
 def _start_server(servicer: FrontendServiceServicer, port: int) -> grpc.Server:
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=4),
@@ -110,12 +144,15 @@ def _run_demo(stub: frontend_pb2_grpc.FrontendServiceStub) -> None:
     time.sleep(delay)
 
     # ── 5. Image ──
-    print("[5/8] ShowImage — tiny red square")
-    stub.ShowImage(frontend_pb2.ImageRequest(
-        data=_make_tiny_png(),
-        mime_type="image/png",
-        position="center",
-    ))
+    print("[5/8] StreamImage — tiny red square")
+    stub.StreamImage(
+        _stream_image_chunks(
+            _make_tiny_png(),
+            image_id="demo-image-1",
+            mime_type="image/png",
+            position="center",
+        )
+    )
     time.sleep(delay)
 
     # ── 6. Card stack ──
@@ -134,7 +171,7 @@ def _run_demo(stub: frontend_pb2_grpc.FrontendServiceStub) -> None:
             frontend_pb2.Card(
                 title="Frontend Service",
                 subtitle="Typed gRPC API",
-                description="ShowNotification, ShowImage, ShowProgress, ShowText, ShowCard, Clear.",
+                description="ShowNotification, StreamImage, ShowProgress, ShowText, ShowCard, Clear.",
                 links=[
                     frontend_pb2.Link(label="GitHub", url="https://github.com/Stelath/cleo"),
                 ],

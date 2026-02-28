@@ -43,12 +43,14 @@ uv run maturin develop --release --manifest-path packages/viture-luma-interop-la
 
 Cleo is an AI-powered AR glasses platform for VITURE Luma Ultra glasses. The runtime is a multi-process service graph (`services/main.py`):
 
-- **Sensor Service** (subprocess, port 50051) — owns camera/mic capture, maintains in-memory buffers, and exposes `CaptureFrame`, `RecordAudio`, `StreamCamera`, `StreamAudio`, `StreamIMU`
+- **Sensor Service** (`services/media/sensor_service.py`, subprocess, port 50051) — owns camera/mic capture, maintains in-memory buffers, and exposes `CaptureFrame`, `RecordAudio`, `StreamCamera`, `StreamAudio`, `StreamIMU`
 - **Transcription Service** (subprocess, port 50052) — runs Amazon Transcribe ASR and persistently subscribes to sensor audio; writes final transcripts to DataService and triggers AssistantService on wake phrase
 - **Data Service** (subprocess, port 50053) — owns SQLite + FAISS + video storage/search RPCs
 - **Assistant Service** (subprocess, port 50054) — routes transcribed commands to tools via Bedrock tool-use
 
 Key data layer: `services/data/vector/faiss_db.py` is a thread-safe FAISS IndexFlatIP wrapper (cosine similarity on normalized vectors).
+
+Media fan-out helper: `BroadcastHub` now lives at `services/media/broadcast.py`.
 
 ## Proto / gRPC
 

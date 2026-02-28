@@ -20,6 +20,11 @@ import structlog
 from apps.tool_base import ToolServiceBase, serve_tool
 from generated import sensor_pb2, sensor_pb2_grpc
 from services.config import NAVIGATOR_PORT, SENSOR_ADDRESS
+from services.media.camera_transport import (
+    AssembledCameraFrame,
+    CameraFrameAssembler,
+    assembled_frame_to_rgb,
+)
 
 log = structlog.get_logger()
 
@@ -52,10 +57,9 @@ _SYSTEM_PROMPT = (
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
 
 
-def _rgb_to_jpeg(frame_data: bytes, width: int, height: int, quality: int = 80) -> bytes:
-    """Convert raw RGB frame bytes to JPEG."""
-    frame_np = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 3)
-    bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
+def _rgb_to_jpeg(frame_rgb: np.ndarray, quality: int = 80) -> bytes:
+    """Convert an RGB frame array to JPEG."""
+    bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
     encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
     success, encoded = cv2.imencode(".jpg", bgr, encode_params)
     if not success:
@@ -171,7 +175,7 @@ class NavigatorLoop(threading.Thread):
             stream = stub.StreamCamera(sensor_pb2.StreamRequest(fps=_STREAM_FPS))
             last_process_time = 0.0
 
-            for frame in stream:
+            for frame in self._iter_frames(stream):
                 if self._stop_event.is_set():
                     break
 
@@ -184,15 +188,64 @@ class NavigatorLoop(threading.Thread):
         finally:
             channel.close()
 
-    def _process_frame(self, frame: Any) -> None:
+    def _iter_frames(self, stream: Any):
+        assembler = CameraFrameAssembler()
+
+        for chunk in stream:
+            try:
+                frame = assembler.push(chunk)
+            except ValueError as exc:
+                log.warning(
+                    "navigator.frame_chunk_invalid",
+                    error=str(exc),
+                )
+                continue
+
+            if frame is not None:
+                yield frame
+
+    def _process_frame(
+        self,
+        frame: AssembledCameraFrame | Any,
+        width: int | None = None,
+        height: int | None = None,
+        timestamp: float | None = None,
+        encoding: int | None = None,
+    ) -> None:
+        if isinstance(frame, AssembledCameraFrame):
+            assembled = frame
+        elif isinstance(frame, bytes):
+            if width is None or height is None:
+                raise ValueError("width and height are required when passing raw frame bytes")
+            assembled = AssembledCameraFrame(
+                frame_id="legacy-bytes",
+                data=frame,
+                width=width,
+                height=height,
+                timestamp=timestamp or 0.0,
+                encoding=encoding or sensor_pb2.FRAME_ENCODING_RGB24,
+                key_frame=True,
+            )
+        else:
+            assembled = AssembledCameraFrame(
+                frame_id=getattr(frame, "frame_id", "legacy-object"),
+                data=getattr(frame, "data"),
+                width=int(getattr(frame, "width")),
+                height=int(getattr(frame, "height")),
+                timestamp=float(getattr(frame, "timestamp", timestamp or 0.0)),
+                encoding=int(getattr(frame, "encoding", encoding or sensor_pb2.FRAME_ENCODING_RGB24)),
+                key_frame=bool(getattr(frame, "key_frame", True)),
+            )
+
         try:
-            jpeg_bytes = _rgb_to_jpeg(frame.data, frame.width, frame.height)
+            frame_rgb = assembled_frame_to_rgb(assembled)
+            jpeg_bytes = _rgb_to_jpeg(frame_rgb)
             guidance = self._bedrock.analyze_frame(
                 jpeg_bytes, self._user_context, self._previous_guidance
             )
             self._previous_guidance = guidance
-            timestamp = frame.timestamp or time.time()
-            self._guidance_buffer.append((timestamp, guidance))
+            frame_ts = assembled.timestamp or time.time()
+            self._guidance_buffer.append((frame_ts, guidance))
             log.info("navigator.guidance", guidance=guidance[:100])
 
             if self._guidance_callback:

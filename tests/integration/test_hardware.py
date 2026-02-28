@@ -7,6 +7,7 @@ import grpc
 import numpy as np
 
 from generated import sensor_pb2, sensor_pb2_grpc
+from services.media.camera_transport import CameraFrameAssembler, assembled_frame_to_rgb
 
 from tests.integration.conftest import requires_hardware
 
@@ -68,18 +69,25 @@ def test_grpc_capture_frame(sensor_server):
     )
     stub = sensor_pb2_grpc.SensorServiceStub(channel)
 
-    response = stub.CaptureFrame(sensor_pb2.CaptureRequest())
+    stream = stub.CaptureFrame(sensor_pb2.CaptureRequest())
 
-    assert response.width > 0
-    assert response.height > 0
+    assembler = CameraFrameAssembler()
+    frame = None
+    for chunk in stream:
+        frame = assembler.push(chunk)
+        if frame is not None:
+            break
 
-    expected_len = response.width * response.height * 3
-    assert len(response.data) == expected_len
+    assert frame is not None
 
-    frame = np.frombuffer(response.data, dtype=np.uint8).reshape(
-        response.height, response.width, 3
-    )
-    assert frame.std() > 1.0, "gRPC frame appears to be a solid color"
+    width = frame.width
+    height = frame.height
+    assert width > 0
+    assert height > 0
+
+    decoded = assembled_frame_to_rgb(frame)
+    assert decoded.shape == (height, width, 3)
+    assert decoded.std() > 1.0, "gRPC frame appears to be a solid color"
 
     channel.close()
 
@@ -115,20 +123,31 @@ def test_grpc_stream_camera_frames(sensor_server):
     stub = sensor_pb2_grpc.SensorServiceStub(channel)
 
     frames = []
+    assembler = CameraFrameAssembler()
+
     stream = stub.StreamCamera(sensor_pb2.StreamRequest(fps=30))
-    for frame_msg in stream:
-        frames.append(frame_msg)
+    for chunk in stream:
+        try:
+            frame = assembler.push(chunk)
+        except ValueError:
+            stream.cancel()
+            break
+
+        if frame is not None:
+            frames.append(frame)
+
         if len(frames) >= 3:
             stream.cancel()
             break
 
     assert len(frames) >= 3
 
-    for f in frames:
-        assert f.width > 0 and f.height > 0
-        assert len(f.data) == f.width * f.height * 3
+    for frame in frames:
+        assert frame.width > 0 and frame.height > 0
+        decoded = assembled_frame_to_rgb(frame)
+        assert decoded.shape == (frame.height, frame.width, 3)
 
-    timestamps = [f.timestamp for f in frames]
+    timestamps = [frame.timestamp for frame in frames]
     for i in range(1, len(timestamps)):
         assert timestamps[i] > timestamps[i - 1], "Timestamps are not monotonically increasing"
 

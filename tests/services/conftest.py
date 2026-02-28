@@ -4,18 +4,25 @@ import numpy as np
 import pytest
 
 from generated import sensor_pb2
+from services.media.camera_transport import encode_rgb_to_jpeg
 
 
 @pytest.fixture
 def mock_camera_frame():
-    """Return a CameraFrame with synthetic 4x4 RGB data."""
+    """Return a single-chunk CameraFrameChunk with synthetic 4x4 JPEG data."""
     width, height = 4, 4
-    data = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8).tobytes()
-    return sensor_pb2.CameraFrame(
+    frame_rgb = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
+    data = encode_rgb_to_jpeg(frame_rgb)
+    return sensor_pb2.CameraFrameChunk(
         data=data,
+        frame_id="test-frame",
+        chunk_index=0,
+        is_last=True,
         width=width,
         height=height,
         timestamp=1000.0,
+        encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+        key_frame=True,
     )
 
 

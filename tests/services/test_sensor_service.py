@@ -1,4 +1,4 @@
-"""Tests for services.sensor_service.SensorServiceServicer."""
+"""Tests for services.media.sensor_service.SensorServiceServicer."""
 
 
 def test_capture_frame():

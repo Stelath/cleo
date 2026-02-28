@@ -23,8 +23,12 @@ from generated import (
     sensor_pb2,
     sensor_pb2_grpc,
 )
+from services.media.camera_transport import AssembledCameraFrame, CameraFrameAssembler, assembled_frame_to_rgb
 
 log = structlog.get_logger()
+
+_MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
+_IMAGE_CHUNK_BYTES = 256 * 1024
 
 
 # ── Daltonization matrices (calibrated via the Machado 2009 model) ──
@@ -88,7 +92,13 @@ class ColorBlindnessServicer(ToolServiceBase):
         self.data_channel = grpc.insecure_channel(DATA_ADDRESS)
         self.data_stub = data_pb2_grpc.DataServiceStub(self.data_channel)
 
-        self.sensor_channel = grpc.insecure_channel(SENSOR_ADDRESS)
+        self.sensor_channel = grpc.insecure_channel(
+            SENSOR_ADDRESS,
+            options=[
+                ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+            ],
+        )
         self.sensor_stub = sensor_pb2_grpc.SensorServiceStub(self.sensor_channel)
 
         self.frontend_channel = grpc.insecure_channel(FRONTEND_ADDRESS)
@@ -124,13 +134,12 @@ class ColorBlindnessServicer(ToolServiceBase):
 
             # 2. Capture a frame from the sensor
             frame_req = sensor_pb2.CaptureRequest()
-            frame_resp = self.sensor_stub.CaptureFrame(frame_req)
+            captured_frame = self._capture_frame(frame_req)
 
-            if not frame_resp.data:
+            if captured_frame is None or not captured_frame.data:
                 return False, "Failed to capture camera frame."
 
-            np_arr = np.frombuffer(frame_resp.data, dtype=np.uint8)
-            img_rgb = np_arr.reshape((frame_resp.height, frame_resp.width, 3))
+            img_rgb = assembled_frame_to_rgb(captured_frame)
 
             # 3. Apply Daltonization — single 3×3 matrix multiply via cv2.transform
             corrected_rgb = apply_daltonization(img_rgb, correction_type)
@@ -152,12 +161,10 @@ class ColorBlindnessServicer(ToolServiceBase):
                 log.error("color_blind.imencode_failed")
                 return False, "Failed to encode corrected frame for frontend display"
 
-            self.frontend_stub.ShowImage(
-                frontend_pb2.ImageRequest(
-                    data=encoded_img.tobytes(),
-                    mime_type="image/jpeg",
-                    position="center",
-                )
+            self._stream_image_to_frontend(
+                encoded_img.tobytes(),
+                mime_type="image/jpeg",
+                position="center",
             )
 
             return True, f"Applied {correction_type} correction to frame and saved to {output_file}"
@@ -168,6 +175,46 @@ class ColorBlindnessServicer(ToolServiceBase):
         except Exception as e:
             log.error("color_blind.processing_error", error=str(e))
             return False, f"Image processing failed: {str(e)}"
+
+    def _capture_frame(self, frame_req: sensor_pb2.CaptureRequest) -> AssembledCameraFrame | None:
+        frame_chunks = self.sensor_stub.CaptureFrame(frame_req)
+        assembler = CameraFrameAssembler()
+        for chunk in frame_chunks:
+            frame = assembler.push(chunk)
+            if frame is not None:
+                return frame
+        return None
+
+    def _stream_image_to_frontend(self, image_data: bytes, *, mime_type: str, position: str) -> None:
+        image_id = f"color_blind_{int(time.time() * 1000)}"
+
+        def _iter_chunks():
+            if not image_data:
+                yield frontend_pb2.ImageChunk(
+                    data=b"",
+                    image_id=image_id,
+                    chunk_index=0,
+                    is_last=True,
+                    mime_type=mime_type,
+                    position=position,
+                )
+                return
+
+            chunk_index = 0
+            total = len(image_data)
+            for start in range(0, total, _IMAGE_CHUNK_BYTES):
+                end = min(start + _IMAGE_CHUNK_BYTES, total)
+                yield frontend_pb2.ImageChunk(
+                    data=image_data[start:end],
+                    image_id=image_id,
+                    chunk_index=chunk_index,
+                    is_last=end >= total,
+                    mime_type=mime_type,
+                    position=position,
+                )
+                chunk_index += 1
+
+        self.frontend_stub.StreamImage(_iter_chunks())
 
 
 def serve(port: int = COLOR_BLIND_PORT):

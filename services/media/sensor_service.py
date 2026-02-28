@@ -1,6 +1,7 @@
 """Sensor service with in-process fan-out and ring buffers."""
 
 from collections import deque
+from dataclasses import dataclass
 import queue
 import signal
 import threading
@@ -12,13 +13,22 @@ import numpy as np
 import structlog
 
 from generated import sensor_pb2, sensor_pb2_grpc
-from services.broadcast import BroadcastHub
+from services.media.broadcast import BroadcastHub
 from services.config import (
+    SENSOR_CAMERA_CHUNK_BYTES,
     SENSOR_AUDIO_BUFFER_SECONDS,
     SENSOR_DEFAULT_CHUNK_MS,
     SENSOR_DEFAULT_FPS,
+    SENSOR_H264_CRF,
+    SENSOR_H264_PRESET,
+    SENSOR_JPEG_QUALITY,
     SENSOR_DEFAULT_SAMPLE_RATE,
     SENSOR_PORT,
+)
+from services.media.camera_transport import (
+    encode_rgb_to_jpeg,
+    iter_camera_frame_chunks,
+    PersistentH264Encoder,
 )
 from viture_sensors import AudioRecorder, USBCamera
 
@@ -27,6 +37,15 @@ log = structlog.get_logger()
 _AUDIO_BUFFER_CHUNKS = max(
     4, int(SENSOR_AUDIO_BUFFER_SECONDS * 1000 / SENSOR_DEFAULT_CHUNK_MS)
 )
+
+@dataclass(frozen=True)
+class _CameraPacket:
+    frame_rgb: np.ndarray
+    h264_data: bytes
+    width: int
+    height: int
+    timestamp: float
+    frame_id: str
 
 
 class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
@@ -48,7 +67,11 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
         self._audio_hub = BroadcastHub(maxsize=256)
         self._stop_event = threading.Event()
         self._state_lock = threading.Lock()
-        self._latest_frame: sensor_pb2.CameraFrame | None = None
+        self._encoder_lock = threading.Lock()
+        self._latest_frame: _CameraPacket | None = None
+        self._frame_seq = 0
+        self._h264_encoder: PersistentH264Encoder | None = None
+        self._h264_encoder_shape: tuple[int, int] | None = None
         self._audio_buffer: deque[sensor_pb2.AudioChunk] = deque(
             maxlen=_AUDIO_BUFFER_CHUNKS
         )
@@ -73,11 +96,18 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
             try:
                 frame = self._camera.capture()
                 h, w = frame.shape[:2]
-                msg = sensor_pb2.CameraFrame(
-                    data=frame.tobytes(),
+                ts = time.time()
+                h264_data = self._encode_stream_h264_frame(frame)
+                with self._state_lock:
+                    self._frame_seq += 1
+                    frame_id = f"{int(ts * 1_000_000)}-{self._frame_seq}"
+                msg = _CameraPacket(
+                    frame_rgb=frame,
+                    h264_data=h264_data,
                     width=w,
                     height=h,
-                    timestamp=time.time(),
+                    timestamp=ts,
+                    frame_id=frame_id,
                 )
                 with self._state_lock:
                     self._latest_frame = msg
@@ -117,8 +147,55 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
         self._stop_event.set()
         self._camera_thread.join(timeout=3)
         self._audio_thread.join(timeout=3)
+        self._close_h264_encoder()
         self._camera.close()
         self._recorder.close()
+
+    def _close_h264_encoder(self) -> None:
+        with self._encoder_lock:
+            encoder = self._h264_encoder
+            self._h264_encoder = None
+            self._h264_encoder_shape = None
+        if encoder is not None:
+            try:
+                encoder.close()
+            except Exception as exc:
+                log.warning("sensor_service.h264_encoder_close_failed", error=str(exc))
+
+    def _ensure_h264_encoder(self, width: int, height: int) -> PersistentH264Encoder:
+        with self._encoder_lock:
+            if (
+                self._h264_encoder is not None
+                and self._h264_encoder_shape == (width, height)
+            ):
+                return self._h264_encoder
+
+            old_encoder = self._h264_encoder
+            self._h264_encoder = None
+            self._h264_encoder_shape = None
+            if old_encoder is not None:
+                old_encoder.close()
+
+            self._h264_encoder = PersistentH264Encoder(
+                width=width,
+                height=height,
+                fps=SENSOR_DEFAULT_FPS,
+                crf=SENSOR_H264_CRF,
+                preset=SENSOR_H264_PRESET,
+            )
+            self._h264_encoder_shape = (width, height)
+            return self._h264_encoder
+
+    def _encode_stream_h264_frame(self, frame_rgb: np.ndarray) -> bytes:
+        height, width = frame_rgb.shape[:2]
+        encoder = self._ensure_h264_encoder(width, height)
+        try:
+            return encoder.encode_frame(frame_rgb)
+        except Exception as exc:
+            log.warning("sensor_service.h264_encoder_retry", error=str(exc))
+            self._close_h264_encoder()
+            encoder = self._ensure_h264_encoder(width, height)
+            return encoder.encode_frame(frame_rgb)
 
     def StreamCamera(self, request, context):
         fps = request.fps if request.fps > 0 else SENSOR_DEFAULT_FPS
@@ -134,7 +211,15 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
                     if frame_msg.timestamp - last_sent_ts < min_interval:
                         continue
                     last_sent_ts = frame_msg.timestamp
-                    yield frame_msg
+                    yield from self._iter_frame_chunks(
+                        frame_id=frame_msg.frame_id,
+                        data=frame_msg.h264_data,
+                        width=frame_msg.width,
+                        height=frame_msg.height,
+                        timestamp=frame_msg.timestamp,
+                        encoding=sensor_pb2.FRAME_ENCODING_H264,
+                        key_frame=True,
+                    )
                 except queue.Empty:
                     continue
         finally:
@@ -180,13 +265,39 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
         if latest is None:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details("No camera frame available yet")
-            return sensor_pb2.CameraFrame()
+            return
 
-        return sensor_pb2.CameraFrame(
-            data=latest.data,
+        jpeg_data = encode_rgb_to_jpeg(latest.frame_rgb, quality=SENSOR_JPEG_QUALITY)
+        yield from self._iter_frame_chunks(
+            frame_id=latest.frame_id,
+            data=jpeg_data,
             width=latest.width,
             height=latest.height,
             timestamp=latest.timestamp,
+            encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+            key_frame=True,
+        )
+
+    @staticmethod
+    def _iter_frame_chunks(
+        *,
+        frame_id: str,
+        data: bytes,
+        width: int,
+        height: int,
+        timestamp: float,
+        encoding: int,
+        key_frame: bool,
+    ):
+        yield from iter_camera_frame_chunks(
+            data=data,
+            frame_id=frame_id,
+            width=width,
+            height=height,
+            timestamp=timestamp,
+            encoding=encoding,
+            key_frame=key_frame,
+            chunk_bytes=SENSOR_CAMERA_CHUNK_BYTES,
         )
 
     @staticmethod
