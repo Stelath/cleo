@@ -88,10 +88,16 @@ def _make_h264_chunks(
 
 def test_encode_frames_to_mp4_basic():
     frames = _make_rgb_frames(10)
-    mp4_bytes = _encode_frames_to_mp4(frames, fps=5.0)
+    mock_writer = MagicMock()
+
+    with patch("services.video.service._open_mp4_writer", return_value=mock_writer):
+        with patch("services.video.service.Path.read_bytes", return_value=b"fake-mp4-bytes"):
+            mp4_bytes = _encode_frames_to_mp4(frames, fps=5.0)
+
     assert len(mp4_bytes) > 0
-    # MP4 files start with an ftyp box or mdat — just verify non-empty bytes
-    assert isinstance(mp4_bytes, bytes)
+    assert mp4_bytes == b"fake-mp4-bytes"
+    assert mock_writer.write.call_count == len(frames)
+    mock_writer.release.assert_called_once()
 
 
 def test_encode_frames_empty_list():

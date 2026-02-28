@@ -239,6 +239,7 @@ class TestFaceDetectionLoop:
             loop._process_frame(frame)
 
             mock_stub_instance.StoreFaceEmbedding.assert_called_once()
+            assert len(loop.recent_faces) == 1
 
     @patch("apps.face_detection.grpc")
     def test_process_frame_skips_recent_matching_face(self, mock_grpc_mod):
@@ -281,7 +282,7 @@ class TestFaceDetectionLoop:
         mock_stub_instance = MagicMock()
         mock_search_result = MagicMock()
         mock_search_result.face_id = 1
-        mock_search_result.score = 0.40
+        mock_search_result.score = 0.20
         mock_search_resp = MagicMock()
         mock_search_resp.results = [mock_search_result]
         mock_stub_instance.SearchFaces.return_value = mock_search_resp
@@ -305,6 +306,7 @@ class TestFaceDetectionLoop:
             loop._process_frame(frame)
 
             mock_stub_instance.StoreFaceEmbedding.assert_called_once()
+            assert len(loop.recent_faces) == 1
 
     @patch("apps.face_detection.grpc")
     def test_process_frame_ignores_no_face_detected_rpc_error(self, mock_grpc_mod):
