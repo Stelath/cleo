@@ -23,6 +23,7 @@ from services.config import FRONTEND_ADDRESS, NAVIGATOR_PORT, SENSOR_ADDRESS
 from services.media.camera_transport import (
     AssembledCameraFrame,
     CameraFrameAssembler,
+    PersistentH264Decoder,
     assembled_frame_to_rgb,
 )
 
@@ -137,6 +138,8 @@ class NavigatorLoop(threading.Thread):
             maxlen=_GUIDANCE_BUFFER_SIZE
         )
         self._previous_guidance: str | None = None
+        self._h264_decoder: PersistentH264Decoder | None = None
+        self._h264_decoder_shape: tuple[int, int] | None = None
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -147,22 +150,44 @@ class NavigatorLoop(threading.Thread):
 
     def run(self) -> None:
         backoff = 1.0
-        while not self._stop_event.is_set():
-            try:
-                log.info("navigator.connecting", sensor=self._sensor_address)
-                self._stream_loop()
-            except grpc.RpcError as exc:
-                if self._stop_event.is_set():
-                    break
-                log.warning("navigator.sensor_error", error=str(exc))
-            except Exception as exc:
-                if self._stop_event.is_set():
-                    break
-                log.warning("navigator.loop_error", error=str(exc))
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    log.info("navigator.connecting", sensor=self._sensor_address)
+                    self._stream_loop()
+                except grpc.RpcError as exc:
+                    if self._stop_event.is_set():
+                        break
+                    log.warning("navigator.sensor_error", error=str(exc))
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        break
+                    log.warning("navigator.loop_error", error=str(exc))
 
-            if not self._stop_event.is_set():
-                self._stop_event.wait(timeout=backoff)
-                backoff = min(backoff * 2, 30.0)
+                if not self._stop_event.is_set():
+                    self._stop_event.wait(timeout=backoff)
+                    backoff = min(backoff * 2, 30.0)
+        finally:
+            self._close_h264_decoder()
+
+    def _close_h264_decoder(self) -> None:
+        decoder = self._h264_decoder
+        self._h264_decoder = None
+        self._h264_decoder_shape = None
+        if decoder is not None:
+            decoder.close()
+
+    def _ensure_h264_decoder(self, width: int, height: int) -> PersistentH264Decoder:
+        if (
+            self._h264_decoder is not None
+            and self._h264_decoder_shape == (width, height)
+        ):
+            return self._h264_decoder
+
+        self._close_h264_decoder()
+        self._h264_decoder = PersistentH264Decoder(width=width, height=height)
+        self._h264_decoder_shape = (width, height)
+        return self._h264_decoder
 
     def _stream_loop(self) -> None:
         channel = grpc.insecure_channel(
@@ -250,7 +275,17 @@ class NavigatorLoop(threading.Thread):
             )
 
         try:
-            frame_rgb = assembled_frame_to_rgb(assembled)
+            if assembled.encoding == sensor_pb2.FRAME_ENCODING_H264:
+                decoder = self._ensure_h264_decoder(assembled.width, assembled.height)
+                try:
+                    frame_rgb = assembled_frame_to_rgb(assembled, h264_decoder=decoder)
+                except Exception as exc:
+                    log.warning("navigator.h264_decoder_retry", error=str(exc))
+                    self._close_h264_decoder()
+                    decoder = self._ensure_h264_decoder(assembled.width, assembled.height)
+                    frame_rgb = assembled_frame_to_rgb(assembled, h264_decoder=decoder)
+            else:
+                frame_rgb = assembled_frame_to_rgb(assembled)
             jpeg_bytes = _rgb_to_jpeg(frame_rgb)
             guidance = self._bedrock.analyze_frame(
                 jpeg_bytes, self._user_context, self._previous_guidance

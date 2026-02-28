@@ -362,18 +362,27 @@ async fn handle_display_update(
             app.emit_to("hud", "hud:clear", ())?;
         }
         DisplayVariant::PlayAudio(cmd) => {
+            state.reset_audio_cancel();
             let device_id = state.selected_audio_device();
-            if let Err(error) =
-                audio::play_pcm_base64(&cmd.data_base64, cmd.sample_rate, device_id).await
-            {
-                log::error!("audio playback error: {error}");
-            }
+            let cancel = state.audio_cancel_token();
+            tokio::spawn(async move {
+                if let Err(error) =
+                    audio::play_pcm_base64(&cmd.data_base64, cmd.sample_rate, device_id, cancel)
+                        .await
+                {
+                    log::error!("audio playback error: {error}");
+                }
+            });
         }
         DisplayVariant::PlayAudioFile(cmd) => {
+            state.reset_audio_cancel();
             let device_id = state.selected_audio_device();
-            if let Err(error) = audio::play_file(&cmd.path, device_id).await {
-                log::error!("audio file playback error: {error}");
-            }
+            let cancel = state.audio_cancel_token();
+            tokio::spawn(async move {
+                if let Err(error) = audio::play_file(&cmd.path, device_id, cancel).await {
+                    log::error!("audio file playback error: {error}");
+                }
+            });
         }
         DisplayVariant::RenderHtml(cmd) => {
             app.emit_to("hud", "hud:render_html", cmd.html)?;
@@ -413,6 +422,10 @@ async fn handle_display_update(
                     }),
                 )?;
             }
+        }
+        DisplayVariant::StopAudio(_) => {
+            log::info!("stopping audio playback");
+            state.cancel_audio();
         }
         DisplayVariant::AppIndicator(req) => {
             let action = if req.is_active { "activate" } else { "deactivate" };

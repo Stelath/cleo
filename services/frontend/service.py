@@ -93,6 +93,10 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
         log.info("frontend_service.play_audio_file", path=request.path)
         return self._publish_update(play_audio_file=request)
 
+    def StopAudio(self, request, context):
+        log.info("frontend_service.stop_audio")
+        return self._publish_update(stop_audio=request)
+
     def SpeakText(self, request, context):
         text = request.text
         if not text or not text.strip():

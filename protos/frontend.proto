@@ -15,6 +15,7 @@ service FrontendService {
   rpc PlayAudio(PlayAudioRequest) returns (FrontendResponse);
   rpc PlayAudioFile(PlayAudioFileRequest) returns (FrontendResponse);
   rpc SpeakText(SpeakTextRequest) returns (FrontendResponse);
+  rpc StopAudio(StopAudioRequest) returns (FrontendResponse);
   rpc RenderHtml(RenderHtmlRequest) returns (FrontendResponse);
   rpc ShowThrobber(ThrobberRequest) returns (FrontendResponse);
   rpc SetAppIndicator(AppIndicatorRequest) returns (FrontendResponse);
@@ -112,6 +113,8 @@ message SpeakTextRequest {
   string text = 1;
 }
 
+message StopAudioRequest {}
+
 message RenderHtmlRequest {
   string html = 1;
 }
@@ -144,6 +147,7 @@ message DisplayUpdate {
     RenderHtmlRequest render_html = 9;
     ThrobberRequest throbber = 10;
     AppIndicatorRequest app_indicator = 11;
+    StopAudioRequest stop_audio = 12;
   }
 }
 

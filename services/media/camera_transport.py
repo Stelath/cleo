@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import multiprocessing
 import os
+import queue
 import select
 import subprocess
 import tempfile
@@ -291,6 +293,136 @@ class PersistentH264Encoder:
         self.close()
 
 
+class PersistentH264Decoder:
+    """Long-lived ffmpeg decoder that avoids per-frame process spawning."""
+
+    def __init__(
+        self,
+        *,
+        width: int,
+        height: int,
+    ) -> None:
+        self._width = int(width)
+        self._height = int(height)
+        self._frame_bytes = self._width * self._height * 3
+        self._lock = threading.Lock()
+        self._ctx = multiprocessing.get_context("fork")
+        self._request_queue = self._ctx.Queue(maxsize=4)
+        self._response_queue = self._ctx.Queue(maxsize=4)
+        self._request_id = 0
+        self._backlog: dict[int, tuple[bytes, str]] = {}
+        self._closed = False
+
+        self._proc = self._ctx.Process(
+            target=_persistent_h264_decoder_worker,
+            args=(
+                self._request_queue,
+                self._response_queue,
+                self._width,
+                self._height,
+            ),
+            daemon=True,
+            name="PersistentH264DecoderWorker",
+        )
+        self._proc.start()
+
+    def _ensure_running(self) -> None:
+        rc = self._proc.exitcode
+        if rc is not None:
+            raise RuntimeError(f"Persistent H.264 decoder worker exited rc={rc}")
+
+    def _drain_backlog(self, request_id: int) -> tuple[bytes, str] | None:
+        cached = self._backlog.pop(request_id, None)
+        if cached is not None:
+            return cached
+        return None
+
+    def _await_response(self, request_id: int, timeout: float) -> tuple[bytes, str]:
+        cached = self._drain_backlog(request_id)
+        if cached is not None:
+            return cached
+
+        deadline = time.monotonic() + max(0.01, float(timeout))
+        while time.monotonic() < deadline:
+            self._ensure_running()
+            remaining = max(0.0, deadline - time.monotonic())
+            wait_s = min(0.1, remaining)
+            try:
+                response_id, payload, error = self._response_queue.get(timeout=wait_s)
+            except queue.Empty:
+                cached = self._drain_backlog(request_id)
+                if cached is not None:
+                    return cached
+                continue
+
+            if response_id == request_id:
+                return payload, error
+
+            self._backlog[response_id] = (payload, error)
+
+        raise RuntimeError("Timed out waiting for decoded H.264 frame bytes")
+
+    def _decode_payload(self, payload: bytes) -> np.ndarray:
+        if len(payload) != self._frame_bytes:
+            raise RuntimeError(
+                f"Decoded H.264 frame size mismatch: expected {self._frame_bytes}, got {len(payload)}"
+            )
+        frame = np.frombuffer(payload, dtype=np.uint8).reshape(
+            self._height,
+            self._width,
+            3,
+        )
+        return frame.copy()
+
+    def decode_frame(self, frame_h264: bytes, timeout: float = 2.0) -> np.ndarray:
+        if self._closed:
+            raise RuntimeError("Persistent H.264 decoder is closed")
+
+        with self._lock:
+            self._ensure_running()
+            self._request_id += 1
+            request_id = self._request_id
+            self._request_queue.put((request_id, bytes(frame_h264)), timeout=max(0.1, timeout))
+            payload, error = self._await_response(request_id, timeout=timeout)
+
+        if error:
+            raise RuntimeError(error)
+        return self._decode_payload(payload)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+
+        try:
+            self._request_queue.put(None, timeout=0.2)
+        except Exception:
+            pass
+
+        if self._proc.is_alive():
+            self._proc.join(timeout=2.0)
+        if self._proc.is_alive():
+            self._proc.terminate()
+            self._proc.join(timeout=2.0)
+
+        try:
+            self._request_queue.close()
+            self._request_queue.join_thread()
+        except Exception:
+            pass
+        try:
+            self._response_queue.close()
+            self._response_queue.join_thread()
+        except Exception:
+            pass
+
+    def __enter__(self) -> "PersistentH264Decoder":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+
 def iter_camera_frame_chunks(
     *,
     data: bytes,
@@ -412,7 +544,24 @@ def encode_rgb_to_h264_annexb(
     return bytes(proc.stdout)
 
 
-def decode_h264_annexb_to_rgb(frame_h264: bytes, width: int, height: int) -> np.ndarray:
+def decode_h264_annexb_to_rgb(
+    frame_h264: bytes,
+    width: int,
+    height: int,
+    decoder: PersistentH264Decoder | None = None,
+) -> np.ndarray:
+    if decoder is not None:
+        return decoder.decode_frame(frame_h264, timeout=_FFMPEG_TIMEOUT_SECONDS)
+
+    return _decode_h264_annexb_to_rgb_subprocess(frame_h264, width, height)
+
+
+def _decode_h264_annexb_to_rgb_subprocess(
+    frame_h264: bytes,
+    width: int,
+    height: int,
+) -> np.ndarray:
+
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -452,11 +601,38 @@ def decode_h264_annexb_to_rgb(frame_h264: bytes, width: int, height: int) -> np.
     return frame.copy()
 
 
-def assembled_frame_to_rgb(frame: AssembledCameraFrame) -> np.ndarray:
+def _persistent_h264_decoder_worker(
+    request_queue,
+    response_queue,
+    width: int,
+    height: int,
+) -> None:
+    while True:
+        item = request_queue.get()
+        if item is None:
+            return
+
+        request_id, frame_h264 = item
+        try:
+            frame_rgb = _decode_h264_annexb_to_rgb_subprocess(frame_h264, width, height)
+            response_queue.put((request_id, frame_rgb.tobytes(), ""))
+        except Exception as exc:
+            response_queue.put((request_id, b"", str(exc)))
+
+
+def assembled_frame_to_rgb(
+    frame: AssembledCameraFrame,
+    h264_decoder: PersistentH264Decoder | None = None,
+) -> np.ndarray:
     if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
         return decode_jpeg_to_rgb(frame.data)
     if frame.encoding == sensor_pb2.FRAME_ENCODING_H264:
-        return decode_h264_annexb_to_rgb(frame.data, frame.width, frame.height)
+        return decode_h264_annexb_to_rgb(
+            frame.data,
+            frame.width,
+            frame.height,
+            decoder=h264_decoder,
+        )
     if frame.encoding == sensor_pb2.FRAME_ENCODING_RGB24:
         expected = frame.width * frame.height * 3
         if len(frame.data) != expected:

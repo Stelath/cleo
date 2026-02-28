@@ -1,8 +1,10 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::broadcast;
 
+use crate::audio::CancelToken;
 use crate::config::{save_config, HudConfig};
 use crate::errors::Result;
 use crate::protocol::Event;
@@ -12,6 +14,7 @@ pub struct AppState {
     event_tx: broadcast::Sender<Event>,
     config_path: Arc<PathBuf>,
     audio_device_id: Arc<RwLock<Option<String>>>,
+    audio_cancel: CancelToken,
 }
 
 impl AppState {
@@ -22,6 +25,7 @@ impl AppState {
             event_tx,
             config_path: Arc::new(config_path),
             audio_device_id: Arc::new(RwLock::new(initial_audio_device)),
+            audio_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -42,5 +46,17 @@ impl AppState {
             audio_device_id: device_id,
         };
         save_config(self.config_path.as_ref(), &config)
+    }
+
+    pub fn cancel_audio(&self) {
+        self.audio_cancel.store(true, Ordering::Relaxed);
+    }
+
+    pub fn reset_audio_cancel(&self) {
+        self.audio_cancel.store(false, Ordering::Relaxed);
+    }
+
+    pub fn audio_cancel_token(&self) -> CancelToken {
+        self.audio_cancel.clone()
     }
 }

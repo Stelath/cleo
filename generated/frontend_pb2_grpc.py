@@ -79,6 +79,11 @@ class FrontendServiceStub(object):
                 request_serializer=frontend__pb2.SpeakTextRequest.SerializeToString,
                 response_deserializer=frontend__pb2.FrontendResponse.FromString,
                 _registered_method=True)
+        self.StopAudio = channel.unary_unary(
+                '/cleo.frontend.FrontendService/StopAudio',
+                request_serializer=frontend__pb2.StopAudioRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
         self.RenderHtml = channel.unary_unary(
                 '/cleo.frontend.FrontendService/RenderHtml',
                 request_serializer=frontend__pb2.RenderHtmlRequest.SerializeToString,
@@ -170,6 +175,12 @@ class FrontendServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StopAudio(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RenderHtml(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -255,6 +266,11 @@ def add_FrontendServiceServicer_to_server(servicer, server):
             'SpeakText': grpc.unary_unary_rpc_method_handler(
                     servicer.SpeakText,
                     request_deserializer=frontend__pb2.SpeakTextRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'StopAudio': grpc.unary_unary_rpc_method_handler(
+                    servicer.StopAudio,
+                    request_deserializer=frontend__pb2.StopAudioRequest.FromString,
                     response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
             ),
             'RenderHtml': grpc.unary_unary_rpc_method_handler(
@@ -530,6 +546,33 @@ class FrontendService(object):
             target,
             '/cleo.frontend.FrontendService/SpeakText',
             frontend__pb2.SpeakTextRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StopAudio(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/StopAudio',
+            frontend__pb2.StopAudioRequest.SerializeToString,
             frontend__pb2.FrontendResponse.FromString,
             options,
             channel_credentials,

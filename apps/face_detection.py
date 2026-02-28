@@ -20,6 +20,7 @@ from generated import data_pb2, data_pb2_grpc, frontend_pb2, frontend_pb2_grpc, 
 from services.media.camera_transport import (
     AssembledCameraFrame,
     CameraFrameAssembler,
+    PersistentH264Decoder,
     assembled_frame_to_rgb,
     encode_rgb_to_jpeg,
 )
@@ -50,13 +51,6 @@ def _decode_jpeg(jpeg_data: bytes) -> np.ndarray:
     if img is None:
         raise RuntimeError("Failed to decode JPEG frame")
     return img
-
-
-def _frame_to_jpeg_bytes(frame: AssembledCameraFrame) -> bytes:
-    if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
-        return bytes(frame.data)
-    frame_rgb = assembled_frame_to_rgb(frame)
-    return encode_rgb_to_jpeg(frame_rgb)
 
 
 def _crop_face(
@@ -121,6 +115,8 @@ class FaceDetectionLoop(threading.Thread):
             maxlen=_RECENT_FACES_BUFFER_SIZE
         )
         self._last_saved_by_face_id: dict[int, float] = {}
+        self._h264_decoder: PersistentH264Decoder | None = None
+        self._h264_decoder_shape: tuple[int, int] | None = None
 
         if rekognition_client is not None:
             self._rekognition = rekognition_client
@@ -156,7 +152,45 @@ class FaceDetectionLoop(threading.Thread):
                     self._stop_event.wait(timeout=backoff)
                     backoff = min(backoff * 2, 30.0)
         finally:
+            self._close_h264_decoder()
             self._frontend_channel.close()
+
+    def _close_h264_decoder(self) -> None:
+        decoder = self._h264_decoder
+        self._h264_decoder = None
+        self._h264_decoder_shape = None
+        if decoder is not None:
+            decoder.close()
+
+    def _ensure_h264_decoder(self, width: int, height: int) -> PersistentH264Decoder:
+        if (
+            self._h264_decoder is not None
+            and self._h264_decoder_shape == (width, height)
+        ):
+            return self._h264_decoder
+
+        self._close_h264_decoder()
+        self._h264_decoder = PersistentH264Decoder(width=width, height=height)
+        self._h264_decoder_shape = (width, height)
+        return self._h264_decoder
+
+    def _frame_to_jpeg_bytes(self, frame: AssembledCameraFrame) -> bytes:
+        if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
+            return bytes(frame.data)
+
+        if frame.encoding == sensor_pb2.FRAME_ENCODING_H264:
+            decoder = self._ensure_h264_decoder(frame.width, frame.height)
+            try:
+                frame_rgb = assembled_frame_to_rgb(frame, h264_decoder=decoder)
+            except Exception as exc:
+                log.warning("face_detection.h264_decoder_retry", error=str(exc))
+                self._close_h264_decoder()
+                decoder = self._ensure_h264_decoder(frame.width, frame.height)
+                frame_rgb = assembled_frame_to_rgb(frame, h264_decoder=decoder)
+            return encode_rgb_to_jpeg(frame_rgb)
+
+        frame_rgb = assembled_frame_to_rgb(frame)
+        return encode_rgb_to_jpeg(frame_rgb)
 
     def _stream_loop(self) -> None:
         channel = grpc.insecure_channel(
@@ -195,7 +229,7 @@ class FaceDetectionLoop(threading.Thread):
     def _process_frame(self, frame: AssembledCameraFrame) -> None:
         try:
             timestamp = frame.timestamp or time.time()
-            jpeg_bytes = _frame_to_jpeg_bytes(frame)
+            jpeg_bytes = self._frame_to_jpeg_bytes(frame)
 
             response = self._rekognition.detect_faces(
                 Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]

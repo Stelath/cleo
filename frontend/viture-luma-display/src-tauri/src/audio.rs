@@ -9,10 +9,13 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use crate::audio_devices;
 use crate::errors::{AppError, Result};
 
+pub type CancelToken = Arc<AtomicBool>;
+
 pub async fn play_pcm_base64(
     data: &str,
     sample_rate: u32,
     selected_device_id: Option<String>,
+    cancel: CancelToken,
 ) -> Result<()> {
     let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
     if bytes.len() % 4 != 0 {
@@ -26,10 +29,10 @@ pub async fn play_pcm_base64(
         .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("4-byte chunks")))
         .collect();
 
-    play_samples(samples, sample_rate, selected_device_id).await
+    play_samples(samples, sample_rate, selected_device_id, cancel).await
 }
 
-pub async fn play_file(path: &str, selected_device_id: Option<String>) -> Result<()> {
+pub async fn play_file(path: &str, selected_device_id: Option<String>, cancel: CancelToken) -> Result<()> {
     let ext = Path::new(path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -89,16 +92,17 @@ pub async fn play_file(path: &str, selected_device_id: Option<String>) -> Result
             .collect::<Vec<f32>>()
     };
 
-    play_samples(samples, spec.sample_rate, selected_device_id).await
+    play_samples(samples, spec.sample_rate, selected_device_id, cancel).await
 }
 
 async fn play_samples(
     samples: Vec<f32>,
     sample_rate: u32,
     selected_device_id: Option<String>,
+    cancel: CancelToken,
 ) -> Result<()> {
     tokio::task::spawn_blocking(move || {
-        play_samples_blocking(samples, sample_rate, selected_device_id)
+        play_samples_blocking(samples, sample_rate, selected_device_id, cancel)
     })
     .await
     .map_err(|error| AppError::Audio(format!("audio playback task failed: {error}")))?
@@ -108,6 +112,7 @@ fn play_samples_blocking(
     samples: Vec<f32>,
     sample_rate: u32,
     selected_device_id: Option<String>,
+    cancel: CancelToken,
 ) -> Result<()> {
     let device = audio_devices::find_output_device(selected_device_id.as_deref())?;
     let default_config = device.default_output_config().map_err(|error| {
@@ -138,6 +143,7 @@ fn play_samples_blocking(
             cursor,
             is_done,
             done_signal.clone(),
+            cancel.clone(),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -147,6 +153,7 @@ fn play_samples_blocking(
             cursor,
             is_done,
             done_signal.clone(),
+            cancel.clone(),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -156,6 +163,7 @@ fn play_samples_blocking(
             cursor,
             is_done,
             done_signal.clone(),
+            cancel.clone(),
         )?,
         unsupported => {
             return Err(AppError::Audio(format!(
@@ -170,8 +178,11 @@ fn play_samples_blocking(
 
     let (lock, cvar) = &*done_signal;
     let mut completed = lock.lock().expect("done mutex poisoned");
-    while !*completed {
-        completed = cvar.wait(completed).expect("done mutex poisoned");
+    while !*completed && !cancel.load(Ordering::Relaxed) {
+        let (guard, _timeout) = cvar
+            .wait_timeout(completed, std::time::Duration::from_millis(50))
+            .expect("done mutex poisoned");
+        completed = guard;
     }
 
     drop(stream);
@@ -186,6 +197,7 @@ fn build_stream<T>(
     cursor: Arc<AtomicUsize>,
     is_done: Arc<AtomicBool>,
     done_signal: Arc<(Mutex<bool>, Condvar)>,
+    cancel: CancelToken,
 ) -> Result<cpal::Stream>
 where
     T: Sample + SizedSample + FromSample<f32>,
@@ -198,6 +210,20 @@ where
         .build_output_stream(
             config,
             move |output: &mut [T], _| {
+                if cancel.load(Ordering::Relaxed) {
+                    for s in output.iter_mut() {
+                        *s = T::from_sample(0.0f32);
+                    }
+                    if !is_done.swap(true, Ordering::SeqCst) {
+                        let (lock, cvar) = &*done_signal;
+                        if let Ok(mut completed) = lock.lock() {
+                            *completed = true;
+                            cvar.notify_all();
+                        }
+                    }
+                    return;
+                }
+
                 let frame_count = output.len() / channels;
                 let start_frame = cursor.fetch_add(frame_count, Ordering::Relaxed);
 
