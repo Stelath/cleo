@@ -62,6 +62,18 @@ def _float32_to_pcm16(audio: bytes) -> bytes:
     return scaled.tobytes()
 
 
+def _audio_duration_seconds(audio: bytes, sample_rate: int) -> float:
+    """Estimate the duration of a mono float32 PCM buffer in seconds."""
+    if not audio or sample_rate <= 0:
+        return 0.0
+
+    bytes_per_sample = np.dtype(np.float32).itemsize
+    sample_count = len(audio) // bytes_per_sample
+    if sample_count <= 0:
+        return 0.0
+    return sample_count / float(sample_rate)
+
+
 @dataclass(slots=True)
 class TranscriptSpan:
     text: str
@@ -283,6 +295,17 @@ class AmazonTranscribeBackend:
         self._region = region
 
     @staticmethod
+    def _stream_start_epoch(first_request: transcription_pb2.AudioInput) -> float:
+        """Anchor stream-relative offsets to a UTC epoch when available."""
+        duration = _audio_duration_seconds(first_request.audio_data, first_request.sample_rate)
+        chunk_end = (
+            float(first_request.timestamp)
+            if float(first_request.timestamp) > 0.0
+            else time.time()
+        )
+        return max(0.0, chunk_end - duration)
+
+    @staticmethod
     def _sdk_imports():
         try:
             from amazon_transcribe.client import TranscribeStreamingClient
@@ -400,6 +423,7 @@ class AmazonTranscribeBackend:
             enable_partial_results_stabilization=True,
             partial_results_stability="medium",
         )
+        stream_start_epoch = self._stream_start_epoch(first_request)
 
         class ResultHandler(TranscriptResultStreamHandler):
             async def handle_transcript_event(self, transcript_event) -> None:
@@ -416,8 +440,10 @@ class AmazonTranscribeBackend:
                         transcription_pb2.TranscriptionResult(
                             text=text,
                             confidence=1.0,
-                            start_time=float(getattr(result, "start_time", 0.0) or 0.0),
-                            end_time=float(getattr(result, "end_time", 0.0) or 0.0),
+                            start_time=stream_start_epoch
+                            + float(getattr(result, "start_time", 0.0) or 0.0),
+                            end_time=stream_start_epoch
+                            + float(getattr(result, "end_time", 0.0) or 0.0),
                             is_partial=bool(getattr(result, "is_partial", False)),
                             utterance_id=str(getattr(result, "result_id", "") or ""),
                         )
@@ -590,6 +616,7 @@ class SensorTranscriptionPipeline(threading.Thread):
                 sample_rate=chunk.sample_rate,
                 is_final=False,
                 stream_id=f"sensor-{chunk_index}",
+                timestamp=chunk.timestamp,
             )
 
         if not self._stop_event.is_set():
@@ -598,6 +625,7 @@ class SensorTranscriptionPipeline(threading.Thread):
                 sample_rate=SENSOR_DEFAULT_SAMPLE_RATE,
                 is_final=True,
                 stream_id="sensor-final",
+                timestamp=time.time(),
             )
 
     def run(self) -> None:
