@@ -7,7 +7,7 @@ import structlog
 
 log = structlog.get_logger()
 
-_MODEL_ID = "anthropic.claude-sonnet-4-20250514"
+_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 _SYSTEM_PROMPT = (
     "You are Cleo, an AI assistant running on AR smart glasses. "
     "The user speaks commands aloud after saying 'hey cleo'. "
@@ -36,14 +36,14 @@ class TextResult:
 class BedrockClient:
     """Thin wrapper around AWS Bedrock Converse API for tool-use routing."""
 
-    def __init__(self, client: Any = None, model_id: str = _MODEL_ID):
+    def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = "us-east-1"):
         self._model_id = model_id
         if client is not None:
             self._client = client
         else:
             import boto3
 
-            self._client = boto3.client("bedrock-runtime")
+            self._client = boto3.client("bedrock-runtime", region_name=region)
 
     def converse(self, user_text: str, tool_config: dict) -> ToolUseResult | TextResult:
         """Send user text to Bedrock and return either a tool-use or text result."""
