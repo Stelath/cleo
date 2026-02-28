@@ -204,3 +204,31 @@ class TestNotetakingServicer:
     def test_tool_name(self):
         servicer = NotetakingServicer.__new__(NotetakingServicer)
         assert servicer.tool_name == "notetaking"
+
+
+class TestFaceDetectionServicerProperties:
+    def _make_servicer(self):
+        from apps.face_detection import FaceDetectionServicer
+
+        servicer = FaceDetectionServicer.__new__(FaceDetectionServicer)
+        return servicer
+
+    def test_tool_name(self):
+        servicer = self._make_servicer()
+        assert servicer.tool_name == "face_detection"
+
+    def test_tool_type_is_active(self):
+        servicer = self._make_servicer()
+        assert servicer.tool_type == "active"
+
+    def test_tool_description_is_nonempty(self):
+        servicer = self._make_servicer()
+        assert isinstance(servicer.tool_description, str)
+        assert len(servicer.tool_description) > 0
+
+    def test_tool_input_schema_has_type(self):
+        servicer = self._make_servicer()
+        schema = servicer.tool_input_schema
+        assert isinstance(schema, dict)
+        assert schema.get("type") == "object"
+        assert "properties" in schema

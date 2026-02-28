@@ -109,6 +109,16 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.StoreFoodMacrosRequest.SerializeToString,
                 response_deserializer=data__pb2.StoreFoodMacrosResponse.FromString,
                 _registered_method=True)
+        self.StoreFaceEmbedding = channel.unary_unary(
+                '/cleo.data.DataService/StoreFaceEmbedding',
+                request_serializer=data__pb2.StoreFaceEmbeddingRequest.SerializeToString,
+                response_deserializer=data__pb2.StoreFaceEmbeddingResponse.FromString,
+                _registered_method=True)
+        self.SearchFaces = channel.unary_unary(
+                '/cleo.data.DataService/SearchFaces',
+                request_serializer=data__pb2.SearchFacesRequest.SerializeToString,
+                response_deserializer=data__pb2.SearchFacesResponse.FromString,
+                _registered_method=True)
 
 
 class DataServiceServicer(object):
@@ -219,6 +229,20 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StoreFaceEmbedding(self, request, context):
+        """Store a face embedding with deduplication
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SearchFaces(self, request, context):
+        """Search faces by image similarity
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -296,6 +320,16 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.StoreFoodMacros,
                     request_deserializer=data__pb2.StoreFoodMacrosRequest.FromString,
                     response_serializer=data__pb2.StoreFoodMacrosResponse.SerializeToString,
+            ),
+            'StoreFaceEmbedding': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreFaceEmbedding,
+                    request_deserializer=data__pb2.StoreFaceEmbeddingRequest.FromString,
+                    response_serializer=data__pb2.StoreFaceEmbeddingResponse.SerializeToString,
+            ),
+            'SearchFaces': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchFaces,
+                    request_deserializer=data__pb2.SearchFacesRequest.FromString,
+                    response_serializer=data__pb2.SearchFacesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -703,6 +737,60 @@ class DataService(object):
             '/cleo.data.DataService/StoreFoodMacros',
             data__pb2.StoreFoodMacrosRequest.SerializeToString,
             data__pb2.StoreFoodMacrosResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreFaceEmbedding(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/StoreFaceEmbedding',
+            data__pb2.StoreFaceEmbeddingRequest.SerializeToString,
+            data__pb2.StoreFaceEmbeddingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchFaces(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/SearchFaces',
+            data__pb2.SearchFacesRequest.SerializeToString,
+            data__pb2.SearchFacesResponse.FromString,
             options,
             channel_credentials,
             insecure,

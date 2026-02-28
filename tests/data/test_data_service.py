@@ -158,6 +158,8 @@ def data_servicer(tmp_path):
             db_path=str(tmp_path / "test.db"),
             index_path=str(tmp_path / "test.index"),
             video_dir=str(tmp_path / "videos"),
+            faces_index_path=str(tmp_path / "faces.index"),
+            face_dir=str(tmp_path / "faces"),
         )
         yield servicer
         servicer.shutdown()
@@ -386,3 +388,130 @@ def test_get_nonexistent_clip_rpc(data_servicer):
     req = data_pb2.GetVideoClipRequest(clip_id=9999)
     list(data_servicer.GetVideoClip(req, ctx))
     ctx.set_code.assert_called()
+
+
+# ── Face SQLite tests ──
+
+
+def test_insert_and_get_face(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=99.5,
+        first_seen=1000.0,
+    )
+    assert face_id >= 1
+
+    # Set faiss_id so we can look it up
+    sqlite_db.update_face_faiss_id(face_id, faiss_id=0)
+    face = sqlite_db.get_face_by_faiss_id(0)
+    assert face is not None
+    assert face["thumbnail_path"] == "/tmp/face.jpg"
+    assert face["confidence"] == pytest.approx(99.5)
+    assert face["first_seen"] == pytest.approx(1000.0)
+    assert face["seen_count"] == 1
+
+
+def test_update_face_seen(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=99.0,
+        first_seen=1000.0,
+    )
+    sqlite_db.update_face_faiss_id(face_id, faiss_id=0)
+
+    sqlite_db.update_face_seen(face_id, last_seen=2000.0)
+
+    face = sqlite_db.get_face_by_faiss_id(0)
+    assert face["seen_count"] == 2
+    assert face["last_seen"] == pytest.approx(2000.0)
+    assert face["first_seen"] == pytest.approx(1000.0)
+
+
+def test_get_face_by_faiss_id(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        first_seen=1000.0,
+    )
+    sqlite_db.update_face_faiss_id(face_id, faiss_id=42)
+
+    face = sqlite_db.get_face_by_faiss_id(42)
+    assert face is not None
+    assert face["id"] == face_id
+
+    # Non-existent
+    assert sqlite_db.get_face_by_faiss_id(9999) is None
+
+
+# ── Face RPC tests ──
+
+
+def test_store_face_embedding_new_face_rpc(data_servicer, tmp_path):
+    from generated import data_pb2
+
+    fake_face_jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    req = data_pb2.StoreFaceEmbeddingRequest(
+        image_data=fake_face_jpeg,
+        timestamp=1000.0,
+        confidence=99.5,
+    )
+    resp = data_servicer.StoreFaceEmbedding(req, _mock_context())
+    assert resp.is_new is True
+    assert resp.face_id >= 1
+    assert resp.faiss_id >= 0
+
+
+def test_store_face_embedding_dedup_rpc(data_servicer, tmp_path):
+    from generated import data_pb2
+
+    # Use a fixed embedding vector so both calls produce the same vector
+    fixed_vec = np.random.randn(1024).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+
+    with patch("services.data.service.embed_image", return_value=fixed_vec):
+        fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+        # First store — new face
+        resp1 = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=1000.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
+        assert resp1.is_new is True
+
+        # Second store — same vector, should deduplicate
+        resp2 = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=2000.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
+        assert resp2.is_new is False
+        assert resp2.matched_face_id == resp1.face_id
+
+
+def test_search_faces_rpc(data_servicer, tmp_path):
+    from generated import data_pb2
+
+    fixed_vec = np.random.randn(1024).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+
+    with patch("services.data.service.embed_image", return_value=fixed_vec):
+        fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+        # Store a face
+        data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=1000.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
+
+        # Search for it
+        resp = data_servicer.SearchFaces(
+            data_pb2.SearchFacesRequest(image_data=fake_face, top_k=5),
+            _mock_context(),
+        )
+        assert len(resp.results) >= 1
+        assert resp.results[0].face_id >= 1
+        assert resp.results[0].seen_count >= 1

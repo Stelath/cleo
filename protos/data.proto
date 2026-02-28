@@ -47,6 +47,12 @@ service DataService {
 
   // Store extracted food macro information for later recall
   rpc StoreFoodMacros(StoreFoodMacrosRequest) returns (StoreFoodMacrosResponse);
+
+  // Store a face embedding with deduplication
+  rpc StoreFaceEmbedding(StoreFaceEmbeddingRequest) returns (StoreFaceEmbeddingResponse);
+
+  // Search faces by image similarity
+  rpc SearchFaces(SearchFacesRequest) returns (SearchFacesResponse);
 }
 
 // ── Store Transcription ──
@@ -302,4 +308,37 @@ message StoreFoodMacrosRequest {
 
 message StoreFoodMacrosResponse {
   int64 id = 1;
+}
+
+// ── Faces ──
+
+message StoreFaceEmbeddingRequest {
+  bytes image_data = 1;
+  double timestamp = 2;
+  float confidence = 3;
+}
+
+message StoreFaceEmbeddingResponse {
+  int64 face_id = 1;
+  int64 faiss_id = 2;
+  bool is_new = 3;
+  int64 matched_face_id = 4;
+}
+
+message SearchFacesRequest {
+  bytes image_data = 1;
+  int32 top_k = 2;
+}
+
+message FaceSearchResult {
+  int64 face_id = 1;
+  float score = 2;
+  double first_seen = 3;
+  double last_seen = 4;
+  int32 seen_count = 5;
+  string thumbnail_path = 6;
+}
+
+message SearchFacesResponse {
+  repeated FaceSearchResult results = 1;
 }
