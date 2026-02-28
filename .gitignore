@@ -223,6 +223,7 @@ uv.lock
 transcription_output.txt
 .claude
 gemini.md
+.opencode/
 .uv_lock
 *.db
 *.index
@@ -234,6 +235,7 @@ data/videos/*
 data/cleo.db-shm
 data/cleo.db-wal
 data/cleo.db
+
 
 # Bazel
 /bazel-*

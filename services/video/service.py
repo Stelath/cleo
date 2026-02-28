@@ -36,6 +36,7 @@ log = structlog.get_logger()
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
 _MEDIA_CHUNK_BYTES = 256 * 1024
 _MP4_CODEC = "avc1"
+_MIN_PARTIAL_CLIP_SECONDS = 2.0
 
 
 def _open_mp4_writer(
@@ -174,8 +175,50 @@ class VideoClipPipeline(threading.Thread):
         self._clip_fps = clip_fps
         self._embed_fps = embed_fps
         self._clip_duration = clip_duration
-        self._target_frames = int(clip_fps * clip_duration)
         self._stop_event = threading.Event()
+
+    def _is_clip_window_complete(self, start_timestamp: float, end_timestamp: float) -> bool:
+        if end_timestamp <= start_timestamp:
+            return False
+
+        # A clip with N frames spans roughly (N-1)/fps seconds, so allow one frame
+        # period of slack before rolling to the next window.
+        frame_period = 1.0 / max(1.0, float(self._clip_fps))
+        min_duration = max(0.0, float(self._clip_duration) - frame_period)
+        return (end_timestamp - start_timestamp) >= min_duration
+
+    def _should_flush_partial_window(
+        self,
+        start_timestamp: float,
+        end_timestamp: float,
+        num_frames: int,
+    ) -> bool:
+        if num_frames < 2:
+            return False
+
+        elapsed = end_timestamp - start_timestamp
+        if elapsed >= _MIN_PARTIAL_CLIP_SECONDS:
+            return True
+
+        # If timestamps are unavailable or non-monotonic, fall back to frame count.
+        fallback_frames = int(max(2.0, float(self._clip_fps) * _MIN_PARTIAL_CLIP_SECONDS))
+        return elapsed <= 0.0 and num_frames >= fallback_frames
+
+    def _effective_clip_fps(
+        self,
+        start_timestamp: float,
+        end_timestamp: float,
+        num_frames: int,
+    ) -> float:
+        if num_frames <= 1:
+            return float(self._clip_fps)
+
+        elapsed = end_timestamp - start_timestamp
+        if elapsed <= 0.0:
+            return float(self._clip_fps)
+
+        estimated = float(num_frames - 1) / elapsed
+        return max(1.0, min(float(self._clip_fps), estimated))
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -245,7 +288,7 @@ class VideoClipPipeline(threading.Thread):
                 frame_count += 1
 
                 # Clip window complete
-                if frame_count >= self._target_frames:
+                if self._is_clip_window_complete(start_timestamp, end_timestamp):
                     self._finalize_clip(
                         h264_frames,
                         start_timestamp, end_timestamp, frame_count,
@@ -254,9 +297,12 @@ class VideoClipPipeline(threading.Thread):
                     h264_frames = []
                     frame_count = 0
         finally:
-            # Flush partial window if we have >= 2 seconds of footage
-            min_frames = int(self._clip_fps * 2)
-            if h264_frames and frame_count >= min_frames:
+            # Flush partial window if we have enough footage.
+            if h264_frames and self._should_flush_partial_window(
+                start_timestamp,
+                end_timestamp,
+                frame_count,
+            ):
                 self._finalize_clip(
                     h264_frames,
                     start_timestamp, end_timestamp, frame_count,
@@ -288,8 +334,11 @@ class VideoClipPipeline(threading.Thread):
         num_frames: int,
         data_client: VideoDataClient,
     ) -> None:
+        clip_fps = self._effective_clip_fps(start_timestamp, end_timestamp, num_frames)
+        duration_s = max(0.0, end_timestamp - start_timestamp)
+
         try:
-            mp4_data = h264_frames_to_mp4(h264_frames, self._clip_fps)
+            mp4_data = h264_frames_to_mp4(h264_frames, clip_fps)
         except Exception as exc:
             log.error("video.h264_to_mp4_failed", error=str(exc))
             return
@@ -317,6 +366,8 @@ class VideoClipPipeline(threading.Thread):
                 clip_id=resp.clip_id,
                 faiss_id=resp.faiss_id,
                 num_frames=num_frames,
+                duration_s=duration_s,
+                clip_fps=clip_fps,
             )
 
 

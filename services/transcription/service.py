@@ -44,6 +44,9 @@ _DEBUG_TRANSCRIPT_MAX_CHARS = 180
 _ASSISTANT_RESPONSE_LOG_MAX_CHARS = 240
 _TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
 _TRIGGER_CAPTURE_SECONDS = 3.0
+_TRIGGER_PREROLL_SECONDS = 0.75
+_TRIGGER_FINAL_FLUSH_GRACE_SECONDS = 0.2
+_TRIGGER_EARLY_FINAL_SECONDS = 1.25
 _QUEUE_SENTINEL = object()
 
 
@@ -89,8 +92,10 @@ class TranscriptSpan:
 
 @dataclass(slots=True)
 class PendingTrigger:
-    start_time: float
-    end_time: float
+    trigger_time: float
+    capture_start_time: float
+    capture_end_time: float
+    detected_monotonic: float
 
 
 class AssistantCommandClient:
@@ -232,6 +237,9 @@ class TriggerRouter:
         *,
         trigger_phrases: tuple[str, ...] = _TRIGGER_PHRASES,
         capture_seconds: float = _TRIGGER_CAPTURE_SECONDS,
+        preroll_seconds: float = _TRIGGER_PREROLL_SECONDS,
+        final_flush_grace_seconds: float = _TRIGGER_FINAL_FLUSH_GRACE_SECONDS,
+        early_final_seconds: float = _TRIGGER_EARLY_FINAL_SECONDS,
         on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
     ):
         self._command_client = command_client
@@ -239,16 +247,24 @@ class TriggerRouter:
             normalize_for_trigger_match(phrase) for phrase in trigger_phrases
         )
         self._capture_seconds = capture_seconds
+        self._preroll_seconds = max(0.0, preroll_seconds)
+        self._final_flush_grace_seconds = max(0.0, final_flush_grace_seconds)
+        self._early_final_seconds = max(0.0, early_final_seconds)
         self._on_trigger_detected = on_trigger_detected
         self._history: deque[TranscriptSpan] = deque()
         self._pending: list[PendingTrigger] = []
         self._last_trigger_start: float | None = None
+        self._last_trigger_utterance_id: str | None = None
         self._lock = threading.Lock()
 
     def observe(self, result: transcription_pb2.TranscriptionResult) -> None:
         text = result.text.strip()
         if not text:
-            self._flush_ready(result.end_time, force=result.is_partial is False)
+            self._flush_ready(
+                result.end_time,
+                force=result.is_partial is False,
+                current_is_final=result.is_partial is False,
+            )
             return
 
         span = TranscriptSpan(
@@ -264,37 +280,64 @@ class TriggerRouter:
 
             normalized = normalize_for_trigger_match(text)
             trigger_seen = any(phrase in normalized for phrase in self._trigger_phrases)
+            utterance_id = result.utterance_id.strip()
             is_duplicate = (
                 self._last_trigger_start is not None
                 and abs(self._last_trigger_start - result.start_time) < 0.25
             )
+            if (
+                not is_duplicate
+                and utterance_id
+                and self._last_trigger_utterance_id == utterance_id
+            ):
+                is_duplicate = True
             if trigger_seen and not is_duplicate:
+                trigger_time = result.end_time if result.end_time > 0 else result.start_time
+                capture_start_time = max(0.0, trigger_time - self._preroll_seconds)
+                capture_end_time = trigger_time + self._capture_seconds
                 self._pending.append(
                     PendingTrigger(
-                        start_time=result.start_time,
-                        end_time=result.start_time + self._capture_seconds,
+                        trigger_time=trigger_time,
+                        capture_start_time=capture_start_time,
+                        capture_end_time=capture_end_time,
+                        detected_monotonic=time.monotonic(),
                     )
                 )
                 self._last_trigger_start = result.start_time
+                if utterance_id:
+                    self._last_trigger_utterance_id = utterance_id
                 log.info(
                     "transcription.trigger_detected",
-                    start_time=result.start_time,
-                    end_time=result.start_time + self._capture_seconds,
+                    trigger_time=trigger_time,
+                    capture_start_time=capture_start_time,
+                    capture_end_time=capture_end_time,
                     text=text,
                 )
                 if self._on_trigger_detected is not None:
                     self._on_trigger_detected(result)
 
             self._prune_history(current_time=result.end_time)
-            self._flush_ready(result.end_time, force=False, partial_span=span)
+            self._flush_ready(
+                result.end_time,
+                force=False,
+                partial_span=span if result.is_partial else None,
+                current_is_final=result.is_partial is False,
+            )
 
     def finalize(self) -> None:
         with self._lock:
             cutoff = self._history[-1].end_time if self._history else 0.0
-            self._flush_ready(cutoff, force=True, partial_span=None)
+            self._flush_ready(
+                cutoff,
+                force=True,
+                partial_span=None,
+                current_is_final=True,
+            )
 
     def _prune_history(self, *, current_time: float) -> None:
-        threshold = current_time - max(10.0, self._capture_seconds + 2.0)
+        threshold = current_time - max(
+            10.0, self._capture_seconds + self._preroll_seconds + 2.0
+        )
         while self._history and self._history[0].end_time < threshold:
             self._history.popleft()
 
@@ -303,6 +346,7 @@ class TriggerRouter:
         current_time: float,
         *,
         force: bool,
+        current_is_final: bool,
         partial_span: TranscriptSpan | None = None,
     ) -> None:
         if not self._pending:
@@ -311,7 +355,15 @@ class TriggerRouter:
         ready: list[PendingTrigger] = []
         waiting: list[PendingTrigger] = []
         for trigger in self._pending:
-            if force or current_time >= trigger.end_time:
+            window_elapsed = current_time >= trigger.capture_end_time
+            early_final_ready = current_is_final and (
+                current_time >= trigger.trigger_time + self._early_final_seconds
+            )
+            timed_out = (
+                time.monotonic() - trigger.detected_monotonic
+                >= self._capture_seconds + self._final_flush_grace_seconds
+            )
+            if force or early_final_ready or (window_elapsed and (current_is_final or timed_out)):
                 ready.append(trigger)
             else:
                 waiting.append(trigger)
@@ -323,8 +375,9 @@ class TriggerRouter:
                 continue
             log.info(
                 "transcription.trigger_window_ready",
-                start_time=trigger.start_time,
-                end_time=trigger.end_time,
+                trigger_time=trigger.trigger_time,
+                start_time=trigger.capture_start_time,
+                end_time=trigger.capture_end_time,
                 text=snippet,
             )
             self._command_client.send_command(snippet)
@@ -338,17 +391,33 @@ class TriggerRouter:
         parts = [
             span.text
             for span in self._history
-            if span.end_time > trigger.start_time and span.start_time < trigger.end_time
+            if span.end_time > trigger.capture_start_time
+            and span.start_time < trigger.capture_end_time
         ]
 
         if (
             partial_span is not None
-            and partial_span.end_time > trigger.start_time
-            and partial_span.start_time < trigger.end_time
+            and partial_span.end_time > trigger.capture_start_time
+            and partial_span.start_time < trigger.capture_end_time
         ):
             parts.append(partial_span.text)
 
-        return " ".join(part.strip() for part in parts if part.strip()).strip()
+        text = " ".join(part.strip() for part in parts if part.strip()).strip()
+        return self._trim_to_last_trigger_phrase(text)
+
+    @staticmethod
+    def _trim_to_last_trigger_phrase(text: str) -> str:
+        if not text:
+            return ""
+
+        matches = list(
+            re.finditer(r"\b(?:hey|hi)\W+cl(?:eo|io)\b", text, flags=re.IGNORECASE)
+        )
+        if not matches:
+            return text.strip()
+
+        trimmed = text[matches[-1].start() :].strip()
+        return trimmed or text.strip()
 
 
 class AmazonTranscribeBackend:

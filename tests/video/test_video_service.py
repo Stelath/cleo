@@ -55,6 +55,34 @@ def _make_rgb_frames(n: int, width: int = 64, height: int = 48) -> list[np.ndarr
     ]
 
 
+def _make_h264_chunks(
+    *,
+    fps: float,
+    num_frames: int,
+    start_ts: float = 1000.0,
+    width: int = 64,
+    height: int = 48,
+):
+    from generated import sensor_pb2
+
+    chunks = []
+    for i in range(num_frames):
+        chunks.append(
+            sensor_pb2.CameraFrameChunk(
+                data=b"\x00\x00\x00\x01frame",
+                frame_id=f"frame-{i}",
+                chunk_index=0,
+                is_last=True,
+                width=width,
+                height=height,
+                timestamp=start_ts + (i / fps),
+                encoding=sensor_pb2.FRAME_ENCODING_H264,
+                key_frame=True,
+            )
+        )
+    return chunks
+
+
 # ── _encode_frames_to_mp4 ──
 
 
@@ -191,6 +219,69 @@ def test_accumulate_and_encode_integration():
     assert len(call_kwargs.kwargs.get("embed_data", call_kwargs[1].get("embed_data", b""))) > 0
     # num_frames should be target clip frame count
     assert call_kwargs.kwargs.get("num_frames", call_kwargs[1].get("num_frames", 0)) == num_frames
+
+
+def test_finalize_clip_uses_effective_fps_from_timestamps():
+    pipeline = VideoClipPipeline(
+        sensor_address="localhost:1",
+        data_address="localhost:1",
+        clip_fps=30.0,
+    )
+    mock_data_client = MagicMock()
+    mock_data_client.store_clip.return_value = data_pb2.StoreVideoClipResponse(clip_id=1, faiss_id=1)
+
+    with patch("services.video.service.h264_frames_to_mp4", return_value=b"mp4") as mux:
+        with patch("services.video.service.downsample_mp4_for_embedding", return_value=b"embed"):
+            pipeline._finalize_clip(
+                h264_frames=[b"frame"] * 225,
+                start_timestamp=10.0,
+                end_timestamp=25.0,
+                num_frames=225,
+                data_client=mock_data_client,
+            )
+
+    assert mux.call_count == 1
+    _, mux_fps = mux.call_args.args
+    assert mux_fps == pytest.approx(15.0, rel=0.05)
+
+
+def test_stream_loop_rolls_clip_by_duration_for_low_fps_source():
+    mock_sensor_stub = MagicMock()
+    mock_sensor_stub.StreamCamera.return_value = iter(_make_h264_chunks(fps=15.0, num_frames=240))
+    mock_data_client = MagicMock()
+
+    pipeline = VideoClipPipeline(
+        sensor_address="localhost:1",
+        data_address="localhost:1",
+        clip_fps=30.0,
+        clip_duration=15.0,
+    )
+
+    with patch.object(pipeline, "_finalize_clip") as finalize:
+        pipeline._stream_loop(mock_sensor_stub, mock_data_client)
+
+    assert finalize.call_count == 1
+    assert finalize.call_args.args[3] >= 220
+
+
+def test_stream_loop_flushes_partial_clip_for_low_fps_source():
+    mock_sensor_stub = MagicMock()
+    # 50 frames at 10 fps -> ~4.9s of footage, below full 15s window but should flush.
+    mock_sensor_stub.StreamCamera.return_value = iter(_make_h264_chunks(fps=10.0, num_frames=50))
+    mock_data_client = MagicMock()
+
+    pipeline = VideoClipPipeline(
+        sensor_address="localhost:1",
+        data_address="localhost:1",
+        clip_fps=30.0,
+        clip_duration=15.0,
+    )
+
+    with patch.object(pipeline, "_finalize_clip") as finalize:
+        pipeline._stream_loop(mock_sensor_stub, mock_data_client)
+
+    assert finalize.call_count == 1
+    assert finalize.call_args.args[3] == 50
 
 
 # ── Bedrock integration tests ──

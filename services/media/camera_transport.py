@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from generated import sensor_pb2
+from services.config import SENSOR_DEFAULT_FPS
 
 _FFMPEG_TIMEOUT_SECONDS = 12.0
 
@@ -478,7 +479,13 @@ def h264_frames_to_mp4(frame_payloads: Iterable[bytes], fps: float) -> bytes:
         src_h264.write_bytes(b"".join(payloads))
 
         out_mp4 = tmp / "clip.mp4"
-        copy_cmd = [
+        target_fps = max(1.0, float(fps))
+        # Sensor-side stream encoding is produced with SENSOR_DEFAULT_FPS timing.
+        # When frames are dropped before this stage, we need to scale timestamps
+        # so playback duration still matches wall-clock capture time.
+        pts_scale = max(0.001, float(SENSOR_DEFAULT_FPS) / target_fps)
+
+        reencode_cmd = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
@@ -486,57 +493,33 @@ def h264_frames_to_mp4(frame_payloads: Iterable[bytes], fps: float) -> bytes:
             "-y",
             "-f",
             "h264",
-            "-framerate",
-            f"{max(1.0, float(fps)):.3f}",
             "-i",
             str(src_h264),
             "-an",
+            "-vf",
+            f"setpts={pts_scale:.6f}*PTS",
+            "-r",
+            f"{target_fps:.3f}",
             "-c:v",
-            "copy",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
             "-movflags",
             "+faststart",
             str(out_mp4),
         ]
         proc = subprocess.run(
-            copy_cmd,
+            reencode_cmd,
             capture_output=True,
             check=False,
             timeout=_FFMPEG_TIMEOUT_SECONDS,
         )
 
         if proc.returncode != 0 or not out_mp4.exists() or out_mp4.stat().st_size == 0:
-            reencode_cmd = [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "h264",
-                "-framerate",
-                f"{max(1.0, float(fps)):.3f}",
-                "-i",
-                str(src_h264),
-                "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                str(out_mp4),
-            ]
-            proc = subprocess.run(
-                reencode_cmd,
-                capture_output=True,
-                check=False,
-                timeout=_FFMPEG_TIMEOUT_SECONDS,
-            )
-            if proc.returncode != 0:
-                stderr = proc.stderr.decode("utf-8", errors="ignore").strip()
-                raise RuntimeError(f"ffmpeg H.264->MP4 failed: {stderr or proc.returncode}")
+            stderr = proc.stderr.decode("utf-8", errors="ignore").strip()
+            raise RuntimeError(f"ffmpeg H.264->MP4 failed: {stderr or proc.returncode}")
 
         return out_mp4.read_bytes()
 

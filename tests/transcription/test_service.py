@@ -12,6 +12,7 @@ from services.transcription.service import (
     AmazonTranscribeBackend,
     AssistantCommandClient,
     SensorTranscriptionPipeline,
+    TriggerRouter,
 )
 
 
@@ -119,3 +120,185 @@ def test_assistant_command_truncates_long_response_text(
         tool_name="",
         response_text=expected,
     )
+
+
+class _RecordingCommandClient:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def send_command(self, text: str) -> None:
+        self.calls.append(text)
+
+
+def _result(
+    *,
+    text: str,
+    start_time: float,
+    end_time: float,
+    is_partial: bool,
+    utterance_id: str = "",
+) -> transcription_pb2.TranscriptionResult:
+    return transcription_pb2.TranscriptionResult(
+        text=text,
+        confidence=1.0,
+        start_time=start_time,
+        end_time=end_time,
+        is_partial=is_partial,
+        utterance_id=utterance_id,
+    )
+
+
+def test_trigger_router_anchors_capture_to_detection_time():
+    client = _RecordingCommandClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=3.0,
+        preroll_seconds=0.75,
+        final_flush_grace_seconds=999.0,
+    )
+
+    router.observe(
+        _result(
+            text="lots of chatter before wake phrase hey cleo",
+            start_time=100.0,
+            end_time=105.0,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+    assert client.calls == []
+
+    router.observe(
+        _result(
+            text="how many calories is this",
+            start_time=105.1,
+            end_time=106.1,
+            is_partial=False,
+            utterance_id="u2",
+        )
+    )
+    assert client.calls == []
+
+    router.observe(
+        _result(
+            text="thanks",
+            start_time=108.2,
+            end_time=108.4,
+            is_partial=False,
+            utterance_id="u3",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0].lower().startswith("hey cleo")
+    assert "how many calories is this" in client.calls[0].lower()
+
+
+def test_trigger_router_does_not_duplicate_final_span_text():
+    client = _RecordingCommandClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.1,
+        final_flush_grace_seconds=0.0,
+    )
+
+    router.observe(
+        _result(
+            text="Hey, Cleo, test request",
+            start_time=10.0,
+            end_time=11.0,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+
+    router.observe(
+        _result(
+            text="trailing",
+            start_time=11.2,
+            end_time=11.3,
+            is_partial=False,
+            utterance_id="u2",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0].lower().count("hey") == 1
+    assert client.calls[0].lower().count("test request") == 1
+
+
+def test_trigger_router_waits_for_final_result_before_dispatch():
+    client = _RecordingCommandClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=1.0,
+        preroll_seconds=0.0,
+        final_flush_grace_seconds=999.0,
+    )
+
+    router.observe(
+        _result(
+            text="Hey Cleo",
+            start_time=200.0,
+            end_time=200.4,
+            is_partial=True,
+            utterance_id="u1",
+        )
+    )
+    router.observe(
+        _result(
+            text="Hey Cleo how many calories is this",
+            start_time=200.0,
+            end_time=201.6,
+            is_partial=True,
+            utterance_id="u1",
+        )
+    )
+    assert client.calls == []
+
+    router.observe(
+        _result(
+            text="Hey Cleo how many calories is this",
+            start_time=200.0,
+            end_time=201.8,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert "how many calories" in client.calls[0].lower()
+
+
+def test_trigger_router_trims_to_last_wake_phrase():
+    client = _RecordingCommandClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.1,
+        final_flush_grace_seconds=0.0,
+    )
+
+    router.observe(
+        _result(
+            text="Hey Cleo first request. random chatter. Hey Cleo second request",
+            start_time=1.0,
+            end_time=2.0,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+
+    router.observe(
+        _result(
+            text="done",
+            start_time=2.2,
+            end_time=2.3,
+            is_partial=False,
+            utterance_id="u2",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0].lower().startswith("hey cleo second request")
