@@ -15,8 +15,29 @@ service DataService {
   // Get paginated transcription history
   rpc GetTranscriptionLog(TranscriptionLogRequest) returns (TranscriptionLogResponse);
 
+  // Retrieve transcription rows whose timestamps overlap a given time window
+  rpc GetTranscriptionsInRange(TimeRangeRequest) returns (TranscriptionRangeResponse);
+
   // Retrieve a video clip by ID
   rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
+
+  // Register or update an app
+  rpc RegisterApp(RegisterAppRequest) returns (RegisterAppResponse);
+
+  // List registered apps with optional filters
+  rpc ListApps(ListAppsRequest) returns (ListAppsResponse);
+
+  // Enable or disable an app by name
+  rpc SetAppEnabled(SetAppEnabledRequest) returns (SetAppEnabledResponse);
+  
+  // List video clips whose timestamps overlap a given time window
+  rpc GetVideoClipsInRange(TimeRangeRequest) returns (VideoClipRangeResponse);
+
+  // Store a generated note summary for later frontend retrieval
+  rpc StoreNoteSummary(StoreNoteSummaryRequest) returns (StoreNoteSummaryResponse);
+
+  // Get paginated note summaries
+  rpc GetNoteSummaries(NoteSummariesRequest) returns (NoteSummariesResponse);
 }
 
 // ── Store Transcription ──
@@ -44,6 +65,9 @@ message StoreVideoClipRequest {
 
   // Number of frames in the clip
   int32 num_frames = 4;
+
+  // Optional lower-FPS MP4 for embedding. If empty, mp4_data is used.
+  bytes embed_data = 5;
 }
 
 message StoreVideoClipResponse {
@@ -99,10 +123,28 @@ message TranscriptionLogResponse {
   int32 total_count = 2;
 }
 
+message TimeRangeRequest {
+  double start_timestamp = 1;
+  double end_timestamp = 2;
+}
+
+message TranscriptionRangeResponse {
+  repeated TranscriptionLogEntry entries = 1;
+}
+
 // ── Get Video Clip ──
 
 message GetVideoClipRequest {
   int64 clip_id = 1;
+}
+
+message VideoClipMetadata {
+  int64 clip_id = 1;
+  string clip_path = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  int32 num_frames = 5;
+  double created_at = 6;
 }
 
 message VideoClipResponse {
@@ -110,4 +152,83 @@ message VideoClipResponse {
   double start_timestamp = 2;
   double end_timestamp = 3;
   int32 num_frames = 4;
+}
+
+// ── App Registration ──
+
+message RegisterAppRequest {
+  string name = 1;
+  string description = 2;
+  string app_type = 3;
+  string grpc_address = 4;
+  string input_schema_json = 5;
+}
+
+message RegisterAppResponse {
+  int64 id = 1;
+  bool created = 2;
+}
+
+message ListAppsRequest {
+  bool enabled_only = 1;
+  string app_type = 2;
+}
+
+message AppInfo {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string app_type = 4;
+  string grpc_address = 5;
+  string input_schema_json = 6;
+  bool enabled = 7;
+  double registered_at = 8;
+  double updated_at = 9;
+}
+
+message ListAppsResponse {
+  repeated AppInfo apps = 1;
+}
+
+message SetAppEnabledRequest {
+  string name = 1;
+  bool enabled = 2;
+}
+
+message SetAppEnabledResponse {
+  bool success = 1;
+}
+
+message VideoClipRangeResponse {
+  repeated VideoClipMetadata clips = 1;
+}
+
+// ── Note Summaries ──
+
+message StoreNoteSummaryRequest {
+  string summary_text = 1;
+  double start_timestamp = 2;
+  double end_timestamp = 3;
+}
+
+message StoreNoteSummaryResponse {
+  int64 id = 1;
+}
+
+message NoteSummariesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message NoteSummaryEntry {
+  int64 id = 1;
+  string summary_text = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  double created_at = 5;
+}
+
+message NoteSummariesResponse {
+  repeated NoteSummaryEntry entries = 1;
+  int32 total_count = 2;
 }

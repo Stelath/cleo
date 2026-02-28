@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ndata.proto\x12\tcleo.data\"c\n\x19StoreTranscriptionRequest\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\x12\x12\n\nstart_time\x18\x03 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x04 \x01(\x01\"(\n\x1aStoreTranscriptionResponse\x12\n\n\x02id\x18\x01 \x01(\x03\"m\n\x15StoreVideoClipRequest\x12\x10\n\x08mp4_data\x18\x01 \x01(\x0c\x12\x17\n\x0fstart_timestamp\x18\x02 \x01(\x01\x12\x15\n\rend_timestamp\x18\x03 \x01(\x01\x12\x12\n\nnum_frames\x18\x04 \x01(\x05\";\n\x16StoreVideoClipResponse\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\x12\x10\n\x08\x66\x61iss_id\x18\x02 \x01(\x03\"c\n\rSearchRequest\x12\x0e\n\x04text\x18\x01 \x01(\tH\x00\x12\x14\n\nimage_data\x18\x02 \x01(\x0cH\x00\x12\x14\n\nvideo_data\x18\x03 \x01(\x0cH\x00\x12\r\n\x05top_k\x18\x04 \x01(\x05\x42\x07\n\x05query\"\x85\x01\n\x0cSearchResult\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\x12\r\n\x05score\x18\x02 \x01(\x02\x12\x17\n\x0fstart_timestamp\x18\x03 \x01(\x01\x12\x15\n\rend_timestamp\x18\x04 \x01(\x01\x12\x11\n\tclip_path\x18\x05 \x01(\t\x12\x12\n\nnum_frames\x18\x06 \x01(\x05\":\n\x0eSearchResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.cleo.data.SearchResult\"8\n\x17TranscriptionLogRequest\x12\r\n\x05limit\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x05\"\x7f\n\x15TranscriptionLogEntry\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0c\n\x04text\x18\x02 \x01(\t\x12\x12\n\nconfidence\x18\x03 \x01(\x02\x12\x12\n\nstart_time\x18\x04 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x05 \x01(\x01\x12\x12\n\ncreated_at\x18\x06 \x01(\x01\"b\n\x18TranscriptionLogResponse\x12\x31\n\x07\x65ntries\x18\x01 \x03(\x0b\x32 .cleo.data.TranscriptionLogEntry\x12\x13\n\x0btotal_count\x18\x02 \x01(\x05\"&\n\x13GetVideoClipRequest\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\"i\n\x11VideoClipResponse\x12\x10\n\x08mp4_data\x18\x01 \x01(\x0c\x12\x17\n\x0fstart_timestamp\x18\x02 \x01(\x01\x12\x15\n\rend_timestamp\x18\x03 \x01(\x01\x12\x12\n\nnum_frames\x18\x04 \x01(\x05\x32\xb4\x03\n\x0b\x44\x61taService\x12\x61\n\x12StoreTranscription\x12$.cleo.data.StoreTranscriptionRequest\x1a%.cleo.data.StoreTranscriptionResponse\x12U\n\x0eStoreVideoClip\x12 .cleo.data.StoreVideoClipRequest\x1a!.cleo.data.StoreVideoClipResponse\x12=\n\x06Search\x12\x18.cleo.data.SearchRequest\x1a\x19.cleo.data.SearchResponse\x12^\n\x13GetTranscriptionLog\x12\".cleo.data.TranscriptionLogRequest\x1a#.cleo.data.TranscriptionLogResponse\x12L\n\x0cGetVideoClip\x12\x1e.cleo.data.GetVideoClipRequest\x1a\x1c.cleo.data.VideoClipResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ndata.proto\x12\tcleo.data\"c\n\x19StoreTranscriptionRequest\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\x12\x12\n\nstart_time\x18\x03 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x04 \x01(\x01\"(\n\x1aStoreTranscriptionResponse\x12\n\n\x02id\x18\x01 \x01(\x03\"\x81\x01\n\x15StoreVideoClipRequest\x12\x10\n\x08mp4_data\x18\x01 \x01(\x0c\x12\x17\n\x0fstart_timestamp\x18\x02 \x01(\x01\x12\x15\n\rend_timestamp\x18\x03 \x01(\x01\x12\x12\n\nnum_frames\x18\x04 \x01(\x05\x12\x12\n\nembed_data\x18\x05 \x01(\x0c\";\n\x16StoreVideoClipResponse\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\x12\x10\n\x08\x66\x61iss_id\x18\x02 \x01(\x03\"c\n\rSearchRequest\x12\x0e\n\x04text\x18\x01 \x01(\tH\x00\x12\x14\n\nimage_data\x18\x02 \x01(\x0cH\x00\x12\x14\n\nvideo_data\x18\x03 \x01(\x0cH\x00\x12\r\n\x05top_k\x18\x04 \x01(\x05\x42\x07\n\x05query\"\x85\x01\n\x0cSearchResult\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\x12\r\n\x05score\x18\x02 \x01(\x02\x12\x17\n\x0fstart_timestamp\x18\x03 \x01(\x01\x12\x15\n\rend_timestamp\x18\x04 \x01(\x01\x12\x11\n\tclip_path\x18\x05 \x01(\t\x12\x12\n\nnum_frames\x18\x06 \x01(\x05\":\n\x0eSearchResponse\x12(\n\x07results\x18\x01 \x03(\x0b\x32\x17.cleo.data.SearchResult\"8\n\x17TranscriptionLogRequest\x12\r\n\x05limit\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x05\"\x7f\n\x15TranscriptionLogEntry\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0c\n\x04text\x18\x02 \x01(\t\x12\x12\n\nconfidence\x18\x03 \x01(\x02\x12\x12\n\nstart_time\x18\x04 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x05 \x01(\x01\x12\x12\n\ncreated_at\x18\x06 \x01(\x01\"b\n\x18TranscriptionLogResponse\x12\x31\n\x07\x65ntries\x18\x01 \x03(\x0b\x32 .cleo.data.TranscriptionLogEntry\x12\x13\n\x0btotal_count\x18\x02 \x01(\x05\"B\n\x10TimeRangeRequest\x12\x17\n\x0fstart_timestamp\x18\x01 \x01(\x01\x12\x15\n\rend_timestamp\x18\x02 \x01(\x01\"O\n\x1aTranscriptionRangeResponse\x12\x31\n\x07\x65ntries\x18\x01 \x03(\x0b\x32 .cleo.data.TranscriptionLogEntry\"&\n\x13GetVideoClipRequest\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\"\x8f\x01\n\x11VideoClipMetadata\x12\x0f\n\x07\x63lip_id\x18\x01 \x01(\x03\x12\x11\n\tclip_path\x18\x02 \x01(\t\x12\x17\n\x0fstart_timestamp\x18\x03 \x01(\x01\x12\x15\n\rend_timestamp\x18\x04 \x01(\x01\x12\x12\n\nnum_frames\x18\x05 \x01(\x05\x12\x12\n\ncreated_at\x18\x06 \x01(\x01\"i\n\x11VideoClipResponse\x12\x10\n\x08mp4_data\x18\x01 \x01(\x0c\x12\x17\n\x0fstart_timestamp\x18\x02 \x01(\x01\x12\x15\n\rend_timestamp\x18\x03 \x01(\x01\x12\x12\n\nnum_frames\x18\x04 \x01(\x05\"z\n\x12RegisterAppRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x10\n\x08\x61pp_type\x18\x03 \x01(\t\x12\x14\n\x0cgrpc_address\x18\x04 \x01(\t\x12\x19\n\x11input_schema_json\x18\x05 \x01(\t\"2\n\x13RegisterAppResponse\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0f\n\x07\x63reated\x18\x02 \x01(\x08\"9\n\x0fListAppsRequest\x12\x14\n\x0c\x65nabled_only\x18\x01 \x01(\x08\x12\x10\n\x08\x61pp_type\x18\x02 \x01(\t\"\xb7\x01\n\x07\x41ppInfo\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x10\n\x08\x61pp_type\x18\x04 \x01(\t\x12\x14\n\x0cgrpc_address\x18\x05 \x01(\t\x12\x19\n\x11input_schema_json\x18\x06 \x01(\t\x12\x0f\n\x07\x65nabled\x18\x07 \x01(\x08\x12\x15\n\rregistered_at\x18\x08 \x01(\x01\x12\x12\n\nupdated_at\x18\t \x01(\x01\"4\n\x10ListAppsResponse\x12 \n\x04\x61pps\x18\x01 \x03(\x0b\x32\x12.cleo.data.AppInfo\"5\n\x14SetAppEnabledRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07\x65nabled\x18\x02 \x01(\x08\"(\n\x15SetAppEnabledResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"E\n\x16VideoClipRangeResponse\x12+\n\x05\x63lips\x18\x01 \x03(\x0b\x32\x1c.cleo.data.VideoClipMetadata\"_\n\x17StoreNoteSummaryRequest\x12\x14\n\x0csummary_text\x18\x01 \x01(\t\x12\x17\n\x0fstart_timestamp\x18\x02 \x01(\x01\x12\x15\n\rend_timestamp\x18\x03 \x01(\x01\"&\n\x18StoreNoteSummaryResponse\x12\n\n\x02id\x18\x01 \x01(\x03\"5\n\x14NoteSummariesRequest\x12\r\n\x05limit\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x05\"x\n\x10NoteSummaryEntry\x12\n\n\x02id\x18\x01 \x01(\x03\x12\x14\n\x0csummary_text\x18\x02 \x01(\t\x12\x17\n\x0fstart_timestamp\x18\x03 \x01(\x01\x12\x15\n\rend_timestamp\x18\x04 \x01(\x01\x12\x12\n\ncreated_at\x18\x05 \x01(\x01\"Z\n\x15NoteSummariesResponse\x12,\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x1b.cleo.data.NoteSummaryEntry\x12\x13\n\x0btotal_count\x18\x02 \x01(\x05\x32\x87\x08\n\x0b\x44\x61taService\x12\x61\n\x12StoreTranscription\x12$.cleo.data.StoreTranscriptionRequest\x1a%.cleo.data.StoreTranscriptionResponse\x12U\n\x0eStoreVideoClip\x12 .cleo.data.StoreVideoClipRequest\x1a!.cleo.data.StoreVideoClipResponse\x12=\n\x06Search\x12\x18.cleo.data.SearchRequest\x1a\x19.cleo.data.SearchResponse\x12^\n\x13GetTranscriptionLog\x12\".cleo.data.TranscriptionLogRequest\x1a#.cleo.data.TranscriptionLogResponse\x12^\n\x18GetTranscriptionsInRange\x12\x1b.cleo.data.TimeRangeRequest\x1a%.cleo.data.TranscriptionRangeResponse\x12L\n\x0cGetVideoClip\x12\x1e.cleo.data.GetVideoClipRequest\x1a\x1c.cleo.data.VideoClipResponse\x12L\n\x0bRegisterApp\x12\x1d.cleo.data.RegisterAppRequest\x1a\x1e.cleo.data.RegisterAppResponse\x12\x43\n\x08ListApps\x12\x1a.cleo.data.ListAppsRequest\x1a\x1b.cleo.data.ListAppsResponse\x12R\n\rSetAppEnabled\x12\x1f.cleo.data.SetAppEnabledRequest\x1a .cleo.data.SetAppEnabledResponse\x12V\n\x14GetVideoClipsInRange\x12\x1b.cleo.data.TimeRangeRequest\x1a!.cleo.data.VideoClipRangeResponse\x12[\n\x10StoreNoteSummary\x12\".cleo.data.StoreNoteSummaryRequest\x1a#.cleo.data.StoreNoteSummaryResponse\x12U\n\x10GetNoteSummaries\x12\x1f.cleo.data.NoteSummariesRequest\x1a .cleo.data.NoteSummariesResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,26 +35,58 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_STORETRANSCRIPTIONREQUEST']._serialized_end=124
   _globals['_STORETRANSCRIPTIONRESPONSE']._serialized_start=126
   _globals['_STORETRANSCRIPTIONRESPONSE']._serialized_end=166
-  _globals['_STOREVIDEOCLIPREQUEST']._serialized_start=168
-  _globals['_STOREVIDEOCLIPREQUEST']._serialized_end=277
-  _globals['_STOREVIDEOCLIPRESPONSE']._serialized_start=279
-  _globals['_STOREVIDEOCLIPRESPONSE']._serialized_end=338
-  _globals['_SEARCHREQUEST']._serialized_start=340
-  _globals['_SEARCHREQUEST']._serialized_end=439
-  _globals['_SEARCHRESULT']._serialized_start=442
-  _globals['_SEARCHRESULT']._serialized_end=575
-  _globals['_SEARCHRESPONSE']._serialized_start=577
-  _globals['_SEARCHRESPONSE']._serialized_end=635
-  _globals['_TRANSCRIPTIONLOGREQUEST']._serialized_start=637
-  _globals['_TRANSCRIPTIONLOGREQUEST']._serialized_end=693
-  _globals['_TRANSCRIPTIONLOGENTRY']._serialized_start=695
-  _globals['_TRANSCRIPTIONLOGENTRY']._serialized_end=822
-  _globals['_TRANSCRIPTIONLOGRESPONSE']._serialized_start=824
-  _globals['_TRANSCRIPTIONLOGRESPONSE']._serialized_end=922
-  _globals['_GETVIDEOCLIPREQUEST']._serialized_start=924
-  _globals['_GETVIDEOCLIPREQUEST']._serialized_end=962
-  _globals['_VIDEOCLIPRESPONSE']._serialized_start=964
-  _globals['_VIDEOCLIPRESPONSE']._serialized_end=1069
-  _globals['_DATASERVICE']._serialized_start=1072
-  _globals['_DATASERVICE']._serialized_end=1508
+  _globals['_STOREVIDEOCLIPREQUEST']._serialized_start=169
+  _globals['_STOREVIDEOCLIPREQUEST']._serialized_end=298
+  _globals['_STOREVIDEOCLIPRESPONSE']._serialized_start=300
+  _globals['_STOREVIDEOCLIPRESPONSE']._serialized_end=359
+  _globals['_SEARCHREQUEST']._serialized_start=361
+  _globals['_SEARCHREQUEST']._serialized_end=460
+  _globals['_SEARCHRESULT']._serialized_start=463
+  _globals['_SEARCHRESULT']._serialized_end=596
+  _globals['_SEARCHRESPONSE']._serialized_start=598
+  _globals['_SEARCHRESPONSE']._serialized_end=656
+  _globals['_TRANSCRIPTIONLOGREQUEST']._serialized_start=658
+  _globals['_TRANSCRIPTIONLOGREQUEST']._serialized_end=714
+  _globals['_TRANSCRIPTIONLOGENTRY']._serialized_start=716
+  _globals['_TRANSCRIPTIONLOGENTRY']._serialized_end=843
+  _globals['_TRANSCRIPTIONLOGRESPONSE']._serialized_start=845
+  _globals['_TRANSCRIPTIONLOGRESPONSE']._serialized_end=943
+  _globals['_TIMERANGEREQUEST']._serialized_start=945
+  _globals['_TIMERANGEREQUEST']._serialized_end=1011
+  _globals['_TRANSCRIPTIONRANGERESPONSE']._serialized_start=1013
+  _globals['_TRANSCRIPTIONRANGERESPONSE']._serialized_end=1092
+  _globals['_GETVIDEOCLIPREQUEST']._serialized_start=1094
+  _globals['_GETVIDEOCLIPREQUEST']._serialized_end=1132
+  _globals['_VIDEOCLIPMETADATA']._serialized_start=1135
+  _globals['_VIDEOCLIPMETADATA']._serialized_end=1278
+  _globals['_VIDEOCLIPRESPONSE']._serialized_start=1280
+  _globals['_VIDEOCLIPRESPONSE']._serialized_end=1385
+  _globals['_REGISTERAPPREQUEST']._serialized_start=1387
+  _globals['_REGISTERAPPREQUEST']._serialized_end=1509
+  _globals['_REGISTERAPPRESPONSE']._serialized_start=1511
+  _globals['_REGISTERAPPRESPONSE']._serialized_end=1561
+  _globals['_LISTAPPSREQUEST']._serialized_start=1563
+  _globals['_LISTAPPSREQUEST']._serialized_end=1620
+  _globals['_APPINFO']._serialized_start=1623
+  _globals['_APPINFO']._serialized_end=1806
+  _globals['_LISTAPPSRESPONSE']._serialized_start=1808
+  _globals['_LISTAPPSRESPONSE']._serialized_end=1860
+  _globals['_SETAPPENABLEDREQUEST']._serialized_start=1862
+  _globals['_SETAPPENABLEDREQUEST']._serialized_end=1915
+  _globals['_SETAPPENABLEDRESPONSE']._serialized_start=1917
+  _globals['_SETAPPENABLEDRESPONSE']._serialized_end=1957
+  _globals['_VIDEOCLIPRANGERESPONSE']._serialized_start=1959
+  _globals['_VIDEOCLIPRANGERESPONSE']._serialized_end=2028
+  _globals['_STORENOTESUMMARYREQUEST']._serialized_start=2030
+  _globals['_STORENOTESUMMARYREQUEST']._serialized_end=2125
+  _globals['_STORENOTESUMMARYRESPONSE']._serialized_start=2127
+  _globals['_STORENOTESUMMARYRESPONSE']._serialized_end=2165
+  _globals['_NOTESUMMARIESREQUEST']._serialized_start=2167
+  _globals['_NOTESUMMARIESREQUEST']._serialized_end=2220
+  _globals['_NOTESUMMARYENTRY']._serialized_start=2222
+  _globals['_NOTESUMMARYENTRY']._serialized_end=2342
+  _globals['_NOTESUMMARIESRESPONSE']._serialized_start=2344
+  _globals['_NOTESUMMARIESRESPONSE']._serialized_end=2434
+  _globals['_DATASERVICE']._serialized_start=2437
+  _globals['_DATASERVICE']._serialized_end=3468
 # @@protoc_insertion_point(module_scope)

@@ -1,0 +1,277 @@
+"""Notetaking tool service."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+import threading
+import time
+from typing import Any
+
+import grpc
+import structlog
+
+from apps.tool_base import ToolServiceBase, serve_tool
+from generated import data_pb2, data_pb2_grpc
+from services.config import DATA_ADDRESS, NOTETAKING_PORT
+
+log = structlog.get_logger()
+
+_MODEL_ID = os.environ.get(
+    "CLEO_NOTETAKING_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"
+)
+_BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
+_MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
+
+
+@dataclass
+class NoteContext:
+    """Captured context for a note session."""
+
+    transcripts: list[data_pb2.TranscriptionLogEntry]
+    clips: list[tuple[data_pb2.VideoClipMetadata, data_pb2.VideoClipResponse]]
+
+
+class NoteSummaryBedrockClient:
+    """Bedrock client used only for multimodal note summaries."""
+
+    def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = _BEDROCK_REGION):
+        self._model_id = model_id
+        if client is not None:
+            self._client = client
+        else:
+            import boto3
+
+            self._client = boto3.client("bedrock-runtime", region_name=region)
+
+    def summarize(
+        self,
+        *,
+        start_timestamp: float,
+        end_timestamp: float,
+        transcripts: list[data_pb2.TranscriptionLogEntry],
+        clips: list[tuple[data_pb2.VideoClipMetadata, data_pb2.VideoClipResponse]],
+    ) -> str:
+        """Generate a concise note summary from transcript text and video clips."""
+        transcript_lines = [
+            f"[{entry.start_time:.3f}-{entry.end_time:.3f}] {entry.text}".strip()
+            for entry in transcripts
+        ]
+        prompt = (
+            "Summarize what happened during this notetaking session. "
+            "Focus on important actions, decisions, and observations. "
+            "If the evidence is sparse, say so clearly.\n"
+            f"Session start: {start_timestamp:.3f}\n"
+            f"Session end: {end_timestamp:.3f}\n"
+            f"Transcript count: {len(transcripts)}\n"
+            f"Video clip count: {len(clips)}\n"
+            "Transcripts:\n"
+            f"{chr(10).join(transcript_lines) if transcript_lines else '(none)'}"
+        )
+
+        content: list[dict[str, Any]] = [{"text": prompt}]
+        for metadata, clip in clips:
+            content.append(
+                {
+                    "text": (
+                        f"Video clip {metadata.clip_id}: "
+                        f"{metadata.start_timestamp:.3f}-{metadata.end_timestamp:.3f}, "
+                        f"{metadata.num_frames} frames."
+                    )
+                }
+            )
+            content.append(
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {"bytes": clip.mp4_data},
+                    }
+                }
+            )
+
+        response = self._client.converse(
+            modelId=self._model_id,
+            messages=[{"role": "user", "content": content}],
+        )
+        text_parts = [
+            block["text"]
+            for block in response.get("output", {}).get("message", {}).get("content", [])
+            if "text" in block
+        ]
+        return "\n".join(text_parts).strip()
+
+
+class NotetakingServicer(ToolServiceBase):
+    """Tracks a notetaking session and stores a generated summary on stop."""
+
+    @property
+    def tool_name(self) -> str:
+        return "notetaking"
+
+    @property
+    def tool_description(self) -> str:
+        return (
+            "Start or stop a notetaking session. When stopped, summarize the "
+            "captured transcript and video activity into a stored note."
+        )
+
+    @property
+    def tool_input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "Explicit notetaking action to perform.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional natural-language request, used when action is not provided."
+                    ),
+                },
+            },
+        }
+
+    def __init__(
+        self,
+        data_address: str = DATA_ADDRESS,
+        bedrock_client: NoteSummaryBedrockClient | None = None,
+    ):
+        self._bedrock = bedrock_client or NoteSummaryBedrockClient()
+        self._channel = grpc.insecure_channel(
+            data_address,
+            options=[
+                ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+            ],
+        )
+        self._data = data_pb2_grpc.DataServiceStub(self._channel)
+        self._lock = threading.Lock()
+        self._session_start: float | None = None
+
+    def close(self) -> None:
+        self._channel.close()
+
+    def execute(self, params: dict) -> tuple[bool, str]:
+        action = self._resolve_action(params)
+        if action == "start":
+            return self._start_session()
+        if action == "stop":
+            return self._stop_session()
+        return False, "Notetaking action must be 'start' or 'stop'"
+
+    def _resolve_action(self, params: dict) -> str | None:
+        action = str(params.get("action", "")).strip().lower()
+        if action in {"start", "stop"}:
+            return action
+
+        query = str(params.get("query", "")).strip().lower()
+        if any(word in query for word in ("start", "begin")):
+            return "start"
+        if any(word in query for word in ("stop", "end", "finish")):
+            return "stop"
+        return None
+
+    def _start_session(self) -> tuple[bool, str]:
+        timestamp = time.time()
+        with self._lock:
+            if self._session_start is not None:
+                return True, f"Notetaking already active since {self._session_start:.3f}"
+            self._session_start = timestamp
+        log.info("notetaking.started", timestamp=timestamp)
+        return True, f"Started notetaking at {timestamp:.3f}"
+
+    def _stop_session(self) -> tuple[bool, str]:
+        stop_timestamp = time.time()
+        with self._lock:
+            start_timestamp = self._session_start
+            self._session_start = None
+
+        if start_timestamp is None:
+            return False, "Notetaking is not active"
+
+        log.info(
+            "notetaking.stopped",
+            start_timestamp=start_timestamp,
+            stop_timestamp=stop_timestamp,
+        )
+
+        context = self._load_note_context(start_timestamp, stop_timestamp)
+        summary_text = self._summarize_context(start_timestamp, stop_timestamp, context)
+        stored = self._data.StoreNoteSummary(
+            data_pb2.StoreNoteSummaryRequest(
+                summary_text=summary_text,
+                start_timestamp=start_timestamp,
+                end_timestamp=stop_timestamp,
+            )
+        )
+        log.info(
+            "notetaking.summary_stored",
+            note_id=stored.id,
+            transcripts=len(context.transcripts),
+            clips=len(context.clips),
+        )
+        return True, summary_text
+
+    def _load_note_context(self, start_timestamp: float, stop_timestamp: float) -> NoteContext:
+        transcript_response = self._data.GetTranscriptionsInRange(
+            data_pb2.TimeRangeRequest(
+                start_timestamp=start_timestamp,
+                end_timestamp=stop_timestamp,
+            )
+        )
+        clip_metadata_response = self._data.GetVideoClipsInRange(
+            data_pb2.TimeRangeRequest(
+                start_timestamp=start_timestamp,
+                end_timestamp=stop_timestamp,
+            )
+        )
+
+        clips = []
+        for metadata in clip_metadata_response.clips:
+            clip = self._data.GetVideoClip(data_pb2.GetVideoClipRequest(clip_id=metadata.clip_id))
+            clips.append((metadata, clip))
+
+        return NoteContext(
+            transcripts=list(transcript_response.entries),
+            clips=clips,
+        )
+
+    def _summarize_context(
+        self, start_timestamp: float, stop_timestamp: float, context: NoteContext
+    ) -> str:
+        if not context.transcripts and not context.clips:
+            return "No transcript or video activity was captured during this note session."
+
+        try:
+            summary_text = self._bedrock.summarize(
+                start_timestamp=start_timestamp,
+                end_timestamp=stop_timestamp,
+                transcripts=context.transcripts,
+                clips=context.clips,
+            )
+        except Exception as exc:
+            log.error("notetaking.summary_failed", error=str(exc))
+            summary_text = ""
+
+        if summary_text:
+            return summary_text
+
+        transcript_fallback = " ".join(entry.text for entry in context.transcripts if entry.text).strip()
+        if transcript_fallback:
+            return transcript_fallback
+        return "Video was captured during this note session, but no textual summary was generated."
+
+
+def serve(port: int = NOTETAKING_PORT):
+    servicer = NotetakingServicer()
+    try:
+        serve_tool(servicer, port)
+    finally:
+        servicer.close()
+
+
+if __name__ == "__main__":
+    serve()

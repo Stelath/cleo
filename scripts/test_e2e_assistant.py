@@ -1,4 +1,4 @@
-"""End-to-end smoke test: starts tool + assistant services, sends commands via gRPC.
+"""End-to-end smoke test: starts DataService, tool services, and assistant, then sends commands via gRPC.
 
 Requires valid AWS credentials with Bedrock access.
 
@@ -12,6 +12,11 @@ import sys
 import grpc
 
 from generated import assistant_pb2, assistant_pb2_grpc
+
+
+def _run_data_service():
+    from services.data.service import serve
+    serve()
 
 
 def _run_color_blind():
@@ -42,22 +47,55 @@ def _wait(addr, timeout=15):
 
 def main():
     procs = []
+
+    # Start DataService first — tools register with it on boot
+    data_proc = multiprocessing.Process(target=_run_data_service, daemon=True)
+    data_proc.start()
+    procs.append(data_proc)
+
+    from services.config import (
+        ASSISTANT_PORT,
+        COLOR_BLIND_PORT,
+        DATA_PORT,
+        NAVIGATION_ASSIST_PORT,
+        OBJECT_RECOGNITION_PORT,
+    )
+    print("Waiting for DataService...")
+    _wait(f"localhost:{DATA_PORT}")
+    print(f"  :{DATA_PORT} ready")
+
+    # Start tool services and assistant
     for fn in [_run_color_blind, _run_object_recognition, _run_navigation_assist, _run_assistant]:
         p = multiprocessing.Process(target=fn, daemon=True)
         p.start()
         procs.append(p)
 
     print("Waiting for services...")
-    from services.config import (
-        ASSISTANT_PORT,
-        COLOR_BLIND_PORT,
-        NAVIGATION_ASSIST_PORT,
-        OBJECT_RECOGNITION_PORT,
-    )
     for port in [COLOR_BLIND_PORT, OBJECT_RECOGNITION_PORT, NAVIGATION_ASSIST_PORT, ASSISTANT_PORT]:
         _wait(f"localhost:{port}")
         print(f"  :{port} ready")
 
+    # Verify tool registration
+    from generated import data_pb2, data_pb2_grpc
+
+    data_channel = grpc.insecure_channel(f"localhost:{DATA_PORT}")
+    data_stub = data_pb2_grpc.DataServiceStub(data_channel)
+
+    # Give registration threads a moment to complete
+    import time
+    time.sleep(3)
+
+    list_resp = data_stub.ListApps(data_pb2.ListAppsRequest(enabled_only=True))
+    registered_names = {a.name for a in list_resp.apps}
+    print(f"\nRegistered apps: {registered_names}")
+    expected = {"color_blindness_assist", "object_recognition", "navigation_assist"}
+    if not expected.issubset(registered_names):
+        print(f"  WARNING: expected {expected}, got {registered_names}")
+    else:
+        print("  All 3 tools registered successfully")
+    data_channel.close()
+
+    # Run assistant commands
     channel = grpc.insecure_channel(f"localhost:{ASSISTANT_PORT}")
     stub = assistant_pb2_grpc.AssistantServiceStub(channel)
 

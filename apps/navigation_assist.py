@@ -15,6 +15,26 @@ class NavigationAssistServicer(ToolServiceBase):
     def tool_name(self) -> str:
         return "navigation_assist"
 
+    @property
+    def tool_description(self) -> str:
+        return (
+            "Help the user navigate or find directions. Use when the user asks "
+            "for directions, nearby places, or help getting somewhere."
+        )
+
+    @property
+    def tool_input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Navigation request or destination",
+                },
+            },
+            "required": ["query"],
+        }
+
     def execute(self, params: dict) -> tuple[bool, str]:
         query = params.get("query", "")
         log.info("navigation_assist.execute", query=query)

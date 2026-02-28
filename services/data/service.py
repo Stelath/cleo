@@ -1,5 +1,6 @@
 """DataService gRPC servicer — owns SQLite, FAISS, Bedrock embeddings, and video storage."""
 
+import json
 import signal
 import time
 from concurrent import futures
@@ -70,7 +71,8 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
         # 2. Embed video via Nova
         try:
-            embedding = embed_video(request.mp4_data, dimension=self._embedding_dim)
+            embed_source = request.embed_data if request.embed_data else request.mp4_data
+            embedding = embed_video(embed_source, dimension=self._embedding_dim)
         except Exception as e:
             log.error("data_service.embed_error", error=str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -171,6 +173,89 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         ]
         return data_pb2.TranscriptionLogResponse(entries=entries, total_count=total)
 
+    # ── RegisterApp ──
+
+    def RegisterApp(self, request, context):
+        # Validate input_schema_json is valid JSON
+        schema_json = request.input_schema_json or "{}"
+        try:
+            json.loads(schema_json)
+        except json.JSONDecodeError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(f"input_schema_json is not valid JSON: {e}")
+            return data_pb2.RegisterAppResponse()
+
+        row_id, created = self._sqlite.upsert_app(
+            name=request.name,
+            description=request.description,
+            app_type=request.app_type or "on_demand",
+            grpc_address=request.grpc_address,
+            input_schema_json=schema_json,
+        )
+        log.info(
+            "data_service.app_registered",
+            name=request.name,
+            id=row_id,
+            created=created,
+        )
+        return data_pb2.RegisterAppResponse(id=row_id, created=created)
+
+    # ── ListApps ──
+
+    def ListApps(self, request, context):
+        rows = self._sqlite.list_apps(
+            enabled_only=request.enabled_only,
+            app_type=request.app_type,
+        )
+        apps = [
+            data_pb2.AppInfo(
+                id=r["id"],
+                name=r["name"],
+                description=r["description"],
+                app_type=r["app_type"],
+                grpc_address=r["grpc_address"],
+                input_schema_json=r["input_schema_json"],
+                enabled=bool(r["enabled"]),
+                registered_at=r["registered_at"],
+                updated_at=r["updated_at"],
+            )
+            for r in rows
+        ]
+        return data_pb2.ListAppsResponse(apps=apps)
+
+    # ── SetAppEnabled ──
+
+    def SetAppEnabled(self, request, context):
+        found = self._sqlite.set_app_enabled(request.name, request.enabled)
+        if not found:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"App '{request.name}' not found")
+            return data_pb2.SetAppEnabledResponse(success=False)
+        log.info(
+            "data_service.app_enabled_toggled",
+            name=request.name,
+            enabled=request.enabled,
+        )
+        return data_pb2.SetAppEnabledResponse(success=True)
+    def GetTranscriptionsInRange(self, request, context):
+        rows = self._sqlite.query_transcriptions_in_range(
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+        )
+        return data_pb2.TranscriptionRangeResponse(
+            entries=[
+                data_pb2.TranscriptionLogEntry(
+                    id=r["id"],
+                    text=r["text"],
+                    confidence=r["confidence"] or 0.0,
+                    start_time=r["start_time"] or 0.0,
+                    end_time=r["end_time"] or 0.0,
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ]
+        )
+
     # ── GetVideoClip ──
 
     def GetVideoClip(self, request, context):
@@ -191,6 +276,57 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             start_timestamp=clip["start_timestamp"] or 0.0,
             end_timestamp=clip["end_timestamp"] or 0.0,
             num_frames=clip["num_frames"] or 0,
+        )
+
+    def GetVideoClipsInRange(self, request, context):
+        rows = self._sqlite.query_video_clips_in_range(
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+        )
+        return data_pb2.VideoClipRangeResponse(
+            clips=[
+                data_pb2.VideoClipMetadata(
+                    clip_id=r["id"],
+                    clip_path=r["clip_path"],
+                    start_timestamp=r["start_timestamp"] or 0.0,
+                    end_timestamp=r["end_timestamp"] or 0.0,
+                    num_frames=r["num_frames"] or 0,
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ]
+        )
+
+    def StoreNoteSummary(self, request, context):
+        row_id = self._sqlite.insert_note_summary(
+            summary_text=request.summary_text,
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+        )
+        log.info(
+            "data_service.note_summary_stored",
+            id=row_id,
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+        )
+        return data_pb2.StoreNoteSummaryResponse(id=row_id)
+
+    def GetNoteSummaries(self, request, context):
+        limit = request.limit if request.limit > 0 else 50
+        offset = request.offset if request.offset > 0 else 0
+        rows, total = self._sqlite.query_note_summaries(limit=limit, offset=offset)
+        return data_pb2.NoteSummariesResponse(
+            entries=[
+                data_pb2.NoteSummaryEntry(
+                    id=r["id"],
+                    summary_text=r["summary_text"],
+                    start_timestamp=r["start_timestamp"],
+                    end_timestamp=r["end_timestamp"],
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ],
+            total_count=total,
         )
 
 

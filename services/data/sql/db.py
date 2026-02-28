@@ -43,6 +43,26 @@ class CleoSQLite:
                 embedding_dimension INTEGER,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS apps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                app_type TEXT NOT NULL DEFAULT 'on_demand',
+                grpc_address TEXT NOT NULL,
+                input_schema_json TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                registered_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            
+            CREATE TABLE IF NOT EXISTS note_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary_text TEXT NOT NULL,
+                start_timestamp REAL NOT NULL,
+                end_timestamp REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -112,6 +132,140 @@ class CleoSQLite:
         ).fetchone()[0]
         rows = self._conn.execute(
             "SELECT * FROM transcriptions ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+    # ── App registration ──
+
+    def upsert_app(
+        self,
+        name: str,
+        description: str,
+        app_type: str,
+        grpc_address: str,
+        input_schema_json: str,
+    ) -> tuple[int, bool]:
+        """Insert or update an app by name.
+
+        On first insert, ``enabled`` defaults to 1 (true).
+        On update, ``enabled`` is preserved — only description, app_type,
+        grpc_address, input_schema_json, and updated_at are refreshed.
+
+        Returns:
+            (row_id, created) — *created* is True when a new row was inserted.
+        """
+        now = time.time()
+        existing = self._conn.execute(
+            "SELECT id FROM apps WHERE name = ?", (name,)
+        ).fetchone()
+
+        if existing is None:
+            cur = self._conn.execute(
+                "INSERT INTO apps "
+                "(name, description, app_type, grpc_address, input_schema_json, enabled, registered_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (name, description, app_type, grpc_address, input_schema_json, now, now),
+            )
+            self._conn.commit()
+            return cur.lastrowid, True
+
+        row_id = existing["id"]
+        self._conn.execute(
+            "UPDATE apps SET description = ?, app_type = ?, grpc_address = ?, "
+            "input_schema_json = ?, updated_at = ? WHERE id = ?",
+            (description, app_type, grpc_address, input_schema_json, now, row_id),
+        )
+        self._conn.commit()
+        return row_id, False
+
+    def list_apps(
+        self, enabled_only: bool = False, app_type: str = ""
+    ) -> list[dict]:
+        """Return registered apps, optionally filtered."""
+        clauses: list[str] = []
+        params: list = []
+        if enabled_only:
+            clauses.append("enabled = 1")
+        if app_type:
+            clauses.append("app_type = ?")
+            params.append(app_type)
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM apps{where} ORDER BY name", params
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_app_enabled(self, name: str, enabled: bool) -> bool:
+        """Toggle the enabled flag for an app.
+
+        Returns True if the app existed, False otherwise.
+        """
+        cur = self._conn.execute(
+            "UPDATE apps SET enabled = ?, updated_at = ? WHERE name = ?",
+            (1 if enabled else 0, time.time(), name),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+    def query_transcriptions_in_range(
+        self, start_timestamp: float, end_timestamp: float
+    ) -> list[dict]:
+        """Return transcription rows that overlap the requested time window."""
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM transcriptions
+            WHERE COALESCE(end_time, created_at) >= ?
+              AND COALESCE(start_time, created_at) <= ?
+            ORDER BY COALESCE(start_time, created_at) ASC, id ASC
+            """,
+            (start_timestamp, end_timestamp),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def query_video_clips_in_range(
+        self, start_timestamp: float, end_timestamp: float
+    ) -> list[dict]:
+        """Return video clips that overlap the requested time window."""
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM video_clips
+            WHERE COALESCE(end_timestamp, created_at) >= ?
+              AND COALESCE(start_timestamp, created_at) <= ?
+            ORDER BY COALESCE(start_timestamp, created_at) ASC, id ASC
+            """,
+            (start_timestamp, end_timestamp),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def insert_note_summary(
+        self,
+        summary_text: str,
+        start_timestamp: float,
+        end_timestamp: float,
+    ) -> int:
+        """Insert a generated note summary row. Returns the new row ID."""
+        cur = self._conn.execute(
+            """
+            INSERT INTO note_summaries (summary_text, start_timestamp, end_timestamp, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (summary_text, start_timestamp, end_timestamp, time.time()),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def query_note_summaries(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Return paginated note summaries and total count."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM note_summaries"
+        ).fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM note_summaries ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total

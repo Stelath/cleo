@@ -18,6 +18,8 @@ from services.config import (
     FRONTEND_PORT,
     NAVIGATION_ASSIST_ADDRESS,
     NAVIGATION_ASSIST_PORT,
+    NOTETAKING_ADDRESS,
+    NOTETAKING_PORT,
     OBJECT_RECOGNITION_ADDRESS,
     OBJECT_RECOGNITION_PORT,
     SENSOR_ADDRESS,
@@ -77,6 +79,18 @@ def _run_frontend_service() -> None:
     serve(port=FRONTEND_PORT)
 
 
+def _run_video_service() -> None:
+    from services.video.service import serve
+
+    serve()
+
+
+def _run_notetaking_service() -> None:
+    from apps.notetaking import serve
+
+    serve(port=NOTETAKING_PORT)
+
+
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
     channel = grpc.insecure_channel(address)
     try:
@@ -119,6 +133,12 @@ def main() -> None:
             daemon=True,
             name="frontend-service",
         ),
+        multiprocessing.Process(
+            target=_run_video_service,
+            daemon=True,
+            name="video-service",
+        ),
+        multiprocessing.Process(target=_run_notetaking_service, daemon=True, name="notetaking-tool"),
     ]
 
     for proc in processes:
@@ -132,6 +152,7 @@ def main() -> None:
     _wait_for_grpc(OBJECT_RECOGNITION_ADDRESS)
     _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
     _wait_for_grpc(FRONTEND_ADDRESS)
+    _wait_for_grpc(NOTETAKING_ADDRESS)
     log.info("runtime.services_ready")
 
     shutdown_event = threading.Event()
