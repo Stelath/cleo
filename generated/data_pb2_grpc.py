@@ -79,6 +79,16 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SetAppEnabledRequest.SerializeToString,
                 response_deserializer=data__pb2.SetAppEnabledResponse.FromString,
                 _registered_method=True)
+        self.GetPreference = channel.unary_unary(
+                '/cleo.data.DataService/GetPreference',
+                request_serializer=data__pb2.GetPreferenceRequest.SerializeToString,
+                response_deserializer=data__pb2.GetPreferenceResponse.FromString,
+                _registered_method=True)
+        self.SetPreference = channel.unary_unary(
+                '/cleo.data.DataService/SetPreference',
+                request_serializer=data__pb2.SetPreferenceRequest.SerializeToString,
+                response_deserializer=data__pb2.SetPreferenceResponse.FromString,
+                _registered_method=True)
         self.GetVideoClipsInRange = channel.unary_unary(
                 '/cleo.data.DataService/GetVideoClipsInRange',
                 request_serializer=data__pb2.TimeRangeRequest.SerializeToString,
@@ -162,6 +172,20 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetPreference(self, request, context):
+        """Get a user preference by key
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetPreference(self, request, context):
+        """Set a user preference by key
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetVideoClipsInRange(self, request, context):
         """List video clips whose timestamps overlap a given time window
         """
@@ -230,6 +254,16 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SetAppEnabled,
                     request_deserializer=data__pb2.SetAppEnabledRequest.FromString,
                     response_serializer=data__pb2.SetAppEnabledResponse.SerializeToString,
+            ),
+            'GetPreference': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPreference,
+                    request_deserializer=data__pb2.GetPreferenceRequest.FromString,
+                    response_serializer=data__pb2.GetPreferenceResponse.SerializeToString,
+            ),
+            'SetPreference': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetPreference,
+                    request_deserializer=data__pb2.SetPreferenceRequest.FromString,
+                    response_serializer=data__pb2.SetPreferenceResponse.SerializeToString,
             ),
             'GetVideoClipsInRange': grpc.unary_unary_rpc_method_handler(
                     servicer.GetVideoClipsInRange,
@@ -490,6 +524,60 @@ class DataService(object):
             '/cleo.data.DataService/SetAppEnabled',
             data__pb2.SetAppEnabledRequest.SerializeToString,
             data__pb2.SetAppEnabledResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPreference(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetPreference',
+            data__pb2.GetPreferenceRequest.SerializeToString,
+            data__pb2.GetPreferenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetPreference(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/SetPreference',
+            data__pb2.SetPreferenceRequest.SerializeToString,
+            data__pb2.SetPreferenceResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -269,6 +269,22 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             ]
         )
 
+    # ── Preferences ──
+
+    def GetPreference(self, request, context):
+        value = self._sqlite.get_preference(request.key)
+        if value is None:
+            return data_pb2.GetPreferenceResponse(found=False)
+        return data_pb2.GetPreferenceResponse(value=value, found=True)
+
+    def SetPreference(self, request, context):
+        self._sqlite.set_preference(request.key, request.value)
+        log.info(
+            "data_service.preference_set",
+            key=request.key,
+        )
+        return data_pb2.SetPreferenceResponse(success=True)
+
     # ── GetVideoClip ──
 
     def GetVideoClip(self, request, context):
