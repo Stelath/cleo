@@ -20,11 +20,13 @@ import structlog
 
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import data_pb2, data_pb2_grpc
+from generated import frontend_pb2, frontend_pb2_grpc
 from generated import sensor_pb2, sensor_pb2_grpc
 from generated import transcription_pb2, transcription_pb2_grpc
 from services.config import (
     ASSISTANT_ADDRESS,
     DATA_ADDRESS,
+    FRONTEND_ADDRESS,
     SENSOR_ADDRESS,
     SENSOR_DEFAULT_CHUNK_MS,
     SENSOR_DEFAULT_SAMPLE_RATE,
@@ -37,6 +39,8 @@ _MAX_GRPC_MESSAGE_BYTES = 16 * 1024 * 1024
 _TRANSCRIBE_REGION = (
     os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
 )
+_DEBUG_TRANSCRIPTION_HUD_ENV = "CLEO_DEBUG_TRANSCRIPTION_HUD"
+_DEBUG_TRANSCRIPT_MAX_CHARS = 180
 _TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
 _TRIGGER_CAPTURE_SECONDS = 3.0
 _QUEUE_SENTINEL = object()
@@ -158,6 +162,58 @@ class DataClient:
             )
         except grpc.RpcError as exc:
             log.warning("transcription.store_failed", error=str(exc))
+
+
+class FrontendTranscriptDebugClient:
+    """Optional HUD publisher for final transcript text in debug mode."""
+
+    def __init__(self, address: str = FRONTEND_ADDRESS, timeout: float = 2.0):
+        enabled = os.getenv(_DEBUG_TRANSCRIPTION_HUD_ENV, "").strip().lower()
+        self._enabled = enabled in {"1", "true", "yes", "on"}
+        self._timeout = timeout
+        self._channel = None
+        self._stub = None
+
+        if self._enabled:
+            self._channel = grpc.insecure_channel(
+                address,
+                options=[
+                    ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                    ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ],
+            )
+            self._stub = frontend_pb2_grpc.FrontendServiceStub(self._channel)
+            log.info(
+                "transcription.debug_hud_enabled",
+                env_var=_DEBUG_TRANSCRIPTION_HUD_ENV,
+                address=address,
+            )
+
+    def close(self) -> None:
+        if self._channel is not None:
+            self._channel.close()
+
+    def show_final_transcript(self, result: transcription_pb2.TranscriptionResult) -> None:
+        if not self._enabled or self._stub is None or result.is_partial:
+            return
+
+        text = result.text.strip()
+        if not text:
+            return
+
+        if len(text) > _DEBUG_TRANSCRIPT_MAX_CHARS:
+            text = f"{text[:_DEBUG_TRANSCRIPT_MAX_CHARS - 1]}..."
+
+        try:
+            self._stub.ShowText(
+                frontend_pb2.TextRequest(
+                    text=f"ASR: {text}",
+                    position="top-right",
+                ),
+                timeout=self._timeout,
+            )
+        except grpc.RpcError as exc:
+            log.warning("transcription.debug_hud_publish_failed", error=str(exc))
 
 
 class TriggerRouter:
@@ -597,11 +653,13 @@ class SensorTranscriptionPipeline(threading.Thread):
         *,
         sensor_address: str = SENSOR_ADDRESS,
         data_address: str = DATA_ADDRESS,
+        debug_client: FrontendTranscriptDebugClient | None = None,
     ):
         super().__init__(daemon=True, name="SensorTranscriptionPipeline")
         self._servicer = servicer
         self._sensor_address = sensor_address
         self._data_address = data_address
+        self._debug_client = debug_client
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -650,6 +708,8 @@ class SensorTranscriptionPipeline(threading.Thread):
                     requests = self._sensor_audio_requests(sensor_stub)
                     for result in self._servicer.TranscribeStream(requests, context=None):
                         if not result.is_partial:
+                            if self._debug_client is not None:
+                                self._debug_client.show_final_transcript(result)
                             data_client.store_transcription(result)
                 except grpc.RpcError as exc:
                     if self._stop_event.is_set():
@@ -669,8 +729,9 @@ class SensorTranscriptionPipeline(threading.Thread):
 def serve(port: int = TRANSCRIPTION_PORT) -> None:
     """Start transcription service and persistent sensor ingestion pipeline."""
     command_client = AssistantCommandClient(address=ASSISTANT_ADDRESS)
+    debug_client = FrontendTranscriptDebugClient(address=FRONTEND_ADDRESS)
     servicer = TranscriptionServiceServicer(command_client=command_client)
-    pipeline = SensorTranscriptionPipeline(servicer)
+    pipeline = SensorTranscriptionPipeline(servicer, debug_client=debug_client)
 
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=4),
@@ -691,6 +752,7 @@ def serve(port: int = TRANSCRIPTION_PORT) -> None:
         pipeline.stop()
         pipeline.join(timeout=5)
         command_client.close()
+        debug_client.close()
         server.stop(grace=2)
 
     signal.signal(signal.SIGINT, _shutdown)

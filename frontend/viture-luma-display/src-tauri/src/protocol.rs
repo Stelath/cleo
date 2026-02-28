@@ -1,33 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: &str = "1.0.0";
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
-pub enum Command {
-    Component {
-        component: String,
-        action: String,
-        #[serde(default)]
-        params: serde_json::Value,
-    },
-    PlayAudio {
-        data: String,
-        sample_rate: u32,
-    },
-    PlayAudioFile {
-        path: String,
-    },
-    RenderHtml {
-        html: String,
-    },
-    Clear,
-    ListAudioOutputs,
-    SetAudioOutput {
-        device_id: Option<String>,
-    },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayInfo {
     pub name: String,
@@ -81,25 +53,6 @@ pub enum Event {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn command_roundtrip_component() {
-        let raw =
-            r#"{"cmd":"component","component":"toast","action":"show","params":{"text":"ok"}}"#;
-        let parsed: Command = serde_json::from_str(raw).expect("parse command");
-        match parsed {
-            Command::Component {
-                component,
-                action,
-                params,
-            } => {
-                assert_eq!(component, "toast");
-                assert_eq!(action, "show");
-                assert_eq!(params["text"], "ok");
-            }
-            _ => panic!("expected component command"),
-        }
-    }
 
     #[test]
     fn event_roundtrip_error() {

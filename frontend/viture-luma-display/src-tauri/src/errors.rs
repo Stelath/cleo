@@ -16,8 +16,6 @@ pub enum AppError {
     DisplayNotFound,
     #[error("configuration error: {0}")]
     Config(String),
-    #[error("protocol parse error: {0}")]
-    ProtocolParse(String),
     #[error("grpc error: {0}")]
     Grpc(String),
 }
