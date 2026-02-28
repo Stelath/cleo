@@ -69,6 +69,22 @@ class CleoSQLite:
                 end_timestamp REAL NOT NULL,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS food_macros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_name TEXT NOT NULL,
+                brand TEXT,
+                barcode TEXT,
+                basis TEXT NOT NULL,
+                calories_kcal REAL,
+                protein_g REAL,
+                fat_g REAL,
+                carbs_g REAL,
+                serving_size TEXT,
+                serving_quantity REAL,
+                recorded_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -272,6 +288,71 @@ class CleoSQLite:
         ).fetchone()[0]
         rows = self._conn.execute(
             "SELECT * FROM note_summaries ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+    def insert_food_macros(
+        self,
+        *,
+        product_name: str,
+        brand: str | None = None,
+        barcode: str | None = None,
+        basis: str,
+        calories_kcal: float | None = None,
+        protein_g: float | None = None,
+        fat_g: float | None = None,
+        carbs_g: float | None = None,
+        serving_size: str | None = None,
+        serving_quantity: float | None = None,
+        recorded_at: float | None = None,
+    ) -> int:
+        """Insert a food macro row. Returns the new row ID."""
+        cur = self._conn.execute(
+            """
+            INSERT INTO food_macros (
+                product_name,
+                brand,
+                barcode,
+                basis,
+                calories_kcal,
+                protein_g,
+                fat_g,
+                carbs_g,
+                serving_size,
+                serving_quantity,
+                recorded_at,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                product_name,
+                brand,
+                barcode,
+                basis,
+                calories_kcal,
+                protein_g,
+                fat_g,
+                carbs_g,
+                serving_size,
+                serving_quantity,
+                recorded_at if recorded_at is not None else time.time(),
+                time.time(),
+            ),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def query_food_macros(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Return paginated stored food macro rows and total count."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM food_macros"
+        ).fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM food_macros ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total

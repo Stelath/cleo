@@ -16,6 +16,8 @@ from services.config import (
     DATA_PORT,
     FRONTEND_ADDRESS,
     FRONTEND_PORT,
+    FOOD_MACROS_ADDRESS,
+    FOOD_MACROS_PORT,
     NAVIGATION_ASSIST_ADDRESS,
     NAVIGATION_ASSIST_PORT,
     NOTETAKING_ADDRESS,
@@ -91,6 +93,12 @@ def _run_notetaking_service() -> None:
     serve(port=NOTETAKING_PORT)
 
 
+def _run_food_macros_service() -> None:
+    from apps.food_macros import serve
+
+    serve(port=FOOD_MACROS_PORT)
+
+
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
     channel = grpc.insecure_channel(address)
     try:
@@ -139,6 +147,7 @@ def main() -> None:
             name="video-service",
         ),
         multiprocessing.Process(target=_run_notetaking_service, daemon=True, name="notetaking-tool"),
+        multiprocessing.Process(target=_run_food_macros_service, daemon=True, name="food-macros-tool"),
     ]
 
     for proc in processes:
@@ -153,6 +162,7 @@ def main() -> None:
     _wait_for_grpc(NAVIGATION_ASSIST_ADDRESS)
     _wait_for_grpc(FRONTEND_ADDRESS)
     _wait_for_grpc(NOTETAKING_ADDRESS)
+    _wait_for_grpc(FOOD_MACROS_ADDRESS)
     log.info("runtime.services_ready")
 
     shutdown_event = threading.Event()

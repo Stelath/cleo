@@ -109,6 +109,28 @@ def test_insert_and_query_note_summary(sqlite_db):
     assert rows[0]["summary_text"] == "summary"
 
 
+def test_insert_and_query_food_macros(sqlite_db):
+    row_id = sqlite_db.insert_food_macros(
+        product_name="Protein Bar",
+        brand="Cleo",
+        barcode="1234567890123",
+        basis="per serving",
+        calories_kcal=220.0,
+        protein_g=20.0,
+        fat_g=7.0,
+        carbs_g=18.0,
+        serving_size="1 bar",
+        serving_quantity=50.0,
+        recorded_at=123.0,
+    )
+    assert row_id >= 1
+
+    rows, total = sqlite_db.query_food_macros(limit=10)
+    assert total == 1
+    assert rows[0]["product_name"] == "Protein Bar"
+    assert rows[0]["protein_g"] == pytest.approx(20.0)
+
+
 # ── DataService gRPC servicer tests ──
 
 
@@ -224,6 +246,30 @@ def test_get_video_clip_rpc(data_servicer):
     resp = data_servicer.GetVideoClip(get_req, _mock_context())
     assert resp.mp4_data == fake_mp4
     assert resp.num_frames == 20
+
+
+def test_store_food_macros_rpc(data_servicer):
+    from generated import data_pb2
+
+    req = data_pb2.StoreFoodMacrosRequest(
+        product_name="Greek Yogurt",
+        brand="Cleo",
+        barcode="111222333444",
+        basis="per serving",
+        calories_kcal=120.0,
+        protein_g=15.0,
+        fat_g=0.0,
+        carbs_g=8.0,
+        serving_size="170 g",
+        serving_quantity=170.0,
+        recorded_at=100.0,
+    )
+    resp = data_servicer.StoreFoodMacros(req, _mock_context())
+    assert resp.id >= 1
+
+    rows, total = data_servicer._sqlite.query_food_macros(limit=10)
+    assert total == 1
+    assert rows[0]["barcode"] == "111222333444"
 
 
 def test_get_transcriptions_in_range_rpc(data_servicer):
