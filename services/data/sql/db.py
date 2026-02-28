@@ -90,12 +90,42 @@ class CleoSQLite:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 faiss_id INTEGER,
                 thumbnail_path TEXT NOT NULL,
+                display_name TEXT NOT NULL DEFAULT '',
                 confidence REAL,
                 first_seen REAL NOT NULL,
                 last_seen REAL NOT NULL,
                 seen_count INTEGER NOT NULL DEFAULT 1,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS face_sightings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                face_id INTEGER NOT NULL,
+                image_path TEXT NOT NULL,
+                seen_at REAL NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (face_id) REFERENCES faces(id)
+            );
+            """
+        )
+        face_columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(faces)").fetchall()
+        }
+        if "display_name" not in face_columns:
+            self._conn.execute(
+                "ALTER TABLE faces ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.execute(
+            """
+            INSERT INTO face_sightings (face_id, image_path, seen_at, created_at)
+            SELECT faces.id, faces.thumbnail_path, faces.first_seen, faces.created_at
+            FROM faces
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM face_sightings
+                WHERE face_sightings.face_id = faces.id
+            )
             """
         )
         self._conn.commit()
@@ -426,6 +456,64 @@ class CleoSQLite:
         """Look up face metadata by its FAISS vector ID."""
         row = self._conn.execute(
             "SELECT * FROM faces WHERE faiss_id = ?", (faiss_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_face(self, face_id: int) -> dict | None:
+        """Look up a face row by its primary key."""
+        row = self._conn.execute(
+            "SELECT * FROM faces WHERE id = ?", (face_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_faces(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+        """Return paginated face rows ordered by most recent sightings."""
+        total = self._conn.execute("SELECT COUNT(*) FROM faces").fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM faces ORDER BY last_seen DESC, id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+    def set_face_name(self, face_id: int, display_name: str) -> bool:
+        """Assign or clear the display name for a face row."""
+        cur = self._conn.execute(
+            "UPDATE faces SET display_name = ? WHERE id = ?",
+            (display_name, face_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def insert_face_sighting(
+        self,
+        face_id: int,
+        image_path: str,
+        seen_at: float,
+    ) -> int:
+        """Insert a stored image for one face sighting."""
+        cur = self._conn.execute(
+            "INSERT INTO face_sightings (face_id, image_path, seen_at, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (face_id, image_path, seen_at, time.time()),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def list_face_sightings(self, face_id: int, limit: int = 4) -> list[dict]:
+        """Return the most recent stored sightings for a face."""
+        rows = self._conn.execute(
+            "SELECT * FROM face_sightings WHERE face_id = ? "
+            "ORDER BY seen_at DESC, id DESC LIMIT ?",
+            (face_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_face_sighting_by_index(self, face_id: int, sighting_index: int) -> dict | None:
+        """Return one sighting by recency order for a face."""
+        row = self._conn.execute(
+            "SELECT * FROM face_sightings WHERE face_id = ? "
+            "ORDER BY seen_at DESC, id DESC LIMIT 1 OFFSET ?",
+            (face_id, sighting_index),
         ).fetchone()
         return dict(row) if row else None
 

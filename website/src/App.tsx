@@ -3,6 +3,7 @@ import { startTransition, useEffect, useState, type FormEvent } from "react";
 type Section =
   | "Dashboard"
   | "Memory"
+  | "Faces"
   | "Notes"
   | "Nutrition"
   | "Apps"
@@ -40,6 +41,17 @@ type MemoryClipEntry = {
   videoUrl: string;
 };
 
+type FaceEntry = {
+  faceId: number;
+  name: string;
+  firstSeen: number;
+  lastSeen: number;
+  seenCount: number;
+  confidence: number | null;
+  imageUrl: string;
+  collageImageUrls: string[];
+};
+
 type Preferences = {
   colorBlindness: string;
   contrast: "Balanced" | "High";
@@ -52,6 +64,7 @@ type Preferences = {
 const sections: Section[] = [
   "Dashboard",
   "Memory",
+  "Faces",
   "Notes",
   "Nutrition",
   "Apps",
@@ -85,6 +98,11 @@ function App() {
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [memoryHasSearched, setMemoryHasSearched] = useState(false);
   const [selectedMemoryClipId, setSelectedMemoryClipId] = useState<number | null>(null);
+  const [faceEntries, setFaceEntries] = useState<FaceEntry[]>([]);
+  const [faceError, setFaceError] = useState<string | null>(null);
+  const [faceLoading, setFaceLoading] = useState(true);
+  const [faceSavingId, setFaceSavingId] = useState<number | null>(null);
+  const [faceSaveError, setFaceSaveError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
 
   const densityClass = preferences.density === "Dense" ? "density-dense" : "density-relaxed";
@@ -96,7 +114,11 @@ function App() {
         ? "scale-large"
         : "scale-comfortable";
   const websiteApiState =
-    foodLoading || noteLoading ? "Checking" : foodError || noteError ? "Unavailable" : "Ready";
+    foodLoading || noteLoading || faceLoading
+      ? "Checking"
+      : foodError || noteError || faceError
+        ? "Unavailable"
+        : "Ready";
   const memorySummary =
     memoryLoading ? "Searching" : memoryError ? "Error" : memoryHasSearched ? String(memoryResults.length) : "Ready";
   const nutritionSummary =
@@ -111,6 +133,12 @@ function App() {
       : noteError
         ? "Unavailable"
         : String(noteEntries.length);
+  const facesSummary =
+    faceLoading
+      ? "Refreshing"
+      : faceError
+        ? "Unavailable"
+        : String(faceEntries.length);
   const memorySummaryMeta = memoryError
     ? memoryError
     : memoryHasSearched
@@ -165,6 +193,43 @@ function App() {
     }
 
     void loadFoodMacros();
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadFaces() {
+      try {
+        setFaceLoading(true);
+        setFaceError(null);
+
+        const response = await fetch("/api/faces?limit=200", {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as {
+          entries?: FaceEntry[];
+        };
+        setFaceEntries(payload.entries ?? []);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setFaceError(error instanceof Error ? error.message : "Unable to load face groups.");
+        setFaceEntries([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setFaceLoading(false);
+        }
+      }
+    }
+
+    void loadFaces();
 
     return () => controller.abort();
   }, []);
@@ -238,6 +303,61 @@ function App() {
   function handleMemorySearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void searchMemory();
+  }
+
+  function handleFaceNameChange(faceId: number, value: string) {
+    setFaceEntries((current) =>
+      current.map((entry) =>
+        entry.faceId === faceId
+          ? {
+              ...entry,
+              name: value,
+            }
+          : entry,
+      ),
+    );
+  }
+
+  async function saveFaceName(faceId: number) {
+    const face = faceEntries.find((entry) => entry.faceId === faceId);
+    if (!face) {
+      return;
+    }
+
+    try {
+      setFaceSavingId(faceId);
+      setFaceSaveError(null);
+
+      const response = await fetch(`/api/faces/${faceId}/name`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: face.name }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        name?: string;
+      };
+      setFaceEntries((current) =>
+        current.map((entry) =>
+          entry.faceId === faceId
+            ? {
+                ...entry,
+                name: payload.name ?? entry.name,
+              }
+            : entry,
+        ),
+      );
+    } catch (error) {
+      setFaceSaveError(error instanceof Error ? error.message : "Unable to save the face name.");
+    } finally {
+      setFaceSavingId((current) => (current === faceId ? null : current));
+    }
   }
 
   useEffect(() => {
@@ -330,8 +450,8 @@ function App() {
             <strong>{foodLoading ? "Loading" : foodError ? "Error" : "Synced"}</strong>
           </div>
           <div className="health-row">
-            <span>Other Sections</span>
-            <strong className="warn">Pending</strong>
+            <span>Face Review</span>
+            <strong>{faceLoading ? "Loading" : faceError ? "Error" : "Synced"}</strong>
           </div>
         </div>
       </aside>
@@ -345,6 +465,9 @@ function App() {
           <div className="top-actions">
             <button className="ghost-button" type="button" onClick={() => startTransition(() => setSection("Memory"))}>
               Search Memory
+            </button>
+            <button className="ghost-button" type="button" onClick={() => startTransition(() => setSection("Faces"))}>
+              Review Faces
             </button>
             <button className="ghost-button" type="button" onClick={() => startTransition(() => setSection("Notes"))}>
               Review Notes
@@ -365,7 +488,7 @@ function App() {
               <StatCard label="Nutrition entries" value={nutritionSummary} meta="Live count from local database" />
               <StatCard label="Memory" value={memorySummary} meta={memorySummaryMeta} />
               <StatCard label="Notes" value={notesSummary} meta={noteError ?? "Live count from local database"} />
-              <StatCard label="Apps" value="Pending" meta="No API connected yet" />
+              <StatCard label="Faces" value={facesSummary} meta={faceError ?? "Named face groups from the local database"} />
             </div>
 
             <div className="hero-grid">
@@ -377,10 +500,10 @@ function App() {
                   </div>
                 </div>
                 <div className="empty-state">
-                  <h4>Notes, nutrition, and memory search are live</h4>
+                  <h4>Notes, nutrition, memory search, and faces are live</h4>
                   <p>
-                    The website no longer renders fake records. Notes and nutrition read from the backend, and memory
-                    search now queries saved video embeddings through the website API.
+                    The website no longer renders fake records. Notes, nutrition, and face groups read from the
+                    backend, and memory search queries saved video embeddings through the website API.
                   </p>
                 </div>
               </section>
@@ -389,15 +512,14 @@ function App() {
                 <p className="eyebrow">Next Up</p>
                 <h3>Connect the remaining sections</h3>
                 <p>
-                  Apps and the remaining system views no longer use seeded content. They will stay empty until their
-                  corresponding backend routes are implemented.
+                  Apps still need live backend routes. The other sections on this dashboard now render persisted data.
                 </p>
                 <div className="quick-link-row">
+                  <button className="ghost-button" type="button" onClick={() => setSection("Faces")}>
+                    View Faces
+                  </button>
                   <button className="ghost-button" type="button" onClick={() => setSection("Memory")}>
                     View Memory
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setSection("Nutrition")}>
-                    View Nutrition
                   </button>
                 </div>
               </section>
@@ -538,6 +660,102 @@ function App() {
                 </div>
               )}
             </aside>
+          </section>
+        )}
+
+        {section === "Faces" && (
+          <section className="stacked-layout">
+            <section className="surface-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Face Groups</p>
+                  <h3>Review tracked identities</h3>
+                </div>
+                <span className="pill success">{faceEntries.length} saved</span>
+              </div>
+              {faceSaveError && (
+                <div className="inline-alert">
+                  <strong>Save failed.</strong> {faceSaveError}
+                </div>
+              )}
+              <div className="face-grid">
+                {faceLoading && (
+                  <div className="empty-state face-empty-state">
+                    <h4>Loading face groups</h4>
+                    <p>Fetching representative images and identity metadata from the local database.</p>
+                  </div>
+                )}
+                {!faceLoading && faceError && (
+                  <div className="empty-state face-empty-state">
+                    <h4>Face groups unavailable</h4>
+                    <p>{faceError}</p>
+                  </div>
+                )}
+                {!faceLoading && !faceError && faceEntries.length === 0 && (
+                  <div className="empty-state face-empty-state">
+                    <h4>No faces saved yet</h4>
+                    <p>Face groups will appear here after face detection stores embeddings.</p>
+                  </div>
+                )}
+                {!faceLoading &&
+                  !faceError &&
+                  faceEntries.map((entry) => (
+                    <article className="face-card" key={entry.faceId}>
+                      <div className="face-collage">
+                        {(entry.collageImageUrls.length > 0 ? entry.collageImageUrls : [entry.imageUrl]).map((url, index) => (
+                          <img
+                            className="face-image"
+                            key={`${entry.faceId}-${url}-${index}`}
+                            src={url}
+                            alt={entry.name ? `${entry.name} sighting ${index + 1}` : `Face group ${entry.faceId} sighting ${index + 1}`}
+                            loading="lazy"
+                          />
+                        ))}
+                      </div>
+                      <div className="panel-heading">
+                        <div>
+                          <p className="eyebrow">Face #{entry.faceId}</p>
+                          <h4>{entry.name.trim() || "Unnamed"}</h4>
+                        </div>
+                        <span className="pill success">{entry.seenCount} sightings</span>
+                      </div>
+                      <div className="meta-stack">
+                        <div>
+                          <span className="meta-label">First seen</span>
+                          <strong>{formatUnixTimestamp(entry.firstSeen)}</strong>
+                        </div>
+                        <div>
+                          <span className="meta-label">Last seen</span>
+                          <strong>{formatUnixTimestamp(entry.lastSeen)}</strong>
+                        </div>
+                        <div>
+                          <span className="meta-label">Confidence</span>
+                          <strong>{entry.confidence === null ? "--" : `${entry.confidence.toFixed(1)}%`}</strong>
+                        </div>
+                      </div>
+                      <div className="face-form-row">
+                        <label className="field face-name-field">
+                          <span>Name</span>
+                          <input
+                            type="text"
+                            value={entry.name}
+                            placeholder="Add a name"
+                            onChange={(event) => handleFaceNameChange(entry.faceId, event.target.value)}
+                          />
+                        </label>
+                        <button
+                          className="solid-button"
+                          type="button"
+                          disabled={faceSavingId === entry.faceId}
+                          onClick={() => void saveFaceName(entry.faceId)}
+                        >
+                          {faceSavingId === entry.faceId ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            </section>
           </section>
         )}
 
@@ -787,12 +1005,17 @@ function App() {
                   meta={noteError ?? "Derived from the notes endpoint"}
                 />
                 <StatCard
+                  label="Faces fetch"
+                  value={faceLoading ? "Loading" : faceError ? "Error" : "Healthy"}
+                  meta={faceError ?? "Derived from the face groups endpoint"}
+                />
+                <StatCard
                   label="Memory search"
                   value={memoryLoading ? "Loading" : memoryError ? "Error" : "Healthy"}
                   meta={memoryError ?? "Derived from the clip search endpoint"}
                 />
-                <StatCard label="Other sections" value="Pending" meta="Apps are still not connected" />
                 <StatCard label="Mock data" value="Removed" meta="This page no longer shows seeded values" />
+                <StatCard label="Apps" value="Pending" meta="Apps are still not connected" />
               </div>
             </section>
           </section>
@@ -905,6 +1128,8 @@ function sectionHint(section: Section) {
       return "Recent activity";
     case "Memory":
       return "Search + clips";
+    case "Faces":
+      return "Identity review";
     case "Notes":
       return "Summaries";
     case "Nutrition":

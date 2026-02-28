@@ -59,6 +59,15 @@ service DataService {
 
   // Search faces by image similarity
   rpc SearchFaces(SearchFacesRequest) returns (SearchFacesResponse);
+
+  // List stored face groups for frontend review
+  rpc ListFaces(ListFacesRequest) returns (ListFacesResponse);
+
+  // Fetch the stored representative image for a face group
+  rpc GetFaceImage(GetFaceImageRequest) returns (GetFaceImageResponse);
+
+  // Assign or clear a display name for a face group
+  rpc SetFaceName(SetFaceNameRequest) returns (SetFaceNameResponse);
 }
 
 // ── Store Transcription ──
@@ -376,8 +385,50 @@ message FaceSearchResult {
   double last_seen = 4;
   int32 seen_count = 5;
   string thumbnail_path = 6;
+  string name = 7;
 }
 
 message SearchFacesResponse {
   repeated FaceSearchResult results = 1;
+}
+
+message ListFacesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message FaceEntry {
+  int64 face_id = 1;
+  string name = 2;
+  double first_seen = 3;
+  double last_seen = 4;
+  int32 seen_count = 5;
+  string thumbnail_path = 6;
+  optional float confidence = 7;
+  int32 collage_image_count = 8;
+}
+
+message ListFacesResponse {
+  repeated FaceEntry entries = 1;
+  int32 total_count = 2;
+}
+
+message GetFaceImageRequest {
+  int64 face_id = 1;
+  optional int32 sighting_index = 2;
+}
+
+message GetFaceImageResponse {
+  bytes image_data = 1;
+  string content_type = 2;
+}
+
+message SetFaceNameRequest {
+  int64 face_id = 1;
+  string name = 2;
+}
+
+message SetFaceNameResponse {
+  bool updated = 1;
+  string name = 2;
 }

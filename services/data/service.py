@@ -1,6 +1,7 @@
 """DataService gRPC servicer — owns SQLite, FAISS, Bedrock embeddings, and video storage."""
 
 import json
+import mimetypes
 import signal
 import time
 from concurrent import futures
@@ -602,6 +603,11 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             matched_face = self._sqlite.get_face_by_faiss_id(matched_faiss_id)
             if matched_face:
                 matched_face_id = matched_face["id"]
+                self._store_face_sighting_image(
+                    face_id=matched_face_id,
+                    image_data=request.image_data,
+                    timestamp=request.timestamp,
+                )
                 self._sqlite.update_face_seen(matched_face_id, request.timestamp)
                 log.info(
                     "data_service.face_dedup",
@@ -630,6 +636,11 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             embedding, {"face_id": face_id, "timestamp": request.timestamp}
         )
         self._sqlite.update_face_faiss_id(face_id, faiss_id)
+        self._sqlite.insert_face_sighting(
+            face_id=face_id,
+            image_path=str(thumbnail_path),
+            seen_at=request.timestamp,
+        )
 
         log.info(
             "data_service.face_stored",
@@ -669,11 +680,98 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
                     last_seen=face["last_seen"],
                     seen_count=face["seen_count"],
                     thumbnail_path=face["thumbnail_path"],
+                    name=face["display_name"] or "",
                 )
             )
 
         log.info("data_service.face_search", num_results=len(results))
         return data_pb2.SearchFacesResponse(results=results)
+
+    def ListFaces(self, request, context):
+        limit = request.limit if request.limit > 0 else 50
+        offset = request.offset if request.offset >= 0 else 0
+        rows, total = self._sqlite.list_faces(limit=limit, offset=offset)
+        entries = [self._serialize_face_entry(row) for row in rows]
+        return data_pb2.ListFacesResponse(entries=entries, total_count=total)
+
+    def GetFaceImage(self, request, context):
+        face = self._sqlite.get_face(request.face_id)
+        if face is None:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Face {request.face_id} was not found.")
+            return data_pb2.GetFaceImageResponse()
+
+        if request.HasField("sighting_index"):
+            sighting = self._sqlite.get_face_sighting_by_index(
+                request.face_id,
+                request.sighting_index,
+            )
+            if sighting is None:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(
+                    f"Face sighting {request.sighting_index} for {request.face_id} was not found."
+                )
+                return data_pb2.GetFaceImageResponse()
+            image_path = Path(sighting["image_path"])
+        else:
+            image_path = Path(face["thumbnail_path"])
+
+        if not image_path.exists():
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Face image for {request.face_id} is missing.")
+            return data_pb2.GetFaceImageResponse()
+
+        content_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
+        return data_pb2.GetFaceImageResponse(
+            image_data=image_path.read_bytes(),
+            content_type=content_type,
+        )
+
+    def SetFaceName(self, request, context):
+        display_name = request.name.strip()
+        updated = self._sqlite.set_face_name(request.face_id, display_name)
+        if not updated:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Face {request.face_id} was not found.")
+            return data_pb2.SetFaceNameResponse()
+
+        log.info(
+            "data_service.face_name_updated",
+            face_id=request.face_id,
+            has_name=bool(display_name),
+        )
+        return data_pb2.SetFaceNameResponse(updated=True, name=display_name)
+
+    def _serialize_face_entry(self, row: dict) -> data_pb2.FaceEntry:
+        # Limit the preview collage to four most recent sightings.
+        sighting_count = len(self._sqlite.list_face_sightings(row["id"], limit=4))
+        entry = data_pb2.FaceEntry(
+            face_id=row["id"],
+            name=row["display_name"] or "",
+            first_seen=row["first_seen"],
+            last_seen=row["last_seen"],
+            seen_count=row["seen_count"],
+            thumbnail_path=row["thumbnail_path"],
+            collage_image_count=sighting_count,
+        )
+        if row["confidence"] is not None:
+            entry.confidence = row["confidence"]
+        return entry
+
+    def _store_face_sighting_image(
+        self,
+        *,
+        face_id: int,
+        image_data: bytes,
+        timestamp: float,
+    ) -> None:
+        image_path = self._face_dir / f"face_{face_id}_{timestamp:.6f}.jpg"
+        image_path.write_bytes(image_data)
+        self._sqlite.insert_face_sighting(
+            face_id=face_id,
+            image_path=str(image_path),
+            seen_at=timestamp,
+        )
 
 
 def serve(port: int = DATA_PORT):

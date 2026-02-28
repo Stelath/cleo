@@ -129,6 +129,21 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SearchFacesRequest.SerializeToString,
                 response_deserializer=data__pb2.SearchFacesResponse.FromString,
                 _registered_method=True)
+        self.ListFaces = channel.unary_unary(
+                '/cleo.data.DataService/ListFaces',
+                request_serializer=data__pb2.ListFacesRequest.SerializeToString,
+                response_deserializer=data__pb2.ListFacesResponse.FromString,
+                _registered_method=True)
+        self.GetFaceImage = channel.unary_unary(
+                '/cleo.data.DataService/GetFaceImage',
+                request_serializer=data__pb2.GetFaceImageRequest.SerializeToString,
+                response_deserializer=data__pb2.GetFaceImageResponse.FromString,
+                _registered_method=True)
+        self.SetFaceName = channel.unary_unary(
+                '/cleo.data.DataService/SetFaceName',
+                request_serializer=data__pb2.SetFaceNameRequest.SerializeToString,
+                response_deserializer=data__pb2.SetFaceNameResponse.FromString,
+                _registered_method=True)
 
 
 class DataServiceServicer(object):
@@ -267,6 +282,27 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListFaces(self, request, context):
+        """List stored face groups for frontend review
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetFaceImage(self, request, context):
+        """Fetch the stored representative image for a face group
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetFaceName(self, request, context):
+        """Assign or clear a display name for a face group
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -364,6 +400,21 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SearchFaces,
                     request_deserializer=data__pb2.SearchFacesRequest.FromString,
                     response_serializer=data__pb2.SearchFacesResponse.SerializeToString,
+            ),
+            'ListFaces': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListFaces,
+                    request_deserializer=data__pb2.ListFacesRequest.FromString,
+                    response_serializer=data__pb2.ListFacesResponse.SerializeToString,
+            ),
+            'GetFaceImage': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFaceImage,
+                    request_deserializer=data__pb2.GetFaceImageRequest.FromString,
+                    response_serializer=data__pb2.GetFaceImageResponse.SerializeToString,
+            ),
+            'SetFaceName': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetFaceName,
+                    request_deserializer=data__pb2.SetFaceNameRequest.FromString,
+                    response_serializer=data__pb2.SetFaceNameResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -879,6 +930,87 @@ class DataService(object):
             '/cleo.data.DataService/SearchFaces',
             data__pb2.SearchFacesRequest.SerializeToString,
             data__pb2.SearchFacesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListFaces(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/ListFaces',
+            data__pb2.ListFacesRequest.SerializeToString,
+            data__pb2.ListFacesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFaceImage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetFaceImage',
+            data__pb2.GetFaceImageRequest.SerializeToString,
+            data__pb2.GetFaceImageResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetFaceName(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/SetFaceName',
+            data__pb2.SetFaceNameRequest.SerializeToString,
+            data__pb2.SetFaceNameResponse.FromString,
             options,
             channel_credentials,
             insecure,

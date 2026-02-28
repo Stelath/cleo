@@ -111,6 +111,9 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/faces":
+                self._handle_list_faces(parsed.query)
+                return
             if parsed.path == "/api/food-macros":
                 self._handle_list_food_macros(parsed.query)
                 return
@@ -119,6 +122,12 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/search":
                 self._handle_search(parsed.query)
+                return
+            if parsed.path.startswith("/api/faces/") and parsed.path.endswith("/image"):
+                self._handle_get_face_image(parsed.path)
+                return
+            if parsed.path.startswith("/api/faces/") and "/sightings/" in parsed.path:
+                self._handle_get_face_sighting_image(parsed.path)
                 return
             if parsed.path.startswith("/api/videos/"):
                 self._handle_get_video_clip(parsed.path)
@@ -142,6 +151,36 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/faces/") and parsed.path.endswith("/name"):
+                self._handle_set_face_name(parsed.path)
+                return
+
+            self._write_json(
+                {"error": "not_found", "message": f"Unknown path: {parsed.path}"},
+                status=HTTPStatus.NOT_FOUND,
+            )
+        except _DataServiceUnavailableError as exc:
+            self._write_json(
+                {"error": "data_service_unavailable", "message": str(exc)},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        except grpc.RpcError as exc:
+            self._write_grpc_error(exc, path=parsed.path)
+        except ValueError as exc:
+            self._write_json(
+                {"error": "invalid_request", "message": str(exc)},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+        except Exception as exc:
+            log.exception("website_api.request_failed", path=parsed.path, error=str(exc))
+            self._write_json(
+                {"error": "internal_error", "message": "Unable to update website data."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         log.debug("website_api.request", message=format % args)
 
@@ -155,6 +194,22 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         self._write_json(
             {
                 "entries": [self._serialize_food_macro(entry) for entry in response.entries],
+                "totalCount": response.total_count,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+
+    def _handle_list_faces(self, query_string: str) -> None:
+        params = parse_qs(query_string)
+        limit = self._coerce_int(params.get("limit", ["100"])[0], default=100, minimum=1, maximum=500)
+        offset = self._coerce_int(params.get("offset", ["0"])[0], default=0, minimum=0)
+        response = self._get_data_stub().ListFaces(
+            data_pb2.ListFacesRequest(limit=limit, offset=offset)
+        )
+        self._write_json(
+            {
+                "entries": [self._serialize_face_entry(entry) for entry in response.entries],
                 "totalCount": response.total_count,
                 "limit": limit,
                 "offset": offset,
@@ -269,6 +324,67 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _handle_get_face_image(self, path: str) -> None:
+        face_id = self._parse_face_id(path, suffix="/image")
+        if face_id is None:
+            self._write_json(
+                {"error": "invalid_face_id", "message": f"Invalid face image path: {path}"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        response = self._get_data_stub().GetFaceImage(data_pb2.GetFaceImageRequest(face_id=face_id))
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", response.content_type or "application/octet-stream")
+        self.send_header("Content-Length", str(len(response.image_data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(response.image_data)
+
+    def _handle_get_face_sighting_image(self, path: str) -> None:
+        parsed = self._parse_face_sighting_path(path)
+        if parsed is None:
+            self._write_json(
+                {"error": "invalid_face_id", "message": f"Invalid face sighting path: {path}"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        face_id, sighting_index = parsed
+        request = data_pb2.GetFaceImageRequest(face_id=face_id, sighting_index=sighting_index)
+        response = self._get_data_stub().GetFaceImage(request)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", response.content_type or "application/octet-stream")
+        self.send_header("Content-Length", str(len(response.image_data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(response.image_data)
+
+    def _handle_set_face_name(self, path: str) -> None:
+        face_id = self._parse_face_id(path, suffix="/name")
+        if face_id is None:
+            self._write_json(
+                {"error": "invalid_face_id", "message": f"Invalid face name path: {path}"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        payload = self._read_json_body()
+        raw_name = payload.get("name", "")
+        if not isinstance(raw_name, str):
+            raise ValueError("Field 'name' must be a string.")
+
+        response = self._get_data_stub().SetFaceName(
+            data_pb2.SetFaceNameRequest(face_id=face_id, name=raw_name)
+        )
+        self._write_json(
+            {
+                "faceId": face_id,
+                "updated": response.updated,
+                "name": response.name,
+            }
+        )
+
     def _write_json(self, payload: dict[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -356,6 +472,41 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         return int(clip_id_text)
 
     @staticmethod
+    def _parse_face_id(path: str, *, suffix: str) -> int | None:
+        if not path.startswith("/api/faces/") or not path.endswith(suffix):
+            return None
+        face_id_text = path.removeprefix("/api/faces/").removesuffix(suffix).strip("/")
+        if not face_id_text.isdigit():
+            return None
+        return int(face_id_text)
+
+    @staticmethod
+    def _parse_face_sighting_path(path: str) -> tuple[int, int] | None:
+        parts = [part for part in path.split("/") if part]
+        if len(parts) != 5 or parts[0] != "api" or parts[1] != "faces" or parts[3] != "sightings":
+            return None
+        face_id_text = parts[2]
+        sighting_index_text = parts[4]
+        if not face_id_text.isdigit() or not sighting_index_text.isdigit():
+            return None
+        return int(face_id_text), int(sighting_index_text)
+
+    def _read_json_body(self) -> dict[str, object]:
+        content_length = self._coerce_int(
+            self.headers.get("Content-Length", "0"),
+            default=0,
+            minimum=0,
+        )
+        raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Request body must be valid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("Request body must be a JSON object.")
+        return payload
+
+    @staticmethod
     def _serialize_food_macro(entry: data_pb2.FoodMacroEntry) -> dict[str, object]:
         return {
             "id": entry.id,
@@ -403,6 +554,23 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
             "endTimestamp": clip.end_timestamp,
             "numFrames": clip.num_frames,
             "videoUrl": f"/api/videos/{clip.clip_id}",
+        }
+
+    @staticmethod
+    def _serialize_face_entry(entry: data_pb2.FaceEntry) -> dict[str, object]:
+        return {
+            "faceId": entry.face_id,
+            "name": entry.name,
+            "firstSeen": entry.first_seen,
+            "lastSeen": entry.last_seen,
+            "seenCount": entry.seen_count,
+            "confidence": entry.confidence if entry.HasField("confidence") else None,
+            "thumbnailPath": entry.thumbnail_path,
+            "imageUrl": f"/api/faces/{entry.face_id}/image",
+            "collageImageUrls": [
+                f"/api/faces/{entry.face_id}/sightings/{index}"
+                for index in range(entry.collage_image_count)
+            ],
         }
 
 

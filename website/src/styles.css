@@ -275,7 +275,8 @@ button {
 
 .hero-grid,
 .memory-grid,
-.preferences-grid {
+.preferences-grid,
+.face-grid {
   display: grid;
   gap: 18px;
 }
@@ -290,6 +291,11 @@ button {
 
 .preferences-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.face-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-top: 16px;
 }
 
 .accent-panel {
@@ -477,6 +483,55 @@ button {
   text-align: center;
 }
 
+.face-empty-state {
+  grid-column: 1 / -1;
+}
+
+.inline-alert {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(201, 112, 47, 0.12);
+  color: #8b4e20;
+}
+
+.face-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(94, 85, 65, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.face-collage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.face-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(31, 143, 114, 0.16), rgba(62, 165, 255, 0.12)),
+    rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(94, 85, 65, 0.08);
+}
+
+.face-form-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.face-name-field {
+  flex: 1 1 auto;
+}
+
 .empty-state h4,
 .clip-preview p {
   margin-bottom: 8px;
@@ -588,7 +643,8 @@ button {
 
   .top-bar,
   .toolbar,
-  .panel-heading {
+  .panel-heading,
+  .face-form-row {
     align-items: flex-start;
     flex-direction: column;
   }

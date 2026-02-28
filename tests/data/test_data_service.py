@@ -523,6 +523,49 @@ def test_get_face_by_faiss_id(sqlite_db):
     assert sqlite_db.get_face_by_faiss_id(9999) is None
 
 
+def test_set_face_name_and_list_faces(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=98.0,
+        first_seen=1000.0,
+    )
+
+    assert sqlite_db.set_face_name(face_id, "Ada") is True
+
+    face = sqlite_db.get_face(face_id)
+    assert face is not None
+    assert face["display_name"] == "Ada"
+
+    rows, total = sqlite_db.list_faces(limit=10, offset=0)
+    assert total == 1
+    assert rows[0]["id"] == face_id
+    assert rows[0]["display_name"] == "Ada"
+
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+
+    sightings = sqlite_db.list_face_sightings(face_id=face_id, limit=4)
+    assert [row["image_path"] for row in sightings] == ["/tmp/face_2.jpg", "/tmp/face_1.jpg"]
+    assert sqlite_db.get_face_sighting_by_index(face_id, 1)["image_path"] == "/tmp/face_1.jpg"
+
+
+def test_existing_faces_are_backfilled_into_face_sightings(tmp_path):
+    db_path = tmp_path / "test.db"
+    db = CleoSQLite(db_path=str(db_path))
+    face_id = db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=98.0,
+        first_seen=1000.0,
+    )
+    db.close()
+
+    migrated = CleoSQLite(db_path=str(db_path))
+    sightings = migrated.list_face_sightings(face_id=face_id, limit=4)
+    assert len(sightings) == 1
+    assert sightings[0]["image_path"] == "/tmp/face.jpg"
+    migrated.close()
+
+
 # ── Face RPC tests ──
 
 
@@ -570,6 +613,12 @@ def test_store_face_embedding_dedup_rpc(data_servicer, tmp_path):
         assert resp2.is_new is False
         assert resp2.matched_face_id == resp1.face_id
 
+        face = data_servicer._sqlite.get_face(resp1.face_id)
+        sightings = data_servicer._sqlite.list_face_sightings(resp1.face_id, limit=4)
+        assert face is not None
+        assert face["seen_count"] == 2
+        assert len(sightings) == 2
+
 
 def test_search_faces_rpc(data_servicer, tmp_path):
     from generated import data_pb2
@@ -596,3 +645,95 @@ def test_search_faces_rpc(data_servicer, tmp_path):
         assert len(resp.results) >= 1
         assert resp.results[0].face_id >= 1
         assert resp.results[0].seen_count >= 1
+
+
+def test_list_faces_rpc(data_servicer):
+    from generated import data_pb2
+
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    store_resp = data_servicer.StoreFaceEmbedding(
+        data_pb2.StoreFaceEmbeddingRequest(
+            image_data=fake_face,
+            timestamp=1000.0,
+            confidence=99.0,
+        ),
+        _mock_context(),
+    )
+
+    name_resp = data_servicer.SetFaceName(
+        data_pb2.SetFaceNameRequest(face_id=store_resp.face_id, name="Grace"),
+        _mock_context(),
+    )
+    assert name_resp.updated is True
+    assert name_resp.name == "Grace"
+
+    resp = data_servicer.ListFaces(
+        data_pb2.ListFacesRequest(limit=10, offset=0),
+        _mock_context(),
+    )
+    assert resp.total_count == 1
+    assert resp.entries[0].face_id == store_resp.face_id
+    assert resp.entries[0].name == "Grace"
+    assert resp.entries[0].seen_count >= 1
+    assert resp.entries[0].collage_image_count == 1
+
+
+def test_get_face_image_rpc(data_servicer):
+    from generated import data_pb2
+
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    store_resp = data_servicer.StoreFaceEmbedding(
+        data_pb2.StoreFaceEmbeddingRequest(
+            image_data=fake_face,
+            timestamp=1000.0,
+            confidence=99.0,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.GetFaceImage(
+        data_pb2.GetFaceImageRequest(face_id=store_resp.face_id),
+        _mock_context(),
+    )
+    assert resp.image_data == fake_face
+    assert resp.content_type == "image/jpeg"
+
+
+def test_get_face_sighting_image_rpc(data_servicer):
+    from generated import data_pb2
+
+    with patch(
+        "services.data.service.embed_image",
+        return_value=np.ones(1024, dtype=np.float32) / np.sqrt(1024),
+    ):
+        first_face = b"\xff\xd8\xff\xe0" + b"\x01" * 100
+        second_face = b"\xff\xd8\xff\xe0" + b"\x02" * 100
+
+        store_resp = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=first_face,
+                timestamp=1000.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+        data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=second_face,
+                timestamp=2000.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+
+    latest = data_servicer.GetFaceImage(
+        data_pb2.GetFaceImageRequest(face_id=store_resp.face_id, sighting_index=0),
+        _mock_context(),
+    )
+    older = data_servicer.GetFaceImage(
+        data_pb2.GetFaceImageRequest(face_id=store_resp.face_id, sighting_index=1),
+        _mock_context(),
+    )
+
+    assert latest.image_data == second_face
+    assert older.image_data == first_face
