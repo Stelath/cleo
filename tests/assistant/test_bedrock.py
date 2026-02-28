@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from assistant.bedrock import BedrockClient, TextResult, ToolUseResult
+from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 
 
 @pytest.fixture

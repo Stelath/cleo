@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from data.vector.faiss_db import FaissDB
+from services.data.vector.faiss_db import FaissDB
 
 
 def test_add_and_size(faiss_db, random_embedding):

@@ -41,7 +41,7 @@ def sensor_server():
 
     Yields (server, port) and shuts down on teardown.
     """
-    from apps.sensor_service import SensorServiceServicer
+    from services.sensor_service import SensorServiceServicer
 
     servicer = SensorServiceServicer()
     server = grpc.server(

@@ -10,7 +10,7 @@ import json
 import boto3
 import numpy as np
 
-from core.config import BEDROCK_MODEL_ID, BEDROCK_REGION, EMBEDDING_DIMENSION
+from services.config import BEDROCK_MODEL_ID, BEDROCK_REGION, EMBEDDING_DIMENSION
 
 _MODEL_ID = BEDROCK_MODEL_ID
 _REGION = BEDROCK_REGION

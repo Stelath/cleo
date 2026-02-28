@@ -66,10 +66,10 @@ bash install.sh
 
 ```bash
 source .venv/bin/activate
-python -m core.main
+uv run python -m services.main
 ```
 
-This starts the sensor service, transcription service, frame processor, and audio-transcription bridge.
+This starts all persistent services (sensor, transcription, data, assistant, and tool services).
 
 ## Running tests
 
@@ -97,17 +97,13 @@ pytest tests/transcription/
 
 ```
 cleo/
-├── core/                  # Orchestrator and frame processing
-│   ├── main.py            #   Entry point — starts all services and threads
-│   └── frame_processor.py #   Streams camera frames, embeds, stores in FAISS
-├── services/              # gRPC service implementations
-│   └── sensor_service.py  #   Camera + audio hardware (VITURE Luma Ultra)
-├── transcription/         # ASR / speech-to-text
-│   └── parakeet.py        #   NVIDIA Parakeet via NeMo gRPC service
-├── data/
-│   └── vector/
-│       ├── faiss_db.py    #   Thread-safe FAISS wrapper (cosine similarity)
-│       └── embedding.py   #   Embedding utilities (placeholder)
+├── services/              # Runtime + service implementations
+│   ├── main.py            #   Entry point — starts persistent services
+│   ├── sensor_service.py  #   Camera + audio media hub over gRPC
+│   ├── transcription/     #   NVIDIA Parakeet ASR service
+│   ├── assistant/         #   Assistant service + tool routing
+│   └── data/              #   Data service (SQLite + FAISS + video store)
+├── apps/                  # Tool app services invoked by assistant
 ├── generated/             # Auto-generated gRPC stubs (do not edit)
 ├── protos/                # Protobuf definitions
 │   ├── sensor.proto

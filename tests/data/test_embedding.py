@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-import data.embedding as emb
+import services.data.embedding as emb
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def _make_mock_response(dimension=1024):
     return {"body": body}
 
 
-@patch("data.embedding.boto3")
+@patch("services.data.embedding.boto3")
 def test_embed_text(mock_boto3):
     mock_client = MagicMock()
     mock_boto3.client.return_value = mock_client
@@ -46,7 +46,7 @@ def test_embed_text(mock_boto3):
     assert body["singleEmbeddingParams"]["embeddingDimension"] == 1024
 
 
-@patch("data.embedding.boto3")
+@patch("services.data.embedding.boto3")
 def test_embed_image(mock_boto3):
     mock_client = MagicMock()
     mock_boto3.client.return_value = mock_client
@@ -62,7 +62,7 @@ def test_embed_image(mock_boto3):
     assert "image" in body["singleEmbeddingParams"]
 
 
-@patch("data.embedding.boto3")
+@patch("services.data.embedding.boto3")
 def test_embed_video(mock_boto3):
     mock_client = MagicMock()
     mock_boto3.client.return_value = mock_client
@@ -79,7 +79,7 @@ def test_embed_video(mock_boto3):
     assert body["singleEmbeddingParams"]["video"]["format"] == "mp4"
 
 
-@patch("data.embedding.boto3")
+@patch("services.data.embedding.boto3")
 def test_custom_dimension(mock_boto3):
     mock_client = MagicMock()
     mock_boto3.client.return_value = mock_client
@@ -92,7 +92,7 @@ def test_custom_dimension(mock_boto3):
     assert body["singleEmbeddingParams"]["embeddingDimension"] == 512
 
 
-@patch("data.embedding.boto3")
+@patch("services.data.embedding.boto3")
 def test_client_reused(mock_boto3):
     mock_client = MagicMock()
     mock_boto3.client.return_value = mock_client

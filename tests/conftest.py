@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from assistant.registry import ToolDefinition, ToolRegistry
+from services.assistant.registry import ToolDefinition, ToolRegistry
 
 
 def pytest_addoption(parser):
@@ -53,7 +53,7 @@ def faiss_db(tmp_path):
     """Create a FaissDB instance backed by a temp directory."""
     faiss = pytest.importorskip("faiss")
     del faiss
-    from data.vector.faiss_db import FaissDB
+    from services.data.vector.faiss_db import FaissDB
 
     index_path = str(tmp_path / "test.index")
     return FaissDB(dimension=128, index_path=index_path)

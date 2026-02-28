@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from data.sql.db import CleoSQLite
+from services.data.sql.db import CleoSQLite
 
 
 # ── SQLite tests ──
@@ -84,9 +84,9 @@ def test_get_nonexistent_clip(sqlite_db):
 @pytest.fixture
 def data_servicer(tmp_path):
     """Create a DataServiceServicer with temp paths and mocked embeddings."""
-    with patch("data.service.embed_video") as mock_embed_video, \
-         patch("data.service.embed_text") as mock_embed_text, \
-         patch("data.service.embed_image") as mock_embed_image:
+    with patch("services.data.service.embed_video") as mock_embed_video, \
+         patch("services.data.service.embed_text") as mock_embed_text, \
+         patch("services.data.service.embed_image") as mock_embed_image:
 
         # All embedding functions return a random normalized 1024-d vector
         def _fake_embed(*args, **kwargs):
@@ -98,7 +98,7 @@ def data_servicer(tmp_path):
         mock_embed_text.side_effect = _fake_embed
         mock_embed_image.side_effect = _fake_embed
 
-        from data.service import DataServiceServicer
+        from services.data.service import DataServiceServicer
 
         servicer = DataServiceServicer(
             db_path=str(tmp_path / "test.db"),
