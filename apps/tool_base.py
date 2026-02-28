@@ -41,7 +41,7 @@ class ToolServiceBase(tool_pb2_grpc.ToolServiceServicer, ABC):
 
     @property
     def tool_type(self) -> str:
-        """App type: 'on_demand' (default) or 'polling'."""
+        """App type: 'on_demand' (default, one-shot) or 'active' (session, start/stop)."""
         return "on_demand"
 
     @abstractmethod

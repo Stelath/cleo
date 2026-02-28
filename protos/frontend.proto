@@ -41,7 +41,7 @@ message StreamRequest {
 message NotificationRequest {
   string title = 1;
   string message = 2;
-  string style = 3;       // "info", "success", "warning", "error"
+  string style = 3;       // "info", "success", "warning", "error", "debug"
   uint32 duration_ms = 4; // 0 = default
 }
 

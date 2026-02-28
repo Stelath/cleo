@@ -8,11 +8,7 @@ interface HudVideoProps {
   onVideoEnded?: () => void;
 }
 
-interface HudVideoHandle extends HudComponentHandle {
-  recalculateLayout: () => void;
-}
-
-const HudVideo = forwardRef<HudVideoHandle, HudVideoProps>(({ onVideoEnded }, ref) => {
+const HudVideo = forwardRef<HudComponentHandle, HudVideoProps>(({ onVideoEnded }, ref) => {
   const [visible, setVisible] = useState(false);
   const [videoPosition, setVideoPosition] = useState('center');
   const [videoWidth, setVideoWidth] = useState('1280px');
@@ -89,7 +85,6 @@ const HudVideo = forwardRef<HudVideoHandle, HudVideoProps>(({ onVideoEnded }, re
   }, [recalculateLayout]);
 
   useImperativeHandle(ref, () => ({
-    recalculateLayout,
     async handle(action: string, params: Record<string, any>) {
       if (action === 'play') {
         const src = String(params.src ?? '').trim();

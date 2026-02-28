@@ -4,115 +4,107 @@
 
 | Dependency | Version | Notes |
 |---|---|---|
-| Python | 3.10+ | Required by all packages |
-| Rust / Cargo | latest stable | Needed to build `viture-sensors` via maturin |
-| Homebrew | latest (macOS) | Used to install `portaudio` |
+| Python | 3.10-3.12 | Backend/runtime and tests |
+| Rust / Cargo | latest stable | `viture-sensors` + Tauri Rust side |
+| Node.js | LTS | Frontend toolchain |
+| pnpm | latest | Frontend package manager |
+| Bazel / Bazelisk | latest | Unified build/run/test entrypoint |
 
-## 1. Install `uv`
+## Recommended: Bazel bootstrap (one command)
 
-[uv](https://github.com/astral-sh/uv) is used for Python dependency management.
+From repository root:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+bash scripts/bootstrap_bazel.sh
 ```
 
-## 2. Clone and set up the environment
+This script:
+
+1. Installs Bazel (via Bazelisk) if missing
+2. Runs `bazel run //:setup`
+3. Triggers full project setup through Bazel setup scripts (`uv`, `pnpm`, Rust, stubs, `viture-sensors`)
+
+## Bazel command quick reference
+
+Use these as the main developer entrypoints:
 
 ```bash
-git clone <repo-url> cleo && cd cleo
-uv venv .venv
-source .venv/bin/activate
-uv sync
+# setup / install everything
+bazel run //:setup
+
+# backend
+bazel run //:backend_build
+bazel run //:backend_run
+bazel run //:backend_test
+
+# frontend
+bazel run //:frontend_install
+bazel run //:frontend_build
+bazel run //:frontend_test
+bazel run //:frontend_run
+
+# full stack
+bazel run //:run_full_app
 ```
 
-## 3. Install portaudio (macOS)
-
-PyAudio requires the `portaudio` system library:
+Optional web-only frontend mode:
 
 ```bash
-brew install portaudio
+bazel run //:frontend_run -- --web
+bazel run //:run_full_app -- --web
 ```
 
-## 4. Build viture-sensors
+## Non-Bazel equivalents
 
-The `viture-sensors` package is a Rust/PyO3 extension built with [maturin](https://www.maturin.rs/):
-
-```bash
-uv pip install maturin
-cd packages/viture-luma-interop-layer/viture-sensors
-maturin develop --release
-cd ../../..
-```
-
-## 5. Generate gRPC stubs
-
-The proto definitions live in `protos/`. Generate the Python stubs into `generated/`:
+If you need to run commands directly:
 
 ```bash
-bash protos/generate.sh
-```
-
-> **Note:** gRPC stubs must be generated before running the platform or tests.
-
-## Quick setup (one command)
-
-`install.sh` automates steps 1-5:
-
-```bash
-bash install.sh
-```
-
-## Running the platform
-
-```bash
-source .venv/bin/activate
+# backend
 uv run python -m services.main
+uv run pytest -v
+
+# frontend
+pnpm --dir frontend/viture-luma-display run tauri dev
+pnpm --dir frontend/viture-luma-display run build
+pnpm --dir frontend/viture-luma-display run test
 ```
 
-This starts all persistent services (sensor, transcription, data, assistant, and tool services).
+## Hardware and integration test switches
 
-## Running tests
-
-Install test dependencies and run the suite:
+Hardware integration tests are opt-in:
 
 ```bash
-uv sync --extra test
-pytest
+VITURE_HARDWARE=1 uv run pytest tests/integration/ -v
 ```
 
-Verbose output:
+Bedrock video tests are opt-in:
 
 ```bash
-pytest -v
+BEDROCK_TESTS=1 uv run pytest tests/video/ -v
 ```
 
-Run a subset by directory:
+Transcription E2E tests are opt-in:
 
 ```bash
-pytest tests/data/
-pytest tests/transcription/
+RUN_TRANSCRIPTION_E2E=1 uv run pytest tests/transcription/ -v
 ```
 
 ## Project structure
 
-```
+```text
 cleo/
-├── services/              # Runtime + service implementations
-│   ├── main.py            #   Entry point — starts persistent services
-│   ├── sensor_service.py  #   Camera + audio media hub over gRPC
-│   ├── transcription/     #   Transcription service using Amazon Transcribe
-│   ├── assistant/         #   Assistant service + tool routing
-│   └── data/              #   Data service (SQLite + FAISS + video store)
-├── apps/                  # Tool app services invoked by assistant
-├── generated/             # Auto-generated gRPC stubs (do not edit)
-├── protos/                # Protobuf definitions
-│   ├── sensor.proto
-│   ├── transcription.proto
-│   └── generate.sh
+├── services/               # Runtime + service implementations
+├── apps/                   # Tool app services invoked by assistant
+├── frontend/
+│   └── viture-luma-display # Tauri + React frontend
 ├── packages/
 │   └── viture-luma-interop-layer/
 │       └── viture-sensors/ # Rust/PyO3 hardware driver
-├── tests/                 # pytest test suite
-├── pyproject.toml
-└── install.sh             # One-command setup script
+├── generated/              # Auto-generated gRPC stubs (do not edit)
+├── protos/                 # Protobuf definitions
+├── tests/                  # pytest test suite
+├── BUILD.bazel             # Bazel targets
+├── MODULE.bazel            # Bazel module configuration
+├── scripts/bootstrap_bazel.sh
+└── tools/bazel/            # Bazel orchestration scripts
 ```

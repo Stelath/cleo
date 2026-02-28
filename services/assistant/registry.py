@@ -97,7 +97,7 @@ class ToolRegistry:
         return self._cache
 
     def _fetch_from_data_service(self) -> dict[str, ToolDefinition] | None:
-        """Query DataService.ListApps for enabled on_demand tools."""
+        """Query DataService.ListApps for all enabled tools."""
         if self._data_address is None:
             return {}
 
@@ -107,7 +107,7 @@ class ToolRegistry:
             channel = grpc.insecure_channel(self._data_address)
             stub = data_pb2_grpc.DataServiceStub(channel)
             resp = stub.ListApps(
-                data_pb2.ListAppsRequest(enabled_only=True, app_type="on_demand"),
+                data_pb2.ListAppsRequest(enabled_only=True),
                 timeout=5,
             )
             channel.close()

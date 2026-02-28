@@ -103,7 +103,7 @@ class TestBedrockClient:
                         {
                             "toolUse": {
                                 "toolUseId": "tu_mixed",
-                                "name": "navigation_assist",
+                                "name": "navigator",
                                 "input": {"query": "coffee shop"},
                             }
                         },
@@ -116,7 +116,7 @@ class TestBedrockClient:
         result = client.converse("find coffee", tool_config={"tools": []})
 
         assert isinstance(result, ToolUseResult)
-        assert result.tool_name == "navigation_assist"
+        assert result.tool_name == "navigator"
 
     def test_tool_use_missing_input_defaults_to_empty(self, mock_boto3_client):
         """toolUse block without 'input' key returns empty dict for parameters."""
@@ -129,7 +129,7 @@ class TestBedrockClient:
                         {
                             "toolUse": {
                                 "toolUseId": "tu_noinput",
-                                "name": "object_recognition",
+                                "name": "color_blindness_assist",
                             }
                         }
                     ],

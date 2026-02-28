@@ -105,6 +105,10 @@ class NotetakingServicer(ToolServiceBase):
     """Tracks a notetaking session and stores a generated summary on stop."""
 
     @property
+    def tool_type(self) -> str:
+        return "active"
+
+    @property
     def tool_name(self) -> str:
         return "notetaking"
 

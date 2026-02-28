@@ -7,9 +7,7 @@ import pytest
 
 from generated import tool_pb2
 from apps.color_blind import ColorBlindnessServicer
-from apps.navigation_assist import NavigationAssistServicer
 from apps.notetaking import NotetakingServicer
-from apps.object_recognition import ObjectRecognitionServicer
 from apps.tool_base import ToolServiceBase
 
 class DummyTool(ToolServiceBase):
@@ -102,42 +100,12 @@ class TestToolServiceBase:
         mock_grpc_context.set_code.assert_called_with(grpc.StatusCode.INVALID_ARGUMENT)
 
 
-class TestObjectRecognitionServicer:
-    def test_execute_returns_success(self, mock_grpc_context):
-        servicer = ObjectRecognitionServicer()
-        request = tool_pb2.ToolRequest(
-            tool_name="object_recognition",
-            parameters_json=json.dumps({"query": "what is this?"}),
-        )
-        response = servicer.Execute(request, mock_grpc_context)
-        assert response.success
-        assert "what is this?" in response.result_text
-
-    def test_tool_name(self):
-        assert ObjectRecognitionServicer().tool_name == "object_recognition"
-
-
-class TestNavigationAssistServicer:
-    def test_execute_returns_success(self, mock_grpc_context):
-        servicer = NavigationAssistServicer()
-        request = tool_pb2.ToolRequest(
-            tool_name="navigation_assist",
-            parameters_json=json.dumps({"query": "find nearest coffee shop"}),
-        )
-        response = servicer.Execute(request, mock_grpc_context)
-        assert response.success
-        assert "find nearest coffee shop" in response.result_text
-
-    def test_tool_name(self):
-        assert NavigationAssistServicer().tool_name == "navigation_assist"
-
-
 class TestToolServiceProperties:
     """Verify tool_description, tool_input_schema, and tool_type on all servicers."""
 
     @pytest.mark.parametrize(
         "servicer_cls",
-        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+        [ColorBlindnessServicer],
     )
     def test_tool_description_is_nonempty(self, servicer_cls):
         servicer = servicer_cls()
@@ -146,7 +114,7 @@ class TestToolServiceProperties:
 
     @pytest.mark.parametrize(
         "servicer_cls",
-        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+        [ColorBlindnessServicer],
     )
     def test_tool_input_schema_has_type(self, servicer_cls):
         servicer = servicer_cls()
@@ -157,7 +125,7 @@ class TestToolServiceProperties:
 
     @pytest.mark.parametrize(
         "servicer_cls",
-        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+        [ColorBlindnessServicer],
     )
     def test_tool_type_defaults_to_on_demand(self, servicer_cls):
         servicer = servicer_cls()

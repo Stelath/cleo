@@ -87,7 +87,7 @@ class FaissDB:
         with self._lock:
             faiss.write_index(self._index, str(save_path))
             meta_path = save_path.with_suffix(".meta.json")
-            meta_path.write_text(json.dumps(self._metadata))
+            self._write_metadata(meta_path, self._metadata)
 
     def load(self, path: str):
         """Load a FAISS index and metadata sidecar from disk."""
@@ -96,8 +96,46 @@ class FaissDB:
 
         with self._lock:
             self._index = faiss.read_index(str(load_path))
-            if meta_path.exists():
-                self._metadata = json.loads(meta_path.read_text())
-            else:
-                self._metadata = [{} for _ in range(self._index.ntotal)]
+            default_metadata = [{} for _ in range(self._index.ntotal)]
+            self._metadata = self._load_metadata(meta_path, default_metadata)
             self._index_path = load_path
+
+    def _load_metadata(self, meta_path: Path, default_metadata: list[dict]) -> list[dict]:
+        if not meta_path.exists():
+            return default_metadata
+
+        try:
+            raw = meta_path.read_text(encoding="utf-8")
+            if not raw.strip():
+                raise ValueError("Metadata sidecar is empty")
+
+            payload = json.loads(raw)
+            if not isinstance(payload, list):
+                raise ValueError("Metadata sidecar must be a JSON array")
+            if len(payload) != len(default_metadata):
+                raise ValueError(
+                    "Metadata length does not match FAISS index size "
+                    f"({len(payload)} != {len(default_metadata)})"
+                )
+
+            normalized: list[dict] = []
+            for entry in payload:
+                if isinstance(entry, dict):
+                    normalized.append(entry)
+                elif entry is None:
+                    normalized.append({})
+                else:
+                    raise ValueError("Metadata entries must be objects")
+            return normalized
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            try:
+                self._write_metadata(meta_path, default_metadata)
+            except OSError:
+                pass
+            return default_metadata
+
+    @staticmethod
+    def _write_metadata(meta_path: Path, metadata: list[dict]) -> None:
+        temp_path = meta_path.with_suffix(f"{meta_path.suffix}.tmp")
+        temp_path.write_text(json.dumps(metadata), encoding="utf-8")
+        temp_path.replace(meta_path)

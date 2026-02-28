@@ -9,8 +9,9 @@ import structlog
 
 from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 from services.assistant.registry import ToolRegistry
-from services.config import ASSISTANT_PORT, DATA_ADDRESS
+from services.config import ASSISTANT_PORT, DATA_ADDRESS, FRONTEND_ADDRESS
 from generated import assistant_pb2, assistant_pb2_grpc
+from generated import frontend_pb2, frontend_pb2_grpc
 from generated import tool_pb2, tool_pb2_grpc
 
 log = structlog.get_logger()
@@ -26,6 +27,28 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
     ):
         self._registry = registry or ToolRegistry()
         self._bedrock = bedrock_client or BedrockClient()
+
+    def _show_tool_debug_notification(self, tool_name: str) -> None:
+        """Best-effort HUD notification so the user can see which tool was invoked."""
+        channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+        try:
+            stub = frontend_pb2_grpc.FrontendServiceStub(channel)
+            stub.ShowNotification(
+                frontend_pb2.NotificationRequest(
+                    title="Tool called",
+                    message=tool_name,
+                    style="debug",
+                    duration_ms=2000,
+                )
+            )
+        except grpc.RpcError as e:
+            log.warning(
+                "assistant.frontend_notification_error",
+                tool=tool_name,
+                error=str(e),
+            )
+        finally:
+            channel.close()
 
     def ProcessCommand(self, request, context):
         text = request.text.strip()
@@ -74,6 +97,7 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             tool=result.tool_name,
             address=tool_def.grpc_address,
         )
+        self._show_tool_debug_notification(result.tool_name)
 
         channel = grpc.insecure_channel(tool_def.grpc_address)
         try:

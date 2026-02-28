@@ -1,0 +1,80 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "bazel_script_lib",
+    srcs = ["tools/bazel/common.sh"],
+)
+
+alias(
+    name = "install",
+    actual = ":setup",
+)
+
+sh_binary(
+    name = "bootstrap_bazel",
+    srcs = ["scripts/bootstrap_bazel.sh"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "setup",
+    srcs = ["tools/bazel/setup.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "backend_build",
+    srcs = ["tools/bazel/backend_build.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "backend_run",
+    srcs = ["tools/bazel/backend_run.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "backend_test",
+    srcs = ["tools/bazel/backend_test.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "frontend_install",
+    srcs = ["tools/bazel/frontend_install.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "frontend_build",
+    srcs = ["tools/bazel/frontend_build.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "frontend_test",
+    srcs = ["tools/bazel/frontend_test.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "frontend_run",
+    srcs = ["tools/bazel/frontend_run.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
+    name = "run_full_app",
+    srcs = ["tools/bazel/run_full_app.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
