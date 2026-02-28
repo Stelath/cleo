@@ -581,6 +581,40 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         log.info("data_service.face_search", num_results=len(results))
         return data_pb2.SearchFacesResponse(results=results)
 
+    # ── Saved Clips (bookmarks) ──
+
+    def StoreSavedClip(self, request, context):
+        row_id = self._sqlite.insert_saved_clip(
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+            label=request.label or "",
+        )
+        log.info(
+            "data_service.saved_clip_stored",
+            id=row_id,
+            start_timestamp=request.start_timestamp,
+            end_timestamp=request.end_timestamp,
+        )
+        return data_pb2.StoreSavedClipResponse(id=row_id)
+
+    def GetSavedClips(self, request, context):
+        limit = request.limit if request.limit > 0 else 50
+        offset = request.offset if request.offset > 0 else 0
+        rows, total = self._sqlite.query_saved_clips(limit=limit, offset=offset)
+        return data_pb2.GetSavedClipsResponse(
+            entries=[
+                data_pb2.SavedClipEntry(
+                    id=r["id"],
+                    label=r["label"],
+                    start_timestamp=r["start_timestamp"],
+                    end_timestamp=r["end_timestamp"],
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ],
+            total_count=total,
+        )
+
 
 def serve(port: int = DATA_PORT):
     """Start the DataService gRPC server."""

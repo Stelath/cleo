@@ -119,6 +119,16 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SearchFacesRequest.SerializeToString,
                 response_deserializer=data__pb2.SearchFacesResponse.FromString,
                 _registered_method=True)
+        self.StoreSavedClip = channel.unary_unary(
+                '/cleo.data.DataService/StoreSavedClip',
+                request_serializer=data__pb2.StoreSavedClipRequest.SerializeToString,
+                response_deserializer=data__pb2.StoreSavedClipResponse.FromString,
+                _registered_method=True)
+        self.GetSavedClips = channel.unary_unary(
+                '/cleo.data.DataService/GetSavedClips',
+                request_serializer=data__pb2.GetSavedClipsRequest.SerializeToString,
+                response_deserializer=data__pb2.GetSavedClipsResponse.FromString,
+                _registered_method=True)
 
 
 class DataServiceServicer(object):
@@ -243,6 +253,20 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StoreSavedClip(self, request, context):
+        """Store a user-initiated saved clip bookmark
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSavedClips(self, request, context):
+        """Get paginated saved clip bookmarks
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -330,6 +354,16 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SearchFaces,
                     request_deserializer=data__pb2.SearchFacesRequest.FromString,
                     response_serializer=data__pb2.SearchFacesResponse.SerializeToString,
+            ),
+            'StoreSavedClip': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreSavedClip,
+                    request_deserializer=data__pb2.StoreSavedClipRequest.FromString,
+                    response_serializer=data__pb2.StoreSavedClipResponse.SerializeToString,
+            ),
+            'GetSavedClips': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSavedClips,
+                    request_deserializer=data__pb2.GetSavedClipsRequest.FromString,
+                    response_serializer=data__pb2.GetSavedClipsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -791,6 +825,60 @@ class DataService(object):
             '/cleo.data.DataService/SearchFaces',
             data__pb2.SearchFacesRequest.SerializeToString,
             data__pb2.SearchFacesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreSavedClip(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/StoreSavedClip',
+            data__pb2.StoreSavedClipRequest.SerializeToString,
+            data__pb2.StoreSavedClipResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSavedClips(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetSavedClips',
+            data__pb2.GetSavedClipsRequest.SerializeToString,
+            data__pb2.GetSavedClipsResponse.FromString,
             options,
             channel_credentials,
             insecure,

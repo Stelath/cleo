@@ -96,6 +96,14 @@ class CleoSQLite:
                 seen_count INTEGER NOT NULL DEFAULT 1,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS saved_clips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL DEFAULT '',
+                start_timestamp REAL NOT NULL,
+                end_timestamp REAL NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -386,6 +394,36 @@ class CleoSQLite:
             (key, value, time.time()),
         )
         self._conn.commit()
+
+    # ── Saved Clips (bookmarks) ──
+
+    def insert_saved_clip(
+        self,
+        start_timestamp: float,
+        end_timestamp: float,
+        label: str = "",
+    ) -> int:
+        """Insert a saved clip bookmark. Returns the new row ID."""
+        cur = self._conn.execute(
+            "INSERT INTO saved_clips (label, start_timestamp, end_timestamp, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (label, start_timestamp, end_timestamp, time.time()),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def query_saved_clips(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Return paginated saved clip bookmarks and total count."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM saved_clips"
+        ).fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM saved_clips ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
 
     # ── Faces ──
 

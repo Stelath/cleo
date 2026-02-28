@@ -53,6 +53,12 @@ service DataService {
 
   // Search faces by image similarity
   rpc SearchFaces(SearchFacesRequest) returns (SearchFacesResponse);
+
+  // Store a user-initiated saved clip bookmark
+  rpc StoreSavedClip(StoreSavedClipRequest) returns (StoreSavedClipResponse);
+
+  // Get paginated saved clip bookmarks
+  rpc GetSavedClips(GetSavedClipsRequest) returns (GetSavedClipsResponse);
 }
 
 // ── Store Transcription ──
@@ -341,4 +347,34 @@ message FaceSearchResult {
 
 message SearchFacesResponse {
   repeated FaceSearchResult results = 1;
+}
+
+// ── Saved Clips (bookmarks) ──
+
+message StoreSavedClipRequest {
+  string label = 1;
+  double start_timestamp = 2;
+  double end_timestamp = 3;
+}
+
+message StoreSavedClipResponse {
+  int64 id = 1;
+}
+
+message GetSavedClipsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message SavedClipEntry {
+  int64 id = 1;
+  string label = 2;
+  double start_timestamp = 3;
+  double end_timestamp = 4;
+  double created_at = 5;
+}
+
+message GetSavedClipsResponse {
+  repeated SavedClipEntry entries = 1;
+  int32 total_count = 2;
 }
