@@ -1,0 +1,9 @@
+# VITURE XR Glasses udev access rules (Linux)
+#
+# Replace the placeholder values with actual VID/PID pairs for your model.
+# You can find IDs with: lsusb
+#
+# Example:
+# SUBSYSTEM=="usb", ATTR{idVendor}=="345f", ATTR{idProduct}=="xxxx", MODE="0666", GROUP="plugdev"
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="XXXX", ATTR{idProduct}=="YYYY", MODE="0666", GROUP="plugdev"

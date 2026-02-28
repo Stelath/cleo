@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package cleo.transcription;
+
+service TranscriptionService {
+  // Bidirectional streaming: send audio chunks, receive transcription results
+  rpc TranscribeStream(stream AudioInput) returns (stream TranscriptionResult);
+
+  // Unary: transcribe a complete audio buffer
+  rpc Transcribe(AudioInput) returns (TranscriptionResult);
+}
+
+message AudioInput {
+  // Raw PCM float32 audio data (little-endian, mono)
+  bytes audio_data = 1;
+
+  // Sample rate in Hz (default: 48000)
+  int32 sample_rate = 2;
+
+  // Signal that this is the final chunk in a stream
+  bool is_final = 3;
+}
+
+message TranscriptionResult {
+  // Transcribed text
+  string text = 1;
+
+  // Confidence score [0.0, 1.0]
+  float confidence = 2;
+
+  // Start time in seconds relative to stream start
+  double start_time = 3;
+
+  // End time in seconds relative to stream start
+  double end_time = 4;
+
+  // Whether this is a partial (interim) or final result
+  bool is_partial = 5;
+}

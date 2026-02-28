@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "viture-sensors"
+version = "0.1.0"
+description = "Python bindings for VITURE XR glasses sensors"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24", "opencv-python>=4.8", "PyAudio>=0.2.13"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "viture_sensors._native"
+python-source = "python"
+include = [
+  { path = "viture-sdk/aarch64/libglasses.dylib", format = "wheel" },
+  { path = "viture-sdk/aarch64/libcarina_vio.dylib", format = "wheel" },
+  { path = "viture-sdk/include/*.h", format = "sdist" },
+  { path = "python/viture_sensors/_stubs.pyi", format = "wheel" },
+  { path = "python/viture_sensors/py.typed", format = "wheel" }
+]

@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package cleo.sensor;
+
+service SensorService {
+  // Server-side streaming: continuous camera frames at requested FPS
+  rpc StreamCamera(StreamRequest) returns (stream CameraFrame);
+
+  // Server-side streaming: continuous audio chunks
+  rpc StreamAudio(StreamRequest) returns (stream AudioChunk);
+
+  // Server-side streaming: continuous IMU readings
+  rpc StreamIMU(StreamRequest) returns (stream IMUData);
+
+  // Unary: capture a single frame
+  rpc CaptureFrame(CaptureRequest) returns (CameraFrame);
+
+  // Unary: record a fixed-duration audio clip
+  rpc RecordAudio(RecordRequest) returns (AudioChunk);
+}
+
+message StreamRequest {
+  // Target frames per second for camera streaming (default: 2)
+  float fps = 1;
+
+  // Audio chunk duration in milliseconds (default: 500)
+  int32 chunk_ms = 2;
+
+  // Audio sample rate in Hz (default: 16000)
+  int32 sample_rate = 3;
+}
+
+message CaptureRequest {}
+
+message RecordRequest {
+  // Duration in milliseconds
+  int32 duration_ms = 1;
+
+  // Sample rate in Hz (default: 16000)
+  int32 sample_rate = 2;
+}
+
+message CameraFrame {
+  // Raw RGB pixel data (height * width * 3 bytes)
+  bytes data = 1;
+
+  // Frame dimensions
+  int32 width = 2;
+  int32 height = 3;
+
+  // Capture timestamp (Unix epoch seconds, float)
+  double timestamp = 4;
+}
+
+message AudioChunk {
+  // Raw PCM float32 audio data (little-endian)
+  bytes data = 1;
+
+  // Sample rate in Hz
+  int32 sample_rate = 2;
+
+  // Number of samples in this chunk
+  int32 num_samples = 3;
+
+  // Chunk timestamp (Unix epoch seconds, float)
+  double timestamp = 4;
+}
+
+message IMUData {
+  // Acceleration [x, y, z]
+  repeated float accel = 1;
+
+  // Angular velocity [x, y, z]
+  repeated float gyro = 2;
+
+  // Orientation quaternion [w, x, y, z]
+  repeated float quaternion = 3;
+
+  // Timestamp in nanoseconds
+  uint64 timestamp_ns = 4;
+}
