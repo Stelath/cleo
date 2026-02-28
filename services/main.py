@@ -25,6 +25,8 @@ from services.config import (
     NAVIGATOR_PORT,
     NOTETAKING_ADDRESS,
     NOTETAKING_PORT,
+    SAVE_VIDEO_ADDRESS,
+    SAVE_VIDEO_PORT,
     SENSOR_ADDRESS,
     SENSOR_PORT,
     TRANSCRIPTION_ADDRESS,
@@ -101,6 +103,10 @@ def _run_face_detection_service() -> None:
     from apps.face_detection import serve
 
     serve(port=FACE_DETECTION_PORT)
+def _run_save_video_service() -> None:
+    from apps.save_video import serve
+
+    serve(port=SAVE_VIDEO_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
@@ -211,6 +217,9 @@ def main() -> None:
 
         _start_process(_run_face_detection_service, "face-detection-tool")
         _wait_for_grpc(FACE_DETECTION_ADDRESS)
+        
+        _start_process(_run_save_video_service, "save-video-tool")
+        _wait_for_grpc(SAVE_VIDEO_ADDRESS)
         _abort_if_shutdown_requested()
 
         log.info("runtime.services_ready")

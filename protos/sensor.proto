@@ -17,6 +17,14 @@ service SensorService {
 
   // Unary: record a fixed-duration audio clip
   rpc RecordAudio(RecordRequest) returns (AudioChunk);
+
+  // Server-side streaming: drain the camera ring buffer (up to max_duration_seconds).
+  rpc GetBufferedFrames(GetBufferedFramesRequest) returns (stream CameraFrameChunk);
+}
+
+message GetBufferedFramesRequest {
+  // Maximum seconds of buffered frames to return (0 = entire buffer).
+  float max_duration_seconds = 1;
 }
 
 message StreamRequest {

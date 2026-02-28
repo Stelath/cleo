@@ -59,6 +59,11 @@ class SensorServiceStub(object):
                 request_serializer=sensor__pb2.RecordRequest.SerializeToString,
                 response_deserializer=sensor__pb2.AudioChunk.FromString,
                 _registered_method=True)
+        self.GetBufferedFrames = channel.unary_stream(
+                '/cleo.sensor.SensorService/GetBufferedFrames',
+                request_serializer=sensor__pb2.GetBufferedFramesRequest.SerializeToString,
+                response_deserializer=sensor__pb2.CameraFrameChunk.FromString,
+                _registered_method=True)
 
 
 class SensorServiceServicer(object):
@@ -99,6 +104,13 @@ class SensorServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetBufferedFrames(self, request, context):
+        """Server-side streaming: drain the camera ring buffer (up to max_duration_seconds).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SensorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -126,6 +138,11 @@ def add_SensorServiceServicer_to_server(servicer, server):
                     servicer.RecordAudio,
                     request_deserializer=sensor__pb2.RecordRequest.FromString,
                     response_serializer=sensor__pb2.AudioChunk.SerializeToString,
+            ),
+            'GetBufferedFrames': grpc.unary_stream_rpc_method_handler(
+                    servicer.GetBufferedFrames,
+                    request_deserializer=sensor__pb2.GetBufferedFramesRequest.FromString,
+                    response_serializer=sensor__pb2.CameraFrameChunk.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -263,6 +280,33 @@ class SensorService(object):
             '/cleo.sensor.SensorService/RecordAudio',
             sensor__pb2.RecordRequest.SerializeToString,
             sensor__pb2.AudioChunk.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBufferedFrames(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/cleo.sensor.SensorService/GetBufferedFrames',
+            sensor__pb2.GetBufferedFramesRequest.SerializeToString,
+            sensor__pb2.CameraFrameChunk.FromString,
             options,
             channel_credentials,
             insecure,
