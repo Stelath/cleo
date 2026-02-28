@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::broadcast;
@@ -25,7 +25,7 @@ impl AppState {
             event_tx,
             config_path: Arc::new(config_path),
             audio_device_id: Arc::new(RwLock::new(initial_audio_device)),
-            audio_cancel: Arc::new(AtomicBool::new(false)),
+            audio_cancel: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -49,11 +49,7 @@ impl AppState {
     }
 
     pub fn cancel_audio(&self) {
-        self.audio_cancel.store(true, Ordering::Relaxed);
-    }
-
-    pub fn reset_audio_cancel(&self) {
-        self.audio_cancel.store(false, Ordering::Relaxed);
+        self.audio_cancel.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn audio_cancel_token(&self) -> CancelToken {

@@ -362,7 +362,6 @@ async fn handle_display_update(
             app.emit_to("hud", "hud:clear", ())?;
         }
         DisplayVariant::PlayAudio(cmd) => {
-            state.reset_audio_cancel();
             let device_id = state.selected_audio_device();
             let cancel = state.audio_cancel_token();
             tokio::spawn(async move {
@@ -375,7 +374,6 @@ async fn handle_display_update(
             });
         }
         DisplayVariant::PlayAudioFile(cmd) => {
-            state.reset_audio_cancel();
             let device_id = state.selected_audio_device();
             let cancel = state.audio_cancel_token();
             tokio::spawn(async move {

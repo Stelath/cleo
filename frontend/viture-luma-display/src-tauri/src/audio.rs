@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use base64::Engine;
@@ -9,7 +9,7 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use crate::audio_devices;
 use crate::errors::{AppError, Result};
 
-pub type CancelToken = Arc<AtomicBool>;
+pub type CancelToken = Arc<AtomicU64>;
 
 pub async fn play_pcm_base64(
     data: &str,
@@ -114,6 +114,7 @@ fn play_samples_blocking(
     selected_device_id: Option<String>,
     cancel: CancelToken,
 ) -> Result<()> {
+    let cancel_generation = cancel.load(Ordering::Relaxed);
     let device = audio_devices::find_output_device(selected_device_id.as_deref())?;
     let default_config = device.default_output_config().map_err(|error| {
         AppError::Audio(format!("failed to get default output config: {error}"))
@@ -144,6 +145,7 @@ fn play_samples_blocking(
             is_done,
             done_signal.clone(),
             cancel.clone(),
+            cancel_generation,
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -154,6 +156,7 @@ fn play_samples_blocking(
             is_done,
             done_signal.clone(),
             cancel.clone(),
+            cancel_generation,
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -164,6 +167,7 @@ fn play_samples_blocking(
             is_done,
             done_signal.clone(),
             cancel.clone(),
+            cancel_generation,
         )?,
         unsupported => {
             return Err(AppError::Audio(format!(
@@ -178,7 +182,7 @@ fn play_samples_blocking(
 
     let (lock, cvar) = &*done_signal;
     let mut completed = lock.lock().expect("done mutex poisoned");
-    while !*completed && !cancel.load(Ordering::Relaxed) {
+    while !*completed && cancel.load(Ordering::Relaxed) == cancel_generation {
         let (guard, _timeout) = cvar
             .wait_timeout(completed, std::time::Duration::from_millis(50))
             .expect("done mutex poisoned");
@@ -198,6 +202,7 @@ fn build_stream<T>(
     is_done: Arc<AtomicBool>,
     done_signal: Arc<(Mutex<bool>, Condvar)>,
     cancel: CancelToken,
+    cancel_generation: u64,
 ) -> Result<cpal::Stream>
 where
     T: Sample + SizedSample + FromSample<f32>,
@@ -210,7 +215,7 @@ where
         .build_output_stream(
             config,
             move |output: &mut [T], _| {
-                if cancel.load(Ordering::Relaxed) {
+                if cancel.load(Ordering::Relaxed) != cancel_generation {
                     for s in output.iter_mut() {
                         *s = T::from_sample(0.0f32);
                     }
