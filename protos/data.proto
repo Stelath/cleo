@@ -44,6 +44,9 @@ message StoreVideoClipRequest {
 
   // Number of frames in the clip
   int32 num_frames = 4;
+
+  // Optional lower-FPS MP4 for embedding. If empty, mp4_data is used.
+  bytes embed_data = 5;
 }
 
 message StoreVideoClipResponse {

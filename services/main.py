@@ -69,6 +69,12 @@ def _run_navigation_assist_service() -> None:
     serve(port=NAVIGATION_ASSIST_PORT)
 
 
+def _run_video_service() -> None:
+    from services.video.service import serve
+
+    serve()
+
+
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
     channel = grpc.insecure_channel(address)
     try:
@@ -105,6 +111,11 @@ def main() -> None:
             target=_run_navigation_assist_service,
             daemon=True,
             name="navigation-assist-tool",
+        ),
+        multiprocessing.Process(
+            target=_run_video_service,
+            daemon=True,
+            name="video-service",
         ),
     ]
 

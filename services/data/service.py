@@ -70,7 +70,8 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
         # 2. Embed video via Nova
         try:
-            embedding = embed_video(request.mp4_data, dimension=self._embedding_dim)
+            embed_source = request.embed_data if request.embed_data else request.mp4_data
+            embedding = embed_video(embed_source, dimension=self._embedding_dim)
         except Exception as e:
             log.error("data_service.embed_error", error=str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
