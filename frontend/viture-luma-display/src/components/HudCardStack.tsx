@@ -8,8 +8,8 @@ import {
   removeCard,
   type CardPosition,
   type HudCard,
-} from '../../lib/hud/cards';
-import type { HudComponentHandle } from '../../lib/hud/types';
+} from '../lib/hud/cards';
+import type { HudComponentHandle } from '../lib/hud/types';
 
 const HudCardStack = forwardRef<HudComponentHandle>((_props, ref) => {
   const [cards, setCards] = useState<HudCard[]>([]);

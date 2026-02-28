@@ -1,13 +1,36 @@
-/* ── CSS Variables (glassmorphic theme) ── */
+/* ── CSS Variables (flat white-card theme) ── */
 html, body {
   --hud-surface: #000000;
-  --hud-text-primary: rgba(255, 255, 255, 0.95);
-  --hud-text-secondary: rgba(255, 255, 255, 0.62);
-  --hud-accent: rgba(255, 255, 255, 0.85);
-  --hud-glass-bg: rgba(255, 255, 255, 0.08);
-  --hud-glass-bg-strong: rgba(255, 255, 255, 0.12);
-  --hud-glass-border: rgba(255, 255, 255, 0.18);
-  --hud-glass-blur: 16px;
+
+  /* Card backgrounds */
+  --hud-card-bg: rgba(255, 255, 255, 0.95);
+  --hud-card-bg-secondary: rgba(240, 242, 245, 0.92);
+  --hud-card-border: rgba(0, 0, 0, 0.08);
+  --hud-statusbar-bg: rgba(255, 255, 255, 0.92);
+
+  /* Text */
+  --hud-text-primary: rgba(0, 0, 0, 0.87);
+  --hud-text-secondary: rgba(0, 0, 0, 0.54);
+  --hud-text-tertiary: rgba(0, 0, 0, 0.38);
+
+  /* Accent */
+  --hud-accent: #1a73e8;
+
+  /* Shadows */
+  --hud-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --hud-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+  --hud-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+
+  /* Toast variants */
+  --hud-toast-info-border: #1a73e8;
+  --hud-toast-info-bg: rgba(26, 115, 232, 0.08);
+  --hud-toast-success-border: #1e8e3e;
+  --hud-toast-success-bg: rgba(30, 142, 62, 0.08);
+  --hud-toast-warning-border: #e8a817;
+  --hud-toast-warning-bg: rgba(232, 168, 23, 0.08);
+  --hud-toast-error-border: #d93025;
+  --hud-toast-error-bg: rgba(217, 48, 37, 0.08);
+
   width: 100%;
   height: 100%;
   margin: 0;
@@ -41,10 +64,10 @@ html, body {
   position: absolute;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg-strong, rgba(255, 255, 255, 0.12));
-  color: var(--hud-text-primary, rgba(255, 255, 255, 0.95));
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
+  border: 1px solid var(--hud-card-border);
+  background: var(--hud-card-bg);
+  color: var(--hud-text-primary);
+  box-shadow: var(--hud-shadow-md);
   max-width: 80%;
 }
 
@@ -59,10 +82,10 @@ html, body {
   gap: 0.8rem;
   align-items: center;
   padding: 10px 14px;
-  border-top: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg, rgba(255, 255, 255, 0.08));
-  color: var(--hud-text-primary, rgba(255, 255, 255, 0.95));
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
+  border-top: 1px solid var(--hud-card-border);
+  background: var(--hud-statusbar-bg);
+  color: var(--hud-text-primary);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .status-bar > :nth-child(1) { text-align: left; }
@@ -79,10 +102,9 @@ html, body {
 .media-card {
   position: absolute;
   border-radius: 14px;
-  border: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg, rgba(255, 255, 255, 0.08));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
+  border: 1px solid var(--hud-card-border);
+  background: var(--hud-card-bg);
+  box-shadow: var(--hud-shadow-lg);
   overflow: hidden;
 }
 
@@ -104,16 +126,20 @@ html, body {
 .progress-wrap {
   position: absolute;
   width: min(65vw, 720px);
+  background: var(--hud-card-bg);
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--hud-card-border);
+  box-shadow: var(--hud-shadow-md);
 }
 
 .progress-track {
   width: 100%;
   height: 12px;
   border-radius: 999px;
-  border: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg, rgba(255, 255, 255, 0.08));
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
   overflow: hidden;
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
 }
 
 .progress-fill {
@@ -126,6 +152,11 @@ html, body {
 /* ── HudProgress (ring) ── */
 .progress-ring-wrap {
   position: absolute;
+  background: var(--hud-card-bg);
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--hud-card-border);
+  box-shadow: var(--hud-shadow-md);
 }
 
 .ring {
@@ -146,7 +177,7 @@ html, body {
 }
 
 .ring-bg {
-  stroke: var(--hud-glass-border, rgba(255, 255, 255, 0.18));
+  stroke: rgba(0, 0, 0, 0.10);
 }
 
 /* ── HudToast ── */
@@ -161,12 +192,11 @@ html, body {
 .toast {
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg-strong, rgba(255, 255, 255, 0.12));
-  color: var(--hud-text-primary, rgba(255, 255, 255, 0.95));
+  border: 1px solid var(--hud-card-border);
+  background: var(--hud-card-bg);
+  color: var(--hud-text-primary);
   letter-spacing: 0.005em;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
+  box-shadow: var(--hud-shadow-md);
   animation: toast-slide-in 260ms cubic-bezier(0.2, 0.8, 0.24, 1) both;
 }
 
@@ -181,13 +211,25 @@ html, body {
   margin-top: 4px;
   font-size: 0.88rem;
   line-height: 1.35;
-  color: var(--hud-text-secondary, rgba(255, 255, 255, 0.62));
+  color: var(--hud-text-secondary);
 }
 
-.toast.info    { border-color: rgba(255, 255, 255, 0.28); }
-.toast.success { border-color: rgba(183, 235, 199, 0.45); }
-.toast.warning { border-color: rgba(250, 219, 170, 0.45); }
-.toast.error   { border-color: rgba(245, 185, 185, 0.45); }
+.toast.info {
+  border-left: 4px solid var(--hud-toast-info-border);
+  background: var(--hud-toast-info-bg);
+}
+.toast.success {
+  border-left: 4px solid var(--hud-toast-success-border);
+  background: var(--hud-toast-success-bg);
+}
+.toast.warning {
+  border-left: 4px solid var(--hud-toast-warning-border);
+  background: var(--hud-toast-warning-bg);
+}
+.toast.error {
+  border-left: 4px solid var(--hud-toast-error-border);
+  background: var(--hud-toast-error-bg);
+}
 
 @keyframes toast-slide-in {
   from {
@@ -204,11 +246,10 @@ html, body {
 .throbber {
   position: absolute;
   border-radius: 50%;
-  border: 2px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg, rgba(255, 255, 255, 0.08));
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--hud-card-border);
+  background: var(--hud-card-bg);
+  box-shadow: var(--hud-shadow-md);
   overflow: hidden;
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
 }
 
 .throbber-fill {
@@ -246,11 +287,10 @@ html, body {
   gap: 7px;
   padding: 14px;
   border-radius: 14px;
-  border: 1px solid var(--hud-glass-border, rgba(255, 255, 255, 0.18));
-  background: var(--hud-glass-bg-strong, rgba(255, 255, 255, 0.12));
-  color: var(--hud-text-primary, rgba(255, 255, 255, 0.95));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(var(--hud-glass-blur, 16px));
+  border: 1px solid var(--hud-card-border);
+  background: var(--hud-card-bg);
+  color: var(--hud-text-primary);
+  box-shadow: var(--hud-shadow-md);
 }
 
 .card-image {
@@ -258,7 +298,7 @@ html, body {
   max-height: 180px;
   object-fit: cover;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .card-title {
@@ -270,13 +310,13 @@ html, body {
 
 .card-subtitle {
   margin: 0;
-  color: var(--hud-text-secondary, rgba(255, 255, 255, 0.62));
+  color: var(--hud-text-secondary);
   font-size: 0.9rem;
 }
 
 .card-description {
   margin: 0;
-  color: var(--hud-text-secondary, rgba(255, 255, 255, 0.62));
+  color: var(--hud-text-secondary);
   font-size: 0.9rem;
   line-height: 1.35;
 }
@@ -296,12 +336,12 @@ html, body {
 }
 
 .card-meta-row dt {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--hud-text-tertiary);
 }
 
 .card-meta-row dd {
   margin: 0;
-  color: var(--hud-text-primary, rgba(255, 255, 255, 0.95));
+  color: var(--hud-text-primary);
   text-align: right;
 }
 
@@ -312,13 +352,13 @@ html, body {
 }
 
 .card-links a {
-  color: var(--hud-accent, rgba(255, 255, 255, 0.85));
+  color: var(--hud-accent);
   text-decoration: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(26, 115, 232, 0.2);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 0.8rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(26, 115, 232, 0.06);
 }
 
 /* ── HudVideo ── */
@@ -340,9 +380,13 @@ html, body {
 
 /* ── Settings page ── */
 .settings {
-  margin: 0 auto;
+  margin: 24px auto 0;
   max-width: 560px;
   padding: 28px;
+  background: var(--hud-card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--hud-card-border);
+  box-shadow: var(--hud-shadow-lg);
 }
 
 .settings h1 {
@@ -359,9 +403,9 @@ html, body {
   width: 100%;
   padding: 0.6rem;
   border-radius: 8px;
-  border: 1px solid #2e3f57;
-  background: #101a28;
-  color: #e7edf7;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: var(--hud-text-primary);
 }
 
 .settings .actions {
@@ -374,39 +418,50 @@ html, body {
   border: none;
   border-radius: 8px;
   padding: 0.55rem 0.9rem;
-  background: #3b8cff;
+  background: var(--hud-accent);
   color: white;
   cursor: pointer;
 }
 
 .settings .secondary {
-  background: #2e3f57;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--hud-text-primary);
 }
 
 .settings .ok {
-  color: #6ee7a4;
+  color: var(--hud-toast-success-border);
   margin-top: 0.8rem;
 }
 
 .settings .error {
-  color: #ff8a8a;
+  color: var(--hud-toast-error-border);
   margin-top: 0.8rem;
   white-space: pre-wrap;
 }
 
 /* ── Main page ── */
 .main-page {
-  margin: 0 auto;
+  margin: 24px auto 0;
   max-width: 720px;
   padding: 2rem;
   font-family: 'SF Pro Display', 'Segoe UI', sans-serif;
+  background: var(--hud-card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--hud-card-border);
+  box-shadow: var(--hud-shadow-lg);
+}
+
+.main-page code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .main-page button {
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1rem;
-  background: #1f7ae0;
+  background: var(--hud-accent);
   color: #fff;
   cursor: pointer;
 }

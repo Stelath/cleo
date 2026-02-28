@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
-import { getPositionStyle } from '../../lib/hud/position';
-import type { HudComponentHandle } from '../../lib/hud/types';
+import { getPositionStyle } from '../lib/hud/position';
+import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
 const HudProgress = forwardRef<HudComponentHandle>((_props, ref) => {

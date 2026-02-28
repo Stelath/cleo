@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
-import { getPositionStyle } from '../../lib/hud/position';
-import type { HudComponentHandle } from '../../lib/hud/types';
+import { getPositionStyle } from '../lib/hud/position';
+import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
 const HudImage = forwardRef<HudComponentHandle>((_props, ref) => {

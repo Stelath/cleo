@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0f\x61ssistant.proto\x12\x0e\x63leo.assistant\"\x1e\n\x0e\x43ommandRequest\x12\x0c\n\x04text\x18\x01 \x01(\t\"L\n\x0f\x43ommandResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x15\n\rresponse_text\x18\x02 \x01(\t\x12\x11\n\ttool_name\x18\x03 \x01(\t2e\n\x10\x41ssistantService\x12Q\n\x0eProcessCommand\x12\x1e.cleo.assistant.CommandRequest\x1a\x1f.cleo.assistant.CommandResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0f\x61ssistant.proto\x12\x0e\x63leo.assistant\"4\n\x0e\x43ommandRequest\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x14\n\x0cis_follow_up\x18\x02 \x01(\x08\"{\n\x0f\x43ommandResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x15\n\rresponse_text\x18\x02 \x01(\t\x12\x11\n\ttool_name\x18\x03 \x01(\t\x12\x11\n\tresponded\x18\x04 \x01(\x08\x12\x1a\n\x12\x63ontinue_follow_up\x18\x05 \x01(\x08\x32\x65\n\x10\x41ssistantService\x12Q\n\x0eProcessCommand\x12\x1e.cleo.assistant.CommandRequest\x1a\x1f.cleo.assistant.CommandResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,9 +32,9 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'assistant_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_COMMANDREQUEST']._serialized_start=35
-  _globals['_COMMANDREQUEST']._serialized_end=65
-  _globals['_COMMANDRESPONSE']._serialized_start=67
-  _globals['_COMMANDRESPONSE']._serialized_end=143
-  _globals['_ASSISTANTSERVICE']._serialized_start=145
-  _globals['_ASSISTANTSERVICE']._serialized_end=246
+  _globals['_COMMANDREQUEST']._serialized_end=87
+  _globals['_COMMANDRESPONSE']._serialized_start=89
+  _globals['_COMMANDRESPONSE']._serialized_end=212
+  _globals['_ASSISTANTSERVICE']._serialized_start=214
+  _globals['_ASSISTANTSERVICE']._serialized_end=315
 # @@protoc_insertion_point(module_scope)

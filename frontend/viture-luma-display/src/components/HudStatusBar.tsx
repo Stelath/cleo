@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
-import type { HudComponentHandle } from '../../lib/hud/types';
+import type { HudComponentHandle } from '../lib/hud/types';
 
 const HudStatusBar = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);

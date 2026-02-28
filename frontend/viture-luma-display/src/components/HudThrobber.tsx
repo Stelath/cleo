@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { getPositionStyle } from '../../lib/hud/position';
-import { clampThrobberHz, getThrobberFill } from '../../lib/hud/throbber';
-import type { HudComponentHandle } from '../../lib/hud/types';
+import { getPositionStyle } from '../lib/hud/position';
+import { clampThrobberHz, getThrobberFill } from '../lib/hud/throbber';
+import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
 function normalizeSize(input: unknown): number {

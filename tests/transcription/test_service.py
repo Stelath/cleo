@@ -123,11 +123,17 @@ def test_assistant_command_truncates_long_response_text(
 
 
 class _RecordingCommandClient:
-    def __init__(self):
+    def __init__(self, responses: list[assistant_pb2.CommandResponse] | None = None):
         self.calls: list[str] = []
+        self.call_details: list[tuple[str, bool]] = []
+        self._responses = list(responses or [])
 
-    def send_command(self, text: str) -> None:
+    def send_command(self, text: str, *, is_follow_up: bool = False):
         self.calls.append(text)
+        self.call_details.append((text, is_follow_up))
+        if self._responses:
+            return self._responses.pop(0)
+        return None
 
 
 def _result(
@@ -302,3 +308,71 @@ def test_trigger_router_trims_to_last_wake_phrase():
 
     assert len(client.calls) == 1
     assert client.calls[0].lower().startswith("hey cleo second request")
+
+
+def test_follow_up_continues_without_wake_word_then_stops_when_unrelated():
+    responses = [
+        assistant_pb2.CommandResponse(
+            success=True,
+            response_text="Sure, here's the answer.",
+            tool_name="",
+            responded=True,
+            continue_follow_up=True,
+        ),
+        assistant_pb2.CommandResponse(
+            success=True,
+            response_text="",
+            tool_name="",
+            responded=False,
+            continue_follow_up=False,
+        ),
+    ]
+    client = _RecordingCommandClient(responses=responses)
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.5,
+        final_flush_grace_seconds=0.0,
+    )
+
+    router.observe(
+        _result(
+            text="Hey Cleo how many calories are in this",
+            start_time=10.0,
+            end_time=10.4,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+    router.observe(
+        _result(
+            text="thanks",
+            start_time=10.6,
+            end_time=10.8,
+            is_partial=False,
+            utterance_id="u2",
+        )
+    )
+    router.observe(
+        _result(
+            text="what about protein",
+            start_time=11.0,
+            end_time=11.2,
+            is_partial=False,
+            utterance_id="u3",
+        )
+    )
+    router.observe(
+        _result(
+            text="random side chatter",
+            start_time=11.4,
+            end_time=11.6,
+            is_partial=False,
+            utterance_id="u4",
+        )
+    )
+
+    assert client.call_details == [
+        ("Hey Cleo how many calories are in this", False),
+        ("what about protein", True),
+    ]

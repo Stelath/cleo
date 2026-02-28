@@ -83,16 +83,59 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
         finally:
             channel.close()
 
+    def _speak_response_text(self, text: str) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            return
+
+        channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+        try:
+            stub = frontend_pb2_grpc.FrontendServiceStub(channel)
+            stub.SpeakText(
+                frontend_pb2.SpeakTextRequest(text=cleaned),
+                timeout=10,
+            )
+        except grpc.RpcError as e:
+            log.warning("assistant.frontend_speak_error", error=str(e))
+        finally:
+            channel.close()
+
     def ProcessCommand(self, request, context):
         text = request.text.strip()
+        is_follow_up = bool(request.is_follow_up)
         if not text:
             return assistant_pb2.CommandResponse(
                 success=False,
                 response_text="Empty command",
                 tool_name="",
+                responded=False,
+                continue_follow_up=False,
             )
 
-        log.info("assistant.process_command", text=text)
+        log.info("assistant.process_command", text=text, is_follow_up=is_follow_up)
+
+        if is_follow_up:
+            try:
+                should_respond = self._bedrock.classify_follow_up(text)
+            except Exception as e:
+                log.error("assistant.follow_up_classifier_error", error=str(e))
+                return assistant_pb2.CommandResponse(
+                    success=False,
+                    response_text=f"Assistant error: {e}",
+                    tool_name="",
+                    responded=False,
+                    continue_follow_up=False,
+                )
+
+            if not should_respond:
+                log.info("assistant.follow_up_ended")
+                return assistant_pb2.CommandResponse(
+                    success=True,
+                    response_text="",
+                    tool_name="",
+                    responded=False,
+                    continue_follow_up=False,
+                )
 
         try:
             result = self._bedrock.converse(
@@ -105,15 +148,23 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                 success=False,
                 response_text=f"Assistant error: {e}",
                 tool_name="",
+                responded=False,
+                continue_follow_up=False,
             )
 
         if isinstance(result, TextResult):
-            self._show_llm_debug_response(result.text)
-            log.info("assistant.text_response", text=result.text[:100])
+            response_text = result.text.strip()
+            self._show_llm_debug_response(response_text)
+            log.info("assistant.text_response", text=response_text[:100])
+            responded = bool(response_text)
+            if responded:
+                self._speak_response_text(response_text)
             return assistant_pb2.CommandResponse(
                 success=True,
-                response_text=result.text,
+                response_text=response_text,
                 tool_name="",
+                responded=responded,
+                continue_follow_up=responded,
             )
 
         self._show_llm_debug_response(
@@ -128,6 +179,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                 success=False,
                 response_text=f"Unknown tool: {result.tool_name}",
                 tool_name=result.tool_name,
+                responded=False,
+                continue_follow_up=False,
             )
 
         log.info(
@@ -146,10 +199,16 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                     parameters_json=json.dumps(result.parameters),
                 )
             )
+            response_text = tool_response.result_text.strip()
+            responded = bool(response_text) and bool(tool_response.success)
+            if responded:
+                self._speak_response_text(response_text)
             return assistant_pb2.CommandResponse(
                 success=tool_response.success,
                 response_text=tool_response.result_text,
                 tool_name=result.tool_name,
+                responded=responded,
+                continue_follow_up=responded,
             )
         except grpc.RpcError as e:
             log.error("assistant.tool_rpc_error", tool=result.tool_name, error=str(e))
@@ -157,6 +216,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
                 success=False,
                 response_text=f"Failed to reach tool service: {e}",
                 tool_name=result.tool_name,
+                responded=False,
+                continue_follow_up=False,
             )
         finally:
             channel.close()

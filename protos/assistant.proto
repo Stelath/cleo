@@ -10,6 +10,9 @@ service AssistantService {
 message CommandRequest {
   // The transcribed text after "hey cleo" wake word
   string text = 1;
+
+  // True when this is a follow-up utterance in an active conversation window
+  bool is_follow_up = 2;
 }
 
 message CommandResponse {
@@ -21,4 +24,10 @@ message CommandResponse {
 
   // Name of the tool that was invoked (empty if no tool was used)
   string tool_name = 3;
+
+  // Whether the assistant produced a user-facing response for this utterance
+  bool responded = 4;
+
+  // Whether follow-up listening should remain active after this turn
+  bool continue_follow_up = 5;
 }
