@@ -42,6 +42,7 @@ def _normalize_text(text: str) -> str:
 
 
 @pytest.mark.integration
+@pytest.mark.transcription_e2e
 def test_transcribe_stream_end_to_end_with_mp3():
     """Start the real service, stream an MP3 in chunks, and verify the transcript."""
     print("Test called")
