@@ -104,6 +104,36 @@ class NoteSummaryBedrockClient:
 class NotetakingServicer(ToolServiceBase):
     """Tracks a notetaking session and stores a generated summary on stop."""
 
+    @property
+    def tool_name(self) -> str:
+        return "notetaking"
+
+    @property
+    def tool_description(self) -> str:
+        return (
+            "Start or stop a notetaking session. When stopped, summarize the "
+            "captured transcript and video activity into a stored note."
+        )
+
+    @property
+    def tool_input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "Explicit notetaking action to perform.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional natural-language request, used when action is not provided."
+                    ),
+                },
+            },
+        }
+
     def __init__(
         self,
         data_address: str = DATA_ADDRESS,
@@ -120,10 +150,6 @@ class NotetakingServicer(ToolServiceBase):
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._lock = threading.Lock()
         self._session_start: float | None = None
-
-    @property
-    def tool_name(self) -> str:
-        return "notetaking"
 
     def close(self) -> None:
         self._channel.close()
