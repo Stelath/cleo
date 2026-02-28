@@ -11,23 +11,27 @@ from apps.face_detection import (
     FaceDetectionLoop,
     FaceDetectionServicer,
     _crop_face,
-    _decode_jpeg,
 )
+from generated import sensor_pb2
+from services.media.camera_transport import AssembledCameraFrame
 
 
 # ── Helpers ──
 
 
 def _make_fake_frame(width=64, height=48):
-    """Create a fake frame with JPEG-encoded data (matching sensor service output)."""
-    frame = MagicMock()
+    """Create an assembled JPEG frame."""
     img = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
     _, encoded = cv2.imencode(".jpg", img)
-    frame.data = encoded.tobytes()
-    frame.width = width
-    frame.height = height
-    frame.timestamp = 1000.0
-    return frame
+    return AssembledCameraFrame(
+        frame_id="frame-1",
+        data=encoded.tobytes(),
+        width=width,
+        height=height,
+        timestamp=1000.0,
+        encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+        key_frame=True,
+    )
 
 
 def _mock_rekognition_response(n_faces=1, confidence=99.5):
@@ -106,9 +110,91 @@ class TestFaceDetectionLoop:
         loop._process_frame(frame)
 
         mock_rek.detect_faces.assert_called_once()
-        call_kwargs = mock_rek.detect_faces.call_args
-        image_bytes = call_kwargs[1]["Image"]["Bytes"] if "Image" in call_kwargs[1] else call_kwargs.kwargs["Image"]["Bytes"]
+        image_bytes = mock_rek.detect_faces.call_args.kwargs["Image"]["Bytes"]
         assert image_bytes[:2] == b"\xff\xd8"
+
+    def test_process_frame_converts_rgb24_to_jpeg_for_rekognition(self):
+        mock_rek = MagicMock()
+        mock_rek.detect_faces.return_value = _mock_rekognition_response(0)
+
+        loop = FaceDetectionLoop(
+            sensor_address="localhost:99999",
+            rekognition_client=mock_rek,
+            data_address="localhost:99998",
+        )
+
+        rgb = np.random.randint(0, 255, (48, 64, 3), dtype=np.uint8)
+        frame = AssembledCameraFrame(
+            frame_id="rgb24-test",
+            data=rgb.tobytes(),
+            width=64,
+            height=48,
+            timestamp=1000.0,
+            encoding=sensor_pb2.FRAME_ENCODING_RGB24,
+            key_frame=True,
+        )
+
+        loop._process_frame(frame)
+
+        mock_rek.detect_faces.assert_called_once()
+        image_bytes = mock_rek.detect_faces.call_args.kwargs["Image"]["Bytes"]
+        assert image_bytes[:2] == b"\xff\xd8"
+
+    @patch("apps.face_detection.grpc")
+    def test_stream_loop_assembles_chunked_frames(self, mock_grpc_mod):
+        mock_rek = MagicMock()
+        loop = FaceDetectionLoop(
+            sensor_address="localhost:99999",
+            rekognition_client=mock_rek,
+            data_address="localhost:99998",
+        )
+
+        frame = _make_fake_frame()
+        data = bytes(frame.data)
+        split = len(data) // 2
+
+        chunks = [
+            sensor_pb2.CameraFrameChunk(
+                data=data[:split],
+                frame_id=frame.frame_id,
+                chunk_index=0,
+                is_last=False,
+                width=frame.width,
+                height=frame.height,
+                timestamp=frame.timestamp,
+                encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+                key_frame=True,
+            ),
+            sensor_pb2.CameraFrameChunk(
+                data=data[split:],
+                frame_id=frame.frame_id,
+                chunk_index=1,
+                is_last=True,
+                width=frame.width,
+                height=frame.height,
+                timestamp=frame.timestamp,
+                encoding=sensor_pb2.FRAME_ENCODING_JPEG,
+                key_frame=True,
+            ),
+        ]
+
+        mock_channel = MagicMock()
+        mock_grpc_mod.insecure_channel.return_value = mock_channel
+        mock_sensor_stub = MagicMock()
+        mock_sensor_stub.StreamCamera.return_value = iter(chunks)
+
+        with patch(
+            "apps.face_detection.sensor_pb2_grpc.SensorServiceStub",
+            return_value=mock_sensor_stub,
+        ):
+            with patch.object(loop, "_process_frame") as mock_process:
+                loop._stream_loop()
+
+        mock_process.assert_called_once()
+        assembled = mock_process.call_args.args[0]
+        assert assembled.frame_id == frame.frame_id
+        assert assembled.data == data
+        assert assembled.encoding == sensor_pb2.FRAME_ENCODING_JPEG
 
     @patch("apps.face_detection.grpc")
     def test_process_frame_stores_faces(self, mock_grpc_mod):

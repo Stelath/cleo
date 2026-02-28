@@ -17,6 +17,12 @@ import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
 from generated import data_pb2, data_pb2_grpc, sensor_pb2, sensor_pb2_grpc
+from services.media.camera_transport import (
+    AssembledCameraFrame,
+    CameraFrameAssembler,
+    assembled_frame_to_rgb,
+    encode_rgb_to_jpeg,
+)
 from services.config import (
     DATA_ADDRESS,
     FACE_DETECTION_PORT,
@@ -39,6 +45,13 @@ def _decode_jpeg(jpeg_data: bytes) -> np.ndarray:
     if img is None:
         raise RuntimeError("Failed to decode JPEG frame")
     return img
+
+
+def _frame_to_jpeg_bytes(frame: AssembledCameraFrame) -> bytes:
+    if frame.encoding == sensor_pb2.FRAME_ENCODING_JPEG:
+        return bytes(frame.data)
+    frame_rgb = assembled_frame_to_rgb(frame)
+    return encode_rgb_to_jpeg(frame_rgb)
 
 
 def _crop_face(
@@ -139,14 +152,24 @@ class FaceDetectionLoop(threading.Thread):
             options=[("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES)],
         )
         stub = sensor_pb2_grpc.SensorServiceStub(channel)
+        assembler = CameraFrameAssembler()
 
         try:
             stream = stub.StreamCamera(sensor_pb2.StreamRequest(fps=_STREAM_FPS))
             last_process_time = 0.0
 
-            for frame in stream:
+            for chunk in stream:
                 if self._stop_event.is_set():
                     break
+
+                try:
+                    frame = assembler.push(chunk)
+                except ValueError as exc:
+                    log.warning("face_detection.frame_chunk_invalid", error=str(exc))
+                    continue
+
+                if frame is None:
+                    continue
 
                 now = time.monotonic()
                 if now - last_process_time < self._frame_interval:
@@ -157,10 +180,10 @@ class FaceDetectionLoop(threading.Thread):
         finally:
             channel.close()
 
-    def _process_frame(self, frame: Any) -> None:
+    def _process_frame(self, frame: AssembledCameraFrame) -> None:
         try:
-            # frame.data is already JPEG-encoded from the sensor service
-            jpeg_bytes = bytes(frame.data)
+            timestamp = frame.timestamp or time.time()
+            jpeg_bytes = _frame_to_jpeg_bytes(frame)
 
             response = self._rekognition.detect_faces(
                 Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]
@@ -186,7 +209,6 @@ class FaceDetectionLoop(threading.Thread):
                     bbox = face["BoundingBox"]
                     cropped = _crop_face(img_bgr, bbox, padding=0.2)
 
-                    timestamp = frame.timestamp or time.time()
                     resp = data_stub.StoreFaceEmbedding(
                         data_pb2.StoreFaceEmbeddingRequest(
                             image_data=cropped,
