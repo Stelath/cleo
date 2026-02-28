@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cleo — AWS Services Integration</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0F172A;
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        svg {
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+
+        svg text {
+            user-select: none;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
+
+        .dashed-anim {
+            animation: dash 1.2s linear infinite;
+        }
+    </style>
+</head>
+
+<body>
+    <svg viewBox="0 0 1500 1150" xmlns="http://www.w3.org/2000/svg" font-family="Inter, system-ui, sans-serif">
+        <defs>
+            <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+                <path d="M 48 0 L 0 0 0 48" fill="none" stroke="rgba(148,163,184,0.035)" stroke-width="0.5" />
+            </pattern>
+            <linearGradient id="borderGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#06B6D4" />
+                <stop offset="50%" stop-color="#6366F1" />
+                <stop offset="100%" stop-color="#10B981" />
+            </linearGradient>
+            <linearGradient id="awsMlGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#055F4E" />
+                <stop offset="100%" stop-color="#56C0A7" />
+            </linearGradient>
+            <!-- AWS Transcribe Icon -->
+            <symbol id="icon-transcribe" viewBox="0 0 80 80">
+                <rect width="80" height="80" rx="8" fill="url(#awsMlGrad)" />
+                <path
+                    d="M41,29L48,29L48,27L41,27ZM41,23L50,23L50,21L41,21ZM46,34L60,34L60,32L46,32ZM50,29L61,29L61,27L50,27ZM66,55L49,55L49,57L67,57C67.552,57,68,56.57,68,56.017L68,38L66,38ZM64.582,22.987L57,15.413L57,22.987ZM68,23.988L68,30.971L66,30.971L66,24.989L56,24.989C55.447,24.989,55,24.54,55,23.988L55,14.002L37,14.006L37,26.991L35,26.991L35,13.005C35,12.452,35.447,12.004,36,12.004L56,12C56.259,12,56.515,12.102,56.706,12.292L67.706,23.279C67.898,23.47,68,23.728,68,23.988ZM19,51.013L21,51.013L21,44.006L19,44.006ZM23,54.015L25,54.015L25,40.003L23,40.003ZM27,52.013L29,52.013L29,41.003L27,41.003ZM31,55.016L33,55.016L33,39.002L31,39.002ZM35,51.013L37,51.013L37,42.004L35,42.004ZM39,55.016L41,55.016L41,39.002L39,39.002ZM43,50.012L45,50.012L45,43.005L43,43.005ZM45.166,56.466L46.834,57.57C43.574,62.507,38.028,65.455,32,65.455C28.779,65.455,25.596,64.644,22.968,63.165L13.889,67.862C13.694,67.955,13.49,68,13.291,68C12.942,68,12.608,67.862,12.36,67.604C11.974,67.201,11.889,66.599,12.15,66.102L16.845,57.067C14.956,54.007,13.999,50.962,13.999,48.01C13.999,38.244,22.242,29.993,32,29.993C35.729,29.993,39.679,31.182,42.567,33.172L41.432,34.822C38.866,33.051,35.339,31.995,32,31.995C23.326,31.995,15.999,39.329,15.999,48.01C15.999,50.728,16.954,53.575,18.836,56.472C19.034,56.775,19.052,57.159,18.885,57.479L14.944,65.063L22.54,61.134C22.85,60.973,23.221,60.986,23.52,61.169C25.893,62.62,28.983,63.453,32,63.453C37.355,63.453,42.277,60.84,45.166,56.466Z"
+                    fill="#FFF" />
+            </symbol>
+            <!-- AWS Bedrock Icon (from Bedrock.svg) -->
+            <symbol id="icon-bedrock" viewBox="0 0 24 24">
+                <rect width="24" height="24" fill="#01A88D" />
+                <g transform="translate(4.000000, 4.000000)" fill="#FFFFFF">
+                    <path
+                        d="M8,14.1397014 L5.574,14.9487014 L4.628,14.3177014 L5.658,13.9737014 L5.342,13.0257014 L3.574,13.6147014 L3,13.2327014 L3,10.4997014 C3,10.3107014 2.893,10.1377014 2.724,10.0527014 L1,9.19070136 L1,6.80870136 L2.5,6.05870136 L4,6.80870136 L4,8.49970136 C4,8.68970136 4.107,8.86270136 4.276,8.94770136 L6.276,9.94770136 L6.724,9.05270136 L5,8.19070136 L5,6.80870136 L6.724,5.94770136 C6.893,5.86270136 7,5.68970136 7,5.49970136 L7,3.99970136 L6,3.99970136 L6,5.19070136 L4.5,5.94070136 L3,5.19070136 L3,2.76770136 L4,2.10070136 L4,3.99970136 L5,3.99970136 L5,1.43470136 L5.574,1.05170136 L8,1.86070136 L8,14.1397014 Z M13.5,12.9997014 C13.775,12.9997014 14,13.2237014 14,13.4997014 C14,13.7757014 13.775,13.9997014 13.5,13.9997014 C13.225,13.9997014 13,13.7757014 13,13.4997014 C13,13.2237014 13.225,12.9997014 13.5,12.9997014 L13.5,12.9997014 Z M12.5,1.99970136 C12.775,1.99970136 13,2.22370136 13,2.49970136 C13,2.77570136 12.775,2.99970136 12.5,2.99970136 C12.225,2.99970136 12,2.77570136 12,2.49970136 C12,2.22370136 12.225,1.99970136 12.5,1.99970136 L12.5,1.99970136 Z M14.5,7.99970136 C14.775,7.99970136 15,8.22370136 15,8.49970136 C15,8.77570136 14.775,8.99970136 14.5,8.99970136 C14.225,8.99970136 14,8.77570136 14,8.49970136 C14,8.22370136 14.225,7.99970136 14.5,7.99970136 L14.5,7.99970136 Z M13.092,8.99970136 C13.299,9.58070136 13.849,9.99970136 14.5,9.99970136 C15.327,9.99970136 16,9.32770136 16,8.49970136 C16,7.67270136 15.327,6.99970136 14.5,6.99970136 C13.849,6.99970136 13.299,7.41970136 13.092,7.99970136 L9,7.99970136 L9,5.99970136 L12.5,5.99970136 C12.776,5.99970136 13,5.77670136 13,5.49970136 L13,3.90770136 C13.581,3.70070136 14,3.15070136 14,2.49970136 C14,1.67270136 13.327,0.999701362 12.5,0.999701362 C11.673,0.999701362 11,1.67270136 11,2.49970136 C11,3.15070136 11.419,3.70070136 12,3.90770136 L12,4.99970136 L9,4.99970136 L9,1.49970136 C9,1.28470136 8.862,1.09370136 8.658,1.02570136 L5.658,0.0257013622 C5.511,-0.0232986378 5.351,-0.00129863776 5.223,0.0837013622 L2.223,2.08370136 C2.084,2.17670136 2,2.33270136 2,2.49970136 L2,5.19070136 L0.276,6.05270136 C0.107,6.13770136 0,6.31070136 0,6.49970136 L0,9.49970136 C0,9.68970136 0.107,9.86270136 0.276,9.94770136 L2,10.8087014 L2,13.4997014 C2,13.6667014 2.084,13.8237014 2.223,13.9157014 L5.223,15.9157014 C5.306,15.9717014 5.402,15.9997014 5.5,15.9997014 C5.553,15.9997014 5.606,15.9917014 5.658,15.9737014 L8.658,14.9737014 C8.862,14.9067014 9,14.7157014 9,14.4997014 L9,11.9997014 L11.293,11.9997014 L12.146,12.8537014 L12.159,12.8407014 C12.061,13.0407014 12,13.2627014 12,13.4997014 C12,14.3267014 12.673,14.9997014 13.5,14.9997014 C14.327,14.9997014 15,14.3267014 15,13.4997014 C15,12.6727014 14.327,11.9997014 13.5,11.9997014 C13.262,11.9997014 13.04,12.0607014 12.841,12.1597014 L12.854,12.1467014 L11.854,11.1467014 C11.76,11.0527014 11.633,10.9997014 11.5,10.9997014 L9,10.9997014 L9,8.99970136 L13.092,8.99970136 Z" />
+                </g>
+            </symbol>
+            <!-- AWS Rekognition Icon -->
+            <symbol id="icon-rekognition" viewBox="0 0 80 80">
+                <rect width="80" height="80" rx="8" fill="url(#awsMlGrad)" />
+                <path
+                    d="M65.327,60.322L51.915,47.266C50.603,49.04,49.032,50.613,47.257,51.926L60.345,65.323C60.993,65.972,61.762,66.027,62.293,65.961C63.105,65.857,63.948,65.404,64.668,64.685C65.39,63.962,65.85,63.111,65.959,62.288C66.03,61.752,65.978,60.975,65.327,60.322ZM34.124,54.244C45.211,54.244,54.23,45.221,54.23,34.131C54.23,23.04,45.211,14.017,34.124,14.017C23.037,14.017,14.017,23.04,14.017,34.131C14.017,45.221,23.037,54.244,34.124,54.244ZM67.957,62.556C67.789,63.814,67.127,65.077,66.094,66.111C65.059,67.145,63.801,67.802,62.548,67.962C62.346,67.988,62.146,68,61.948,68C60.794,68,59.733,67.564,58.911,66.741L45.557,53.071C42.218,55.094,38.304,56.261,34.124,56.261C21.925,56.261,12,46.333,12,34.131C12,21.928,21.925,12,34.124,12C46.322,12,56.247,21.928,56.247,34.131C56.247,38.312,55.081,42.225,53.059,45.564L66.742,58.886C67.716,59.86,68.144,61.16,67.957,62.556ZM48.24,34.131C48.24,26.212,42.039,20.01,34.124,20.01C26.208,20.01,20.008,26.212,20.008,34.131C20.008,42.048,26.208,48.251,34.124,48.251C42.039,48.251,48.24,42.048,48.24,34.131ZM50.257,34.131C50.257,43.18,43.169,50.269,34.124,50.269C25.078,50.269,17.991,43.18,17.991,34.131C17.991,25.082,25.078,17.993,34.124,17.993C43.169,17.993,50.257,25.082,50.257,34.131ZM27.901,36.974L25.884,36.974L25.884,42.017L30.926,42.017L30.926,40L27.901,40ZM25.884,30.923L27.901,30.923L27.901,27.897L30.926,27.897L30.926,25.879L25.884,25.879ZM36.975,27.897L40,27.897L40,30.923L42.017,30.923L42.017,25.879L36.975,25.879ZM40,36.974L42.017,36.974L42.017,42.017L36.975,42.017L36.975,40L40,40Z"
+                    fill="#FFF" />
+            </symbol>
+            <marker id="arr" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#D97706" />
+            </marker>
+            <marker id="arr-muted" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#64748B" />
+            </marker>
+            <filter id="shadow" x="-8%" y="-8%" width="116%" height="125%">
+                <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.25" />
+            </filter>
+        </defs>
+
+        <rect width="1500" height="1150" fill="#0F172A" />
+        <rect width="1500" height="1150" fill="url(#grid)" />
+
+        <!-- Title -->
+        <text x="750" y="60" text-anchor="middle" fill="#E2E8F0" font-size="34" font-weight="700"
+            letter-spacing="-0.5">AWS Services Integration</text>
+        <text x="750" y="95" text-anchor="middle" fill="#64748B" font-size="14" font-weight="400"
+            letter-spacing="3">CLEO · CLOUD-POWERED AR INTELLIGENCE</text>
+
+        <!-- ═══════ AWS SERVICES ═══════ -->
+
+        <!-- Amazon Transcribe (top-left) -->
+        <g>
+            <rect x="80" y="145" width="320" height="105" rx="16" fill="#1E293B" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <use href="#icon-transcribe" x="100" y="168" width="40" height="40" />
+            <text x="270" y="195" text-anchor="middle" fill="#FCD34D" font-size="18" font-weight="700">Amazon
+                Transcribe</text>
+            <text x="270" y="224" text-anchor="middle" fill="#D97706" font-size="13" font-weight="400"
+                opacity="0.8">Streaming Speech-to-Text</text>
+        </g>
+
+        <!-- Amazon Bedrock — Claude Sonnet (top-right) -->
+        <g>
+            <rect x="980" y="125" width="370" height="125" rx="16" fill="#1E293B" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <use href="#icon-bedrock" x="1000" y="150" width="40" height="40" />
+            <text x="1180" y="180" text-anchor="middle" fill="#FCD34D" font-size="18" font-weight="700">Amazon
+                Bedrock</text>
+            <text x="1180" y="210" text-anchor="middle" fill="#D97706" font-size="16" font-weight="600">Claude
+                Sonnet</text>
+            <text x="1180" y="234" text-anchor="middle" fill="#92400E" font-size="12" font-weight="400">Tool Routing ·
+                Vision · Reasoning</text>
+        </g>
+
+        <!-- Amazon Rekognition (bottom-left) -->
+        <g>
+            <rect x="80" y="860" width="340" height="105" rx="16" fill="#1E293B" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <use href="#icon-rekognition" x="100" y="883" width="40" height="40" />
+            <text x="280" y="910" text-anchor="middle" fill="#FCD34D" font-size="18" font-weight="700">Amazon
+                Rekognition</text>
+            <text x="280" y="940" text-anchor="middle" fill="#D97706" font-size="13" font-weight="400"
+                opacity="0.8">Face Detection + Analysis</text>
+        </g>
+
+        <!-- Amazon Bedrock — Nova Embeddings (bottom-right) -->
+        <g>
+            <rect x="1000" y="860" width="370" height="105" rx="16" fill="#1E293B" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <use href="#icon-bedrock" x="1020" y="883" width="40" height="40" />
+            <text x="1205" y="908" text-anchor="middle" fill="#FCD34D" font-size="18" font-weight="700">Amazon
+                Bedrock</text>
+            <text x="1205" y="938" text-anchor="middle" fill="#D97706" font-size="16" font-weight="600">Nova
+                Embeddings</text>
+        </g>
+
+        <!-- ═══════ CONNECTIONS ═══════ -->
+
+        <!-- Transcribe ↔ Transcription -->
+        <path d="M280,250 L340,350 Q365,390 385,440" stroke="#D97706" stroke-width="1.8" fill="none"
+            marker-end="url(#arr)" marker-start="url(#arr)" />
+        <rect x="240" y="338" width="120" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="300" y="356" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">PCM Audio in</text>
+        <text x="300" y="373" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Transcript out</text>
+
+        <!-- Bedrock Claude ↔ Assistant -->
+        <path d="M1100,250 L930,380 Q870,420 750,460" stroke="#D97706" stroke-width="1.8" fill="none"
+            marker-end="url(#arr)" marker-start="url(#arr)" />
+        <rect x="878" y="335" width="150" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="953" y="353" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Command + Schemas
+            in</text>
+        <text x="953" y="370" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">ToolUseResult
+            out</text>
+
+        <!-- Bedrock Claude ↔ Vision Tools -->
+        <path d="M1240,250 L1140,400 Q1100,450 990,510" stroke="#D97706" stroke-width="1.5" fill="none"
+            marker-end="url(#arr)" marker-start="url(#arr)" />
+        <rect x="1095" y="375" width="130" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="1160" y="393" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Images + Text
+            in</text>
+        <text x="1160" y="410" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Analysis out</text>
+
+        <!-- Rekognition ↔ Face Detection -->
+        <path d="M330,860 L470,770 Q520,740 580,710" stroke="#D97706" stroke-width="1.8" fill="none"
+            marker-end="url(#arr)" marker-start="url(#arr)" />
+        <rect x="380" y="775" width="130" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="445" y="793" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">JPEG in</text>
+        <text x="445" y="810" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Bounding Boxes
+            out</text>
+
+        <!-- Face Detection -.→ Nova -->
+        <path d="M720,710 Q850,790 1000,870" stroke="#64748B" stroke-width="1.3" stroke-dasharray="7,4" fill="none"
+            class="dashed-anim" marker-end="url(#arr-muted)" />
+        <rect x="790" y="790" width="130" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="855" y="808" text-anchor="middle" fill="#64748B" font-size="13" font-weight="400">Face Crops in</text>
+        <text x="855" y="825" text-anchor="middle" fill="#64748B" font-size="13" font-weight="400">1024-D Vector
+            out</text>
+
+        <!-- Data Service ↔ Nova -->
+        <path d="M1000,710 Q1060,790 1100,860" stroke="#D97706" stroke-width="1.8" fill="none" marker-end="url(#arr)"
+            marker-start="url(#arr)" />
+        <rect x="1035" y="770" width="130" height="42" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="1100" y="788" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Media + Text
+            in</text>
+        <text x="1100" y="805" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">1024-D Vector
+            out</text>
+
+        <!-- ═══════ CENTER: CLEO PLATFORM ═══════ -->
+        <rect x="270" y="440" width="930" height="300" rx="22" fill="#0F172A" stroke="url(#borderGrad)"
+            stroke-width="1.5" filter="url(#shadow)" />
+        <rect x="274" y="444" width="922" height="292" rx="20" fill="none" stroke="url(#borderGrad)" stroke-width="0.5"
+            opacity="0.2" />
+
+        <text x="735" y="480" text-anchor="middle" fill="#94A3B8" font-size="14" font-weight="700"
+            letter-spacing="3.5">CLEO AR GLASSES PLATFORM</text>
+        <line x1="480" y1="496" x2="990" y2="496" stroke="#334155" stroke-width="0.8" />
+
+        <!-- Internal services — top row -->
+        <g>
+            <rect x="310" y="520" width="190" height="72" rx="12" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="405" y="553" text-anchor="middle" fill="#5EEAD4" font-size="14"
+                font-weight="600">Transcription</text>
+            <text x="405" y="575" text-anchor="middle" fill="#2DD4BF" font-size="12" font-weight="400"
+                opacity="0.7">Service</text>
+        </g>
+
+        <g>
+            <rect x="555" y="520" width="190" height="72" rx="12" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="650" y="553" text-anchor="middle" fill="#C7D2FE" font-size="14" font-weight="600">Assistant</text>
+            <text x="650" y="575" text-anchor="middle" fill="#818CF8" font-size="12" font-weight="400"
+                opacity="0.7">Service</text>
+        </g>
+
+        <g>
+            <rect x="800" y="520" width="200" height="72" rx="12" fill="#1E1338" stroke="#7C3AED" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="900" y="549" text-anchor="middle" fill="#C4B5FD" font-size="14" font-weight="600">Vision
+                Tools</text>
+            <text x="900" y="571" text-anchor="middle" fill="#A78BFA" font-size="12" font-weight="400" opacity="0.7">Nav
+                · Food · Notes</text>
+        </g>
+
+        <!-- Internal services — bottom row -->
+        <g>
+            <rect x="400" y="630" width="190" height="72" rx="12" fill="#2D0A1C" stroke="#E11D48" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="495" y="663" text-anchor="middle" fill="#FDA4AF" font-size="14" font-weight="600">Face
+                Detection</text>
+            <text x="495" y="685" text-anchor="middle" fill="#F43F5E" font-size="12" font-weight="400"
+                opacity="0.7">Tool</text>
+        </g>
+
+        <g>
+            <rect x="830" y="630" width="195" height="72" rx="12" fill="#052E16" stroke="#059669" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="927" y="663" text-anchor="middle" fill="#A7F3D0" font-size="14" font-weight="600">Data
+                Service</text>
+            <text x="927" y="685" text-anchor="middle" fill="#6EE7B7" font-size="12" font-weight="400"
+                opacity="0.7">Storage + Search</text>
+        </g>
+
+        <!-- Key callout -->
+        <rect x="210" y="1050" width="1080" height="55" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.8" />
+        <text x="750" y="1083" text-anchor="middle" fill="#94A3B8" font-size="14" font-weight="400">
+            Bedrock serves <tspan fill="#FCD34D" font-weight="600">three distinct roles</tspan> — intent routing, visual
+            reasoning, multimodal embeddings — using <tspan fill="#FCD34D" font-weight="600">two foundation models
+            </tspan>
+        </text>
+
+    </svg>
+</body>
+
+</html>

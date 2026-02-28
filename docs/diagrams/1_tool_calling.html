@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cleo — Dynamic Tool-Calling System</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0F172A;
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        svg {
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+
+        svg text {
+            user-select: none;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
+
+        .dashed-anim {
+            animation: dash 1.2s linear infinite;
+        }
+    </style>
+</head>
+
+<body>
+    <svg viewBox="0 0 1800 1050" xmlns="http://www.w3.org/2000/svg" font-family="Inter, system-ui, sans-serif">
+        <defs>
+            <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+                <path d="M 48 0 L 0 0 0 48" fill="none" stroke="rgba(148,163,184,0.035)" stroke-width="0.5" />
+            </pattern>
+            <marker id="arr" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#475569" />
+            </marker>
+            <marker id="arr-teal" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#0D9488" />
+            </marker>
+            <marker id="arr-indigo" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#6366F1" />
+            </marker>
+            <marker id="arr-amber" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#D97706" />
+            </marker>
+            <marker id="arr-emerald" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#059669" />
+            </marker>
+            <marker id="arr-muted" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#64748B" />
+            </marker>
+            <filter id="shadow" x="-8%" y="-8%" width="116%" height="125%">
+                <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.25" />
+            </filter>
+        </defs>
+
+        <rect width="1600" height="1050" fill="#0F172A" />
+        <rect width="1600" height="1050" fill="url(#grid)" />
+
+        <!-- Title -->
+        <text x="800" y="60" text-anchor="middle" fill="#E2E8F0" font-size="34" font-weight="700"
+            letter-spacing="-0.5">Dynamic Tool-Calling System</text>
+        <text x="800" y="95" text-anchor="middle" fill="#64748B" font-size="14" font-weight="400"
+            letter-spacing="3">CLEO · AI-POWERED AR PLATFORM</text>
+
+        <!-- ═══════ NODES ═══════ -->
+
+        <!-- User Voice -->
+        <g>
+            <circle cx="120" cy="530" r="60" fill="#1E293B" stroke="#6366F1" stroke-width="1.5" filter="url(#shadow)" />
+            <rect x="111" y="506" width="18" height="28" rx="9" fill="none" stroke="#A5B4FC" stroke-width="1.5" />
+            <line x1="120" y1="538" x2="120" y2="546" stroke="#A5B4FC" stroke-width="1.5" />
+            <path d="M106,534 C106,546 134,546 134,534" fill="none" stroke="#A5B4FC" stroke-width="1.5" />
+            <text x="120" y="612" text-anchor="middle" fill="#CBD5E1" font-size="14" font-weight="600">User Voice</text>
+        </g>
+
+        <!-- Transcription Service -->
+        <g>
+            <rect x="290" y="490" width="260" height="90" rx="14" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="420" y="530" text-anchor="middle" fill="#5EEAD4" font-size="17" font-weight="600">Transcription
+                Service</text>
+            <text x="420" y="556" text-anchor="middle" fill="#2DD4BF" font-size="13" font-weight="400"
+                opacity="0.7">Wake-word &amp; STT</text>
+        </g>
+
+        <!-- Assistant Service -->
+        <g>
+            <rect x="660" y="483" width="270" height="100" rx="14" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="795" y="528" text-anchor="middle" fill="#C7D2FE" font-size="18" font-weight="700">Assistant
+                Service</text>
+            <text x="795" y="555" text-anchor="middle" fill="#818CF8" font-size="13" font-weight="400"
+                opacity="0.7">Intent Router</text>
+        </g>
+
+        <!-- Tool Registry -->
+        <g>
+            <rect x="410" y="160" width="240" height="195" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="530" y="195" text-anchor="middle" fill="#E2E8F0" font-size="16" font-weight="600">Tool
+                Registry</text>
+            <line x1="430" y1="210" x2="630" y2="210" stroke="#475569" stroke-width="1" />
+
+            <text x="440" y="235" fill="#94A3B8" font-size="14" font-weight="500">
+                <tspan x="440" dy="0">• Notetaking</tspan>
+                <tspan x="440" dy="20">• Save Video</tspan>
+                <tspan x="440" dy="20">• Food Macros</tspan>
+                <tspan x="440" dy="20">• Color Blindness Assist</tspan>
+                <tspan x="440" dy="20">• Navigator</tspan>
+                <tspan x="440" dy="20" fill="#64748B" font-size="16"> ...</tspan>
+            </text>
+        </g>
+
+        <!-- Data Service -->
+        <g>
+            <rect x="800" y="170" width="250" height="85" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+                filter="url(#shadow)" />
+            <text x="925" y="208" text-anchor="middle" fill="#E2E8F0" font-size="16" font-weight="600">Data
+                Service</text>
+            <text x="925" y="234" text-anchor="middle" fill="#94A3B8" font-size="12" font-weight="400">App Registry
+                Store</text>
+        </g>
+
+        <!-- SQLite -->
+        <g>
+            <ellipse cx="1180" cy="198" rx="42" ry="12" fill="#1E293B" stroke="#475569" stroke-width="1" />
+            <rect x="1138" y="198" width="84" height="38" fill="#1E293B" stroke="none" />
+            <line x1="1138" y1="198" x2="1138" y2="236" stroke="#475569" stroke-width="1" />
+            <line x1="1222" y1="198" x2="1222" y2="236" stroke="#475569" stroke-width="1" />
+            <ellipse cx="1180" cy="236" rx="42" ry="12" fill="#1E293B" stroke="#475569" stroke-width="1" />
+            <ellipse cx="1180" cy="198" rx="42" ry="12" fill="#1E293B" stroke="#475569" stroke-width="1" />
+            <text x="1180" y="222" text-anchor="middle" fill="#94A3B8" font-size="13" font-weight="500">SQLite</text>
+        </g>
+
+        <!-- Bedrock LLM -->
+        <g>
+            <rect x="1090" y="488" width="280" height="90" rx="14" fill="#271506" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="1120" y="530" fill="#FBBF24" font-size="16">☁</text>
+            <text x="1245" y="530" text-anchor="middle" fill="#FCD34D" font-size="17" font-weight="600">Bedrock
+                LLM</text>
+            <text x="1235" y="556" text-anchor="middle" fill="#D97706" font-size="13" font-weight="400"
+                opacity="0.8">Claude Sonnet</text>
+        </g>
+
+        <!-- Dynamic Tool Apps -->
+        <g>
+            <rect x="610" y="800" width="320" height="100" rx="16" fill="#052E16" stroke="#059669" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <rect x="650" y="837" width="12" height="12" rx="3" fill="none" stroke="#6EE7B7" stroke-width="1" />
+            <rect x="668" y="837" width="12" height="12" rx="3" fill="none" stroke="#6EE7B7" stroke-width="1" />
+            <rect x="650" y="855" width="12" height="12" rx="3" fill="none" stroke="#6EE7B7" stroke-width="1" />
+            <rect x="668" y="855" width="12" height="12" rx="3" fill="none" stroke="#6EE7B7" stroke-width="1" />
+            <text x="790" y="847" text-anchor="middle" fill="#A7F3D0" font-size="17" font-weight="700">Dynamic Tool
+                Apps</text>
+            <text x="790" y="874" text-anchor="middle" fill="#6EE7B7" font-size="12" font-weight="400"
+                opacity="0.7">extends ToolServiceBase</text>
+        </g>
+
+        <!-- ═══════ CONNECTIONS ═══════ -->
+
+        <!-- Voice → Transcription -->
+        <line x1="180" y1="530" x2="285" y2="530" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)" />
+        <rect x="195" y="500" width="65" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="228" y="515" text-anchor="middle" fill="#94A3B8" font-size="12" font-weight="500">Audio</text>
+
+        <!-- Transcription → Assistant -->
+        <line x1="550" y1="535" x2="655" y2="535" stroke="#0D9488" stroke-width="1.8" marker-end="url(#arr-teal)" />
+        <rect x="560" y="503" width="108" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="614" y="518" text-anchor="middle" fill="#5EEAD4" font-size="12" font-weight="500">Command Text</text>
+
+        <!-- Assistant ↔ Tool Registry -->
+        <path d="M740,483 C740,360 700,257 655,257" stroke="#6366F1" stroke-width="1.5" fill="none"
+            marker-end="url(#arr-indigo)" marker-start="url(#arr-indigo)" />
+        <circle cx="700" cy="330" r="17" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5" />
+        <text x="700" y="335" text-anchor="middle" fill="#A5B4FC" font-size="13" font-weight="700">1</text>
+        <rect x="715" y="318" width="132" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="781" y="335" text-anchor="middle" fill="#A5B4FC" font-size="13" font-weight="500">Get Active
+            Tools</text>
+
+        <!-- Registry ↔ Data Service -->
+        <line x1="650" y1="212" x2="795" y2="212" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"
+            marker-start="url(#arr)" />
+        <circle cx="722" cy="178" r="17" fill="#1E293B" stroke="#64748B" stroke-width="1.5" />
+        <text x="722" y="184" text-anchor="middle" fill="#CBD5E1" font-size="13" font-weight="700">2</text>
+        <rect x="670" y="148" width="115" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="727" y="165" text-anchor="middle" fill="#94A3B8" font-size="13" font-weight="500">Query Apps
+            (30s)</text>
+
+        <!-- Data Service → SQLite -->
+        <line x1="1050" y1="212" x2="1134" y2="212" stroke="#475569" stroke-width="1" stroke-dasharray="5,3" />
+
+        <!-- Assistant → Bedrock -->
+        <line x1="930" y1="525" x2="1085" y2="525" stroke="#D97706" stroke-width="1.8" marker-end="url(#arr-amber)" />
+        <circle cx="1008" cy="455" r="17" fill="#451A03" stroke="#D97706" stroke-width="1.5" />
+        <text x="1008" y="461" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="700">3</text>
+        <rect x="955" y="427" width="115" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="1012" y="444" text-anchor="middle" fill="#FCD34D" font-size="13" font-weight="500">Prompt +
+            Tools</text>
+
+        <!-- Bedrock dashed return -->
+        <line x1="1085" y1="558" x2="930" y2="558" stroke="#64748B" stroke-width="1.3" stroke-dasharray="6,4"
+            class="dashed-anim" marker-end="url(#arr-muted)" />
+        <rect x="940" y="600" width="170" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="1025" y="617" text-anchor="middle" fill="#64748B" font-size="13" font-weight="400"
+            font-style="italic">Returns Tool Name + Params</text>
+
+        <!-- Assistant ↔ Tool Apps -->
+        <path d="M795,583 L795,795" stroke="#059669" stroke-width="1.8" fill="none" marker-end="url(#arr-emerald)"
+            marker-start="url(#arr-emerald)" />
+        <circle cx="830" cy="680" r="17" fill="#052E16" stroke="#059669" stroke-width="1.5" />
+        <text x="830" y="686" text-anchor="middle" fill="#6EE7B7" font-size="13" font-weight="700">4</text>
+        <rect x="848" y="664" width="108" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="902" y="679" text-anchor="middle" fill="#6EE7B7" font-size="12" font-weight="500">Execute Tool</text>
+
+        <!-- Tool Apps -.→ Data Service (wide right arc, clears Bedrock box) -->
+        <path d="M930,850 C1700,850 1750,300 1050,240" stroke="#64748B" stroke-width="1.3" stroke-dasharray="7,4"
+            fill="none" class="dashed-anim" marker-end="url(#arr-muted)" />
+        <rect x="1580" y="530" width="130" height="44" rx="7" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+        <text x="1645" y="550" text-anchor="middle" fill="#64748B" font-size="13"
+            font-weight="400">Self-Registers</text>
+        <text x="1645" y="568" text-anchor="middle" fill="#64748B" font-size="13" font-weight="400">at Startup</text>
+
+        <!-- Legend -->
+        <g transform="translate(110, 980)">
+            <rect x="-15" y="-18" width="640" height="50" rx="8" fill="#1E293B" stroke="#334155" stroke-width="0.5"
+                opacity="0.6" />
+            <line x1="0" y1="8" x2="30" y2="8" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" />
+            <text x="40" y="13" fill="#94A3B8" font-size="13">Synchronous</text>
+            <line x1="170" y1="8" x2="200" y2="8" stroke="#64748B" stroke-width="1.2" stroke-dasharray="6,4" />
+            <text x="210" y="13" fill="#94A3B8" font-size="13">Async / Registration</text>
+            <circle cx="400" cy="8" r="12" fill="#1E293B" stroke="#6366F1" stroke-width="1.2" />
+            <text x="400" y="13" text-anchor="middle" fill="#A5B4FC" font-size="12" font-weight="700">N</text>
+            <text x="420" y="13" fill="#94A3B8" font-size="13">Step order</text>
+        </g>
+
+    </svg>
+</body>
+
+</html>

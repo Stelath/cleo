@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cleo — Complete User Flow</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0F172A;
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        svg {
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+
+        svg text {
+            user-select: none;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
+
+        .dashed-anim {
+            animation: dash 1.5s linear infinite;
+        }
+    </style>
+</head>
+
+<body>
+    <svg viewBox="0 0 1600 1200" xmlns="http://www.w3.org/2000/svg" font-family="Inter, system-ui, sans-serif">
+        <defs>
+            <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+                <path d="M 48 0 L 0 0 0 48" fill="none" stroke="rgba(148,163,184,0.035)" stroke-width="0.5" />
+            </pattern>
+            <!-- Markers -->
+            <marker id="arr-teal" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#0D9488" />
+            </marker>
+            <marker id="arr-blue" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#3B82F6" />
+            </marker>
+            <marker id="arr-indigo" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#6366F1" />
+            </marker>
+            <marker id="arr-slate" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#64748B" />
+            </marker>
+            <marker id="arr-amber" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#D97706" />
+            </marker>
+            <marker id="arr-emerald" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#059669" />
+            </marker>
+            <marker id="arr-purple" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#A855F7" />
+            </marker>
+            <marker id="arr-light" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+                orient="auto-start-reverse">
+                <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#A5B4FC" />
+            </marker>
+            <filter id="shadow" x="-8%" y="-8%" width="116%" height="125%">
+                <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.25" />
+            </filter>
+        </defs>
+
+        <rect width="1600" height="1200" fill="#0F172A" />
+        <rect width="1600" height="1200" fill="url(#grid)" />
+
+        <!-- Title -->
+        <text x="800" y="60" text-anchor="middle" fill="#E2E8F0" font-size="34" font-weight="700"
+            letter-spacing="-0.5">End-to-End User Flow</text>
+        <text x="800" y="95" text-anchor="middle" fill="#64748B" font-size="14" font-weight="400"
+            letter-spacing="3">SCENARIO: "HEY CLEO, WHAT'S IN FRONT OF ME?"</text>
+
+        <!-- ═══════ NODES ═══════ -->
+
+        <!-- User Voice / AR Glasses -->
+        <g>
+            <circle cx="120" cy="450" r="50" fill="#1E293B" stroke="#6366F1" stroke-width="1.5" filter="url(#shadow)" />
+            <!-- Glasses Icon -->
+            <path d="M85,445 Q100,430 115,445 T145,445" fill="none" stroke="#A5B4FC" stroke-width="2" />
+            <circle cx="100" cy="445" r="10" fill="none" stroke="#A5B4FC" stroke-width="2" />
+            <circle cx="130" cy="445" r="10" fill="none" stroke="#A5B4FC" stroke-width="2" />
+            <line x1="110" y1="445" x2="120" y2="445" stroke="#A5B4FC" stroke-width="2" />
+            <text x="120" y="525" text-anchor="middle" fill="#CBD5E1" font-size="14" font-weight="600">AR Glasses
+                User</text>
+        </g>
+
+        <!-- Sensor Service -->
+        <g>
+            <rect x="330" y="205" width="240" height="90" rx="14" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="450" y="245" text-anchor="middle" fill="#5EEAD4" font-size="17" font-weight="600">Sensor
+                Service</text>
+            <text x="450" y="271" text-anchor="middle" fill="#2DD4BF" font-size="13" font-weight="400"
+                opacity="0.7">Capture &amp; Encode Streams</text>
+        </g>
+
+        <!-- Transcription Service -->
+        <g>
+            <rect x="630" y="105" width="240" height="90" rx="14" fill="#1E3A8A" stroke="#3B82F6" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="750" y="145" text-anchor="middle" fill="#BFDBFE" font-size="17" font-weight="600">Transcription
+                Service</text>
+            <text x="750" y="171" text-anchor="middle" fill="#93C5FD" font-size="13" font-weight="400"
+                opacity="0.7">Wake-word &amp; STT</text>
+        </g>
+
+        <!-- Assistant Service-->
+        <g>
+            <rect x="930" y="205" width="240" height="90" rx="14" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="1050" y="245" text-anchor="middle" fill="#C7D2FE" font-size="17" font-weight="700">Assistant
+                Service</text>
+            <text x="1050" y="271" text-anchor="middle" fill="#818CF8" font-size="13" font-weight="400"
+                opacity="0.7">Core Router &amp; Reasoner</text>
+        </g>
+
+        <!-- Data Service -->
+        <g>
+            <rect x="1230" y="105" width="240" height="90" rx="14" fill="#1E293B" stroke="#64748B" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="1350" y="145" text-anchor="middle" fill="#E2E8F0" font-size="17" font-weight="600">Data
+                Service</text>
+            <text x="1350" y="171" text-anchor="middle" fill="#94A3B8" font-size="13" font-weight="400"
+                opacity="0.7">Vector DB &amp; Registry</text>
+        </g>
+
+        <!-- Vision Tool App -->
+        <g>
+            <rect x="630" y="605" width="240" height="90" rx="14" fill="#052E16" stroke="#059669" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="750" y="645" text-anchor="middle" fill="#A7F3D0" font-size="17" font-weight="600">Vision Tool
+                App</text>
+            <text x="750" y="671" text-anchor="middle" fill="#6EE7B7" font-size="13" font-weight="400"
+                opacity="0.7">Analyzes Camera Frames</text>
+        </g>
+
+        <!-- Bedrock LLM -->
+        <g>
+            <rect x="1010" y="605" width="280" height="90" rx="14" fill="#271506" stroke="#D97706" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="1150" y="645" text-anchor="middle" fill="#FCD34D" font-size="18" font-weight="700">Amazon
+                Bedrock</text>
+            <text x="1150" y="671" text-anchor="middle" fill="#D97706" font-size="13" font-weight="500"
+                opacity="0.8">Claude 3.5 Sonnet</text>
+        </g>
+
+        <!-- Frontend Service -->
+        <g>
+            <rect x="330" y="605" width="240" height="90" rx="14" fill="#3B0764" stroke="#A855F7" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <text x="450" y="645" text-anchor="middle" fill="#E9D5FF" font-size="17" font-weight="600">Frontend
+                Service</text>
+            <text x="450" y="671" text-anchor="middle" fill="#D8B4FE" font-size="13" font-weight="400"
+                opacity="0.7">Tauri React HUD Overlays</text>
+        </g>
+
+        <!-- ═══════ CONNECTIONS & STEPS ═══════ -->
+
+        <!-- 1. User -> Sensor -->
+        <g>
+            <line x1="155" y1="414" x2="330" y2="250" stroke="#0D9488" stroke-width="2" marker-end="url(#arr-teal)"
+                stroke-dasharray="6,4" class="dashed-anim" />
+            <rect x="187" y="328" width="85" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="229" y="345" text-anchor="middle" fill="#A5B4FC" font-size="12" font-weight="500">"Hey
+                Cleo..."</text>
+            <circle cx="242" cy="315" r="14" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.5" />
+            <text x="242" y="320" text-anchor="middle" fill="#5EEAD4" font-size="12" font-weight="700">1</text>
+        </g>
+
+        <!-- 2. Sensor -> Transcription -->
+        <g>
+            <line x1="570" y1="230" x2="630" y2="170" stroke="#3B82F6" stroke-width="2" marker-end="url(#arr-blue)" />
+            <rect x="540" y="209" width="120" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="600" y="226" text-anchor="middle" fill="#93C5FD" font-size="12" font-weight="500">Stream PCM
+                Audio</text>
+            <circle cx="600" cy="196" r="14" fill="#1E3A8A" stroke="#3B82F6" stroke-width="1.5" />
+            <text x="600" y="201" text-anchor="middle" fill="#BFDBFE" font-size="12" font-weight="700">2</text>
+        </g>
+
+        <!-- 3. Transcription -> Assistant -->
+        <g>
+            <line x1="870" y1="170" x2="930" y2="230" stroke="#6366F1" stroke-width="2" marker-end="url(#arr-indigo)" />
+            <rect x="835" y="209" width="130" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="900" y="226" text-anchor="middle" fill="#818CF8" font-size="12" font-weight="500">Command:
+                "What's..."</text>
+            <circle cx="900" cy="196" r="14" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5" />
+            <text x="900" y="201" text-anchor="middle" fill="#A5B4FC" font-size="12" font-weight="700">3</text>
+        </g>
+
+        <!-- 4. Assistant <-> Data -->
+        <g>
+            <line x1="1170" y1="230" x2="1230" y2="170" stroke="#64748B" stroke-width="2" marker-start="url(#arr-slate)"
+                marker-end="url(#arr-slate)" />
+            <rect x="1140" y="209" width="120" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="1200" y="226" text-anchor="middle" fill="#94A3B8" font-size="12" font-weight="500">Fetch active
+                tools</text>
+            <circle cx="1200" cy="196" r="14" fill="#1E293B" stroke="#64748B" stroke-width="1.5" />
+            <text x="1200" y="201" text-anchor="middle" fill="#E2E8F0" font-size="12" font-weight="700">4</text>
+        </g>
+
+        <!-- 5. Assistant <-> Bedrock -->
+        <g>
+            <line x1="1100" y1="295" x2="1150" y2="605" stroke="#D97706" stroke-width="2" marker-start="url(#arr-amber)"
+                marker-end="url(#arr-amber)" />
+            <rect x="1070" y="443" width="110" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="1125" y="460" text-anchor="middle" fill="#FCD34D" font-size="12" font-weight="500">Decide best
+                tool</text>
+            <circle cx="1125" cy="430" r="14" fill="#271506" stroke="#D97706" stroke-width="1.5" />
+            <text x="1125" y="435" text-anchor="middle" fill="#FBBF24" font-size="12" font-weight="700">5</text>
+        </g>
+
+        <!-- 6. Assistant -> Vision Tool -->
+        <g>
+            <line x1="1000" y1="295" x2="820" y2="605" stroke="#059669" stroke-width="2"
+                marker-end="url(#arr-emerald)" />
+            <rect x="847" y="443" width="125" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="910" y="460" text-anchor="middle" fill="#A7F3D0" font-size="12" font-weight="500">Execute
+                VisionTool</text>
+            <circle cx="910" cy="430" r="14" fill="#052E16" stroke="#059669" stroke-width="1.5" />
+            <text x="910" y="435" text-anchor="middle" fill="#6EE7B7" font-size="12" font-weight="700">6</text>
+        </g>
+
+        <!-- 7. Vision Tool <-> Sensor -->
+        <g>
+            <line x1="680" y1="605" x2="520" y2="295" stroke="#0D9488" stroke-width="2" marker-start="url(#arr-teal)"
+                marker-end="url(#arr-teal)" stroke-dasharray="6,4" class="dashed-anim" />
+            <rect x="537" y="443" width="125" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="600" y="460" text-anchor="middle" fill="#5EEAD4" font-size="12" font-weight="500">Get Camera
+                Frame</text>
+            <circle cx="600" cy="430" r="14" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.5" />
+            <text x="600" y="435" text-anchor="middle" fill="#5EEAD4" font-size="12" font-weight="700">7</text>
+        </g>
+
+        <!-- 8. Vision Tool <-> Bedrock -->
+        <g>
+            <line x1="870" y1="650" x2="1010" y2="650" stroke="#D97706" stroke-width="2" marker-start="url(#arr-amber)"
+                marker-end="url(#arr-amber)" />
+            <rect x="880" y="665" width="110" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="935" y="682" text-anchor="middle" fill="#FBBF24" font-size="12" font-weight="500">Image +
+                Prompt</text>
+            <circle cx="935" cy="630" r="14" fill="#271506" stroke="#D97706" stroke-width="1.5" />
+            <text x="935" y="635" text-anchor="middle" fill="#FBBF24" font-size="12" font-weight="700">8</text>
+        </g>
+
+        <!-- 9. Vision Tool -> Frontend -->
+        <g>
+            <line x1="630" y1="650" x2="570" y2="650" stroke="#A855F7" stroke-width="2" marker-end="url(#arr-purple)" />
+            <rect x="545" y="665" width="120" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="605" y="682" text-anchor="middle" fill="#E9D5FF" font-size="12" font-weight="500">Push "Red
+                Apple"</text>
+            <circle cx="605" cy="630" r="14" fill="#3B0764" stroke="#A855F7" stroke-width="1.5" />
+            <text x="605" y="635" text-anchor="middle" fill="#D8B4FE" font-size="12" font-weight="700">9</text>
+        </g>
+
+        <!-- 10. Frontend -> User -->
+        <g>
+            <line x1="330" y1="650" x2="155" y2="485" stroke="#A5B4FC" stroke-width="2" marker-end="url(#arr-light)"
+                stroke-dasharray="6,4" class="dashed-anim" />
+            <rect x="187" y="565" width="110" height="24" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+            <text x="242" y="582" text-anchor="middle" fill="#CBD5E1" font-size="12" font-weight="500">Render Toast
+                UI</text>
+            <circle cx="242" cy="552" r="14" fill="#1E293B" stroke="#A5B4FC" stroke-width="1.5" />
+            <text x="242" y="557" text-anchor="middle" fill="#E2E8F0" font-size="12" font-weight="700">10</text>
+        </g>
+
+        <!-- ═══════ CODEBASE FACTS BOX ═══════ -->
+        <g transform="translate(200, 900)">
+            <rect x="0" y="0" width="1200" height="150" rx="16" fill="#0F172A" stroke="#334155" stroke-width="1.5"
+                filter="url(#shadow)" />
+            <rect x="0" y="0" width="1200" height="150" rx="16" fill="#334155" opacity="0.3" />
+
+            <text x="600" y="45" text-anchor="middle" fill="#E2E8F0" font-size="20" font-weight="700"
+                letter-spacing="1">CLEO PLATFORM ARCHITECTURE</text>
+            <line x1="300" y1="65" x2="900" y2="65" stroke="#475569" stroke-width="1" />
+
+            <!-- Fact 1: gRPC -->
+            <text x="60" y="100" fill="#E2E8F0" font-size="15" font-weight="600">High-Throughput gRPC</text>
+            <text x="60" y="125" fill="#94A3B8" font-size="14" font-weight="400">Services operate as native OS
+                processes</text>
+            <text x="60" y="146" fill="#94A3B8" font-size="14" font-weight="400">and stream realtime <tspan
+                    fill="#F472B6" font-weight="600">protocol buffers</tspan>.</text>
+
+            <!-- Fact 2: Polyglot -->
+            <text x="450" y="100" fill="#E2E8F0" font-size="15" font-weight="600">Polyglot Codebase</text>
+            <text x="450" y="125" fill="#94A3B8" font-size="14" font-weight="400">Uses <tspan fill="#FCD34D"
+                    font-weight="600">Python</tspan>, <tspan fill="#F87171" font-weight="600">Rust</tspan>, <tspan
+                    fill="#34D399" font-weight="600">TypeScript</tspan>, and <tspan fill="#A78BFA" font-weight="600">C
+                </tspan></text>
+            <text x="450" y="146" fill="#94A3B8" font-size="14" font-weight="400">tailored specifically to each domain
+                layer.</text>
+
+            <!-- Fact 3: Extensibility -->
+            <text x="800" y="100" fill="#E2E8F0" font-size="15" font-weight="600">Dynamic Discovery</text>
+            <text x="800" y="125" fill="#94A3B8" font-size="14" font-weight="400">Tools self-register upon startup
+                enabling</text>
+            <text x="800" y="146" fill="#94A3B8" font-size="14" font-weight="400">real-time schema generation for the
+                LLM.</text>
+        </g>
+
+    </svg>
+</body>
+
+</html>

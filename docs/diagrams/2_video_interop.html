@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cleo — Video Interop Layer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0F172A;
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    svg {
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+
+    svg text {
+      user-select: none;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -20;
+      }
+    }
+
+    .dashed-anim {
+      animation: dash 1.2s linear infinite;
+    }
+  </style>
+</head>
+
+<body>
+  <svg viewBox="0 0 1550 1350" xmlns="http://www.w3.org/2000/svg" font-family="Inter, system-ui, sans-serif">
+    <defs>
+      <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+        <path d="M 48 0 L 0 0 0 48" fill="none" stroke="rgba(148,163,184,0.035)" stroke-width="0.5" />
+      </pattern>
+      <marker id="arr" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+        orient="auto-start-reverse">
+        <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#475569" />
+      </marker>
+      <marker id="arr-teal" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+        orient="auto-start-reverse">
+        <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#0D9488" />
+      </marker>
+      <marker id="arr-cyan" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+        orient="auto-start-reverse">
+        <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#06B6D4" />
+      </marker>
+      <marker id="arr-emerald" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+        orient="auto-start-reverse">
+        <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#059669" />
+      </marker>
+      <marker id="arr-muted" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="10" markerHeight="7"
+        orient="auto-start-reverse">
+        <path d="M0,0 L10,3.5 L0,7 L2.5,3.5 Z" fill="#64748B" />
+      </marker>
+      <filter id="shadow" x="-8%" y="-8%" width="116%" height="125%">
+        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.25" />
+      </filter>
+    </defs>
+
+    <rect width="1550" height="1350" fill="#0F172A" />
+    <rect width="1550" height="1350" fill="url(#grid)" />
+
+    <!-- Title -->
+    <text x="775" y="55" text-anchor="middle" fill="#E2E8F0" font-size="34" font-weight="700"
+      letter-spacing="-0.5">Video Interop Layer</text>
+    <text x="775" y="88" text-anchor="middle" fill="#64748B" font-size="14" font-weight="400" letter-spacing="3">CLEO ·
+      REAL-TIME CAPTURE → STORAGE PIPELINE</text>
+
+    <!-- Stage sidebar -->
+    <rect x="65" y="120" width="9" height="130" rx="4" fill="#0D9488" opacity="0.5" />
+    <text x="44" y="185" text-anchor="middle" fill="#2DD4BF" font-size="10" font-weight="600" letter-spacing="1.5"
+      transform="rotate(-90 44 185)">CAPTURE</text>
+
+    <rect x="65" y="340" width="9" height="250" rx="4" fill="#475569" opacity="0.35" />
+    <text x="44" y="465" text-anchor="middle" fill="#94A3B8" font-size="10" font-weight="600" letter-spacing="1.5"
+      transform="rotate(-90 44 465)">CODEC</text>
+
+    <rect x="65" y="690" width="9" height="200" rx="4" fill="#6366F1" opacity="0.35" />
+    <text x="44" y="790" text-anchor="middle" fill="#818CF8" font-size="10" font-weight="600" letter-spacing="1.5"
+      transform="rotate(-90 44 790)">TRANSPORT</text>
+
+    <rect x="65" y="1000" width="9" height="260" rx="4" fill="#059669" opacity="0.35" />
+    <text x="44" y="1130" text-anchor="middle" fill="#34D399" font-size="10" font-weight="600" letter-spacing="1.5"
+      transform="rotate(-90 44 1130)">STORAGE</text>
+
+    <!-- ═══════ HARDWARE INPUTS (y≈165) ═══════ -->
+    <g>
+      <circle cx="460" cy="165" r="52" fill="#1E293B" stroke="#E11D48" stroke-width="1.5" filter="url(#shadow)" />
+      <text x="460" y="162" text-anchor="middle" fill="#FCA5A5" font-size="24">📷</text>
+      <text x="460" y="238" text-anchor="middle" fill="#CBD5E1" font-size="14" font-weight="600">AR Camera</text>
+    </g>
+
+    <g>
+      <circle cx="1010" cy="165" r="52" fill="#1E293B" stroke="#D97706" stroke-width="1.5" filter="url(#shadow)" />
+      <text x="1010" y="162" text-anchor="middle" fill="#FDE68A" font-size="24">🎤</text>
+      <text x="1010" y="238" text-anchor="middle" fill="#CBD5E1" font-size="14" font-weight="600">AR Microphone</text>
+    </g>
+
+    <!-- HW → Sensor -->
+    <path d="M460,217 L460,270 Q460,300 580,310 L665,318" stroke="#E11D48" stroke-width="1.5" fill="none"
+      marker-end="url(#arr)" opacity="0.7" />
+    <rect x="476" y="268" width="85" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="518" y="283" text-anchor="middle" fill="#FDA4AF" font-size="13" font-weight="500">Raw Video</text>
+
+    <path d="M1010,217 L1010,270 Q1010,300 890,310 L810,318" stroke="#D97706" stroke-width="1.5" fill="none"
+      marker-end="url(#arr)" opacity="0.7" />
+    <rect x="920" y="268" width="85" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="962" y="283" text-anchor="middle" fill="#FDE68A" font-size="13" font-weight="500">Raw Audio</text>
+
+    <!-- ═══════ SENSOR SERVICE (y≈320) ═══════ -->
+    <g>
+      <rect x="610" y="310" width="280" height="82" rx="14" fill="#0F2D2E" stroke="#0D9488" stroke-width="1.5"
+        filter="url(#shadow)" />
+      <text x="750" y="348" text-anchor="middle" fill="#5EEAD4" font-size="17" font-weight="600">Sensor Service</text>
+      <text x="750" y="374" text-anchor="middle" fill="#2DD4BF" font-size="12" font-weight="400" opacity="0.7">Audio +
+        Video Multiplexer</text>
+    </g>
+
+    <!-- ═══════ CODEC LAYER (y≈450-620) ═══════ -->
+
+    <!-- Sensor → Transcription -->
+    <path d="M640,392 L640,445 Q640,475 500,475 L330,475" stroke="#0D9488" stroke-width="1.5" fill="none"
+      marker-end="url(#arr-teal)" />
+    <rect x="478" y="425" width="100" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="528" y="440" text-anchor="middle" fill="#5EEAD4" font-size="13" font-weight="500">Audio Stream</text>
+
+    <g>
+      <rect x="115" y="445" width="230" height="70" rx="12" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="230" y="478" text-anchor="middle" fill="#C7D2FE" font-size="15" font-weight="600">Transcription
+        Service</text>
+      <text x="230" y="500" text-anchor="middle" fill="#818CF8" font-size="12" font-weight="400" opacity="0.7">Wake-word
+        + STT</text>
+    </g>
+
+    <path d="M230,515 L230,565" stroke="#6366F1" stroke-width="1.2" fill="none" marker-end="url(#arr)" />
+    <g>
+      <rect x="150" y="565" width="165" height="42" rx="8" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+      <text x="232" y="591" text-anchor="middle" fill="#94A3B8" font-size="12" font-weight="500">→ Assistant
+        Service</text>
+    </g>
+
+    <!-- Sensor → ffmpeg -->
+    <line x1="735" y1="392" x2="735" y2="470" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" />
+
+    <g>
+      <rect x="615" y="475" width="250" height="72" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="740" y="508" text-anchor="middle" fill="#E2E8F0" font-size="15" font-weight="600">Persistent
+        ffmpeg</text>
+      <text x="740" y="532" text-anchor="middle" fill="#94A3B8" font-size="12" font-weight="400">H.264 Encoder</text>
+    </g>
+
+    <!-- Sensor → Single-Frame -->
+    <path d="M850,392 L1000,455" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arr)" />
+
+    <g>
+      <rect x="960" y="455" width="220" height="58" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="1070" y="490" text-anchor="middle" fill="#E2E8F0" font-size="14" font-weight="600">Single-Frame
+        Encoder</text>
+    </g>
+
+    <!-- Single-Frame → Vision Tools -->
+    <line x1="1180" y1="484" x2="1280" y2="484" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)" />
+    <g>
+      <rect x="1280" y="455" width="180" height="58" rx="12" fill="#1E1B4B" stroke="#7C3AED" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="1370" y="482" text-anchor="middle" fill="#C4B5FD" font-size="13" font-weight="600">On-Demand</text>
+      <text x="1370" y="502" text-anchor="middle" fill="#A78BFA" font-size="13" font-weight="600">Vision Tools</text>
+    </g>
+
+    <!-- ffmpeg → Hub -->
+    <path d="M650,547 L495,635" stroke="#06B6D4" stroke-width="1.5" fill="none" marker-end="url(#arr-cyan)" />
+    <rect x="505" y="575" width="115" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="562" y="590" text-anchor="middle" fill="#67E8F9" font-size="13" font-weight="500">Encoded Video</text>
+
+    <!-- Broadcast Hub -->
+    <g>
+      <circle cx="440" cy="685" r="55" fill="#0C2D3E" stroke="#06B6D4" stroke-width="1.5" filter="url(#shadow)" />
+      <text x="440" y="680" text-anchor="middle" fill="#67E8F9" font-size="14" font-weight="600">Broadcast</text>
+      <text x="440" y="700" text-anchor="middle" fill="#22D3EE" font-size="13" font-weight="500">Hub</text>
+      <text x="440" y="758" text-anchor="middle" fill="#64748B" font-size="12" font-weight="400">Pub-Sub Fan-Out</text>
+    </g>
+
+    <!-- ffmpeg → Ring Buffer -->
+    <path d="M830,547 L975,630" stroke="#D97706" stroke-width="1.5" fill="none" marker-end="url(#arr)" />
+    <rect x="850" y="575" width="115" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="907" y="590" text-anchor="middle" fill="#FDE68A" font-size="13" font-weight="500">Encoded Video</text>
+
+    <!-- 30s Ring Buffer -->
+    <g>
+      <ellipse cx="1030" cy="650" rx="65" ry="14" fill="#1E293B" stroke="#D97706" stroke-width="1.2" />
+      <rect x="965" y="650" width="130" height="55" fill="#1E293B" stroke="none" />
+      <line x1="965" y1="650" x2="965" y2="705" stroke="#D97706" stroke-width="1.2" />
+      <line x1="1095" y1="650" x2="1095" y2="705" stroke="#D97706" stroke-width="1.2" />
+      <ellipse cx="1030" cy="705" rx="65" ry="14" fill="#1E293B" stroke="#D97706" stroke-width="1.2" />
+      <text x="1030" y="683" text-anchor="middle" fill="#FCD34D" font-size="14" font-weight="600">30s Ring Buffer</text>
+    </g>
+
+    <!-- Ring Buffer → Save Clip -->
+    <path d="M1095,678 L1225,678" stroke="#64748B" stroke-width="1.2" stroke-dasharray="6,4" fill="none"
+      class="dashed-anim" marker-end="url(#arr-muted)" />
+    <rect x="1120" y="650" width="90" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="1165" y="665" text-anchor="middle" fill="#64748B" font-size="13" font-weight="400">Fetch Past</text>
+    <g>
+      <rect x="1225" y="655" width="180" height="55" rx="12" fill="#052E16" stroke="#059669" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="1315" y="688" text-anchor="middle" fill="#6EE7B7" font-size="15" font-weight="600">Save Clip Tool</text>
+    </g>
+
+    <!-- ═══════ TRANSPORT (y≈800-920) ═══════ -->
+
+    <line x1="440" y1="740" x2="440" y2="808" stroke="#06B6D4" stroke-width="1.5" marker-end="url(#arr-cyan)" />
+
+    <g>
+      <rect x="345" y="812" width="200" height="60" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="445" y="848" text-anchor="middle" fill="#E2E8F0" font-size="15" font-weight="600">Data Chunker</text>
+    </g>
+
+    <line x1="545" y1="842" x2="680" y2="842" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" />
+    <rect x="570" y="815" width="85" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="612" y="830" text-anchor="middle" fill="#94A3B8" font-size="13" font-weight="500">256KB ×</text>
+
+    <g>
+      <rect x="680" y="812" width="220" height="60" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="790" y="848" text-anchor="middle" fill="#E2E8F0" font-size="15" font-weight="600">Frame Assembler</text>
+    </g>
+
+    <line x1="790" y1="872" x2="790" y2="945" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" />
+
+    <g>
+      <rect x="650" y="948" width="280" height="65" rx="14" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.2"
+        filter="url(#shadow)" />
+      <text x="790" y="986" text-anchor="middle" fill="#C7D2FE" font-size="16" font-weight="600">Video Clip
+        Pipeline</text>
+    </g>
+
+    <!-- ═══════ SEGMENTATION (y≈1030-1130) ═══════ -->
+    <rect x="150" y="1030" width="490" height="115" rx="12" fill="none" stroke="#475569" stroke-width="1"
+      stroke-dasharray="5,3" opacity="0.5" />
+    <text x="178" y="1054" fill="#64748B" font-size="10" font-weight="600" letter-spacing="1">SEGMENTATION WINDOW</text>
+
+    <path d="M680,990 L530,1048 Q490,1065 490,1085" stroke="#6366F1" stroke-width="1.2" fill="none"
+      marker-end="url(#arr)" />
+    <g>
+      <rect x="360" y="1085" width="220" height="48" rx="10" fill="#1E293B" stroke="#6366F1" stroke-width="1" />
+      <text x="470" y="1115" text-anchor="middle" fill="#A5B4FC" font-size="13" font-weight="600">📦 Package Full
+        MP4</text>
+    </g>
+
+    <path d="M680,1000 L380,1048 Q300,1065 280,1085" stroke="#6366F1" stroke-width="1.2" fill="none"
+      marker-end="url(#arr)" />
+    <g>
+      <rect x="160" y="1085" width="210" height="48" rx="10" fill="#1E293B" stroke="#6366F1" stroke-width="1" />
+      <text x="265" y="1115" text-anchor="middle" fill="#A5B4FC" font-size="13" font-weight="600">⚡ Downsample for
+        AI</text>
+    </g>
+
+    <!-- Both → Data Service -->
+    <path d="M470,1133 Q470,1175 700,1190 L1030,1190" stroke="#059669" stroke-width="1.5" fill="none"
+      marker-end="url(#arr-emerald)" />
+    <path d="M265,1133 Q265,1210 700,1215 L1030,1215" stroke="#059669" stroke-width="1.5" fill="none"
+      marker-end="url(#arr-emerald)" />
+    <rect x="710" y="1180" width="130" height="22" rx="5" fill="#1E293B" stroke="#334155" stroke-width="0.5" />
+    <text x="775" y="1195" text-anchor="middle" fill="#6EE7B7" font-size="13" font-weight="500">Stream to Storage</text>
+
+    <g>
+      <rect x="1030" y="1175" width="230" height="75" rx="14" fill="#052E16" stroke="#059669" stroke-width="1.5"
+        filter="url(#shadow)" />
+      <text x="1145" y="1210" text-anchor="middle" fill="#A7F3D0" font-size="17" font-weight="600">Data Service</text>
+      <text x="1145" y="1235" text-anchor="middle" fill="#6EE7B7" font-size="12" font-weight="400" opacity="0.7">Ingest
+        + Index</text>
+    </g>
+
+    <line x1="1260" y1="1212" x2="1350" y2="1212" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)" />
+
+    <g>
+      <ellipse cx="1410" cy="1193" rx="50" ry="12" fill="#1E293B" stroke="#059669" stroke-width="1" />
+      <rect x="1360" y="1193" width="100" height="42" fill="#1E293B" stroke="none" />
+      <line x1="1360" y1="1193" x2="1360" y2="1235" stroke="#059669" stroke-width="1" />
+      <line x1="1460" y1="1193" x2="1460" y2="1235" stroke="#059669" stroke-width="1" />
+      <ellipse cx="1410" cy="1235" rx="50" ry="12" fill="#1E293B" stroke="#059669" stroke-width="1" />
+      <text x="1410" y="1212" text-anchor="middle" fill="#A7F3D0" font-size="12" font-weight="500">Disk +</text>
+      <text x="1410" y="1228" text-anchor="middle" fill="#A7F3D0" font-size="12" font-weight="500">Vector DB</text>
+    </g>
+
+    <!-- Legend -->
+    <g transform="translate(110, 1310)">
+      <rect x="-12" y="-14" width="540" height="38" rx="6" fill="#1E293B" stroke="#334155" stroke-width="0.5"
+        opacity="0.5" />
+      <line x1="0" y1="5" x2="28" y2="5" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" />
+      <text x="36" y="10" fill="#64748B" font-size="13">Data flow</text>
+      <line x1="120" y1="5" x2="148" y2="5" stroke="#64748B" stroke-width="1.2" stroke-dasharray="6,4" />
+      <text x="156" y="10" fill="#64748B" font-size="13">On-demand</text>
+      <circle cx="260" cy="5" r="7" fill="#0C2D3E" stroke="#06B6D4" stroke-width="1" />
+      <text x="276" y="10" fill="#64748B" font-size="13">Pub-Sub</text>
+      <ellipse cx="355" cy="5" rx="16" ry="7" fill="#1E293B" stroke="#D97706" stroke-width="1" />
+      <text x="378" y="10" fill="#64748B" font-size="13">Buffer</text>
+    </g>
+
+  </svg>
+</body>
+
+</html>
