@@ -1,11 +1,13 @@
-"""DataService gRPC servicer — owns SQLite, FAISS, Bedrock embeddings, and video storage."""
+"""DataService gRPC servicer - owns SQLite, FAISS, Bedrock embeddings, and video storage."""
 
 import json
 import mimetypes
 import signal
+import threading
 import time
 from concurrent import futures
 from pathlib import Path
+from typing import Any
 
 import grpc
 import structlog
@@ -31,6 +33,9 @@ from generated import data_pb2, data_pb2_grpc
 log = structlog.get_logger()
 
 _MEDIA_CHUNK_BYTES = 256 * 1024
+_FACE_MATCH_SEARCH_K = 8
+_FACE_MATCH_SCORE_MARGIN = 0.03
+_FACE_SEARCH_RESULT_MULTIPLIER = 3
 
 
 class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
@@ -58,6 +63,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         self._face_dir.mkdir(parents=True, exist_ok=True)
         self._embedding_dim = embedding_dim
         self._face_embedding_dim = face_embedding_dim
+        self._face_store_lock = threading.Lock()
         log.info(
             "data_service.init",
             db_path=db_path,
@@ -74,6 +80,101 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         self._faces_faiss.save()
         self._sqlite.close()
         log.info("data_service.shutdown")
+
+    def _group_face_matches(
+        self,
+        embedding,
+        *,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        raw_k = max(top_k, 1)
+        raw_results = self._faces_faiss.search(embedding, k=raw_k)
+        grouped: dict[int, dict[str, Any]] = {}
+
+        for faiss_id, score, meta in raw_results:
+            face_id_value = meta.get("face_id") if isinstance(meta, dict) else None
+            face_id = int(face_id_value) if face_id_value is not None else None
+            if face_id is None:
+                face = self._sqlite.get_face_by_faiss_id(faiss_id)
+                if face is None:
+                    continue
+                face_id = int(face["id"])
+            else:
+                face = self._sqlite.get_face(face_id)
+                if face is None:
+                    continue
+
+            entry = grouped.get(face_id)
+            if entry is None:
+                entry = {
+                    "face": face,
+                    "best_faiss_id": int(faiss_id),
+                    "max_score": float(score),
+                    "score_sum": float(score),
+                    "vote_count": 1,
+                }
+                grouped[face_id] = entry
+                continue
+
+            entry["score_sum"] += float(score)
+            entry["vote_count"] += 1
+            if score > entry["max_score"]:
+                entry["max_score"] = float(score)
+                entry["best_faiss_id"] = int(faiss_id)
+
+        ranked: list[dict[str, Any]] = []
+        for face_id, entry in grouped.items():
+            vote_count = int(entry["vote_count"])
+            avg_score = float(entry["score_sum"]) / vote_count
+            max_score = float(entry["max_score"])
+            vote_bonus = min(0.02 * max(vote_count - 1, 0), 0.06)
+            aggregate_score = (max_score * 0.7) + (avg_score * 0.3) + vote_bonus
+            ranked.append(
+                {
+                    "face_id": face_id,
+                    "face": entry["face"],
+                    "best_faiss_id": int(entry["best_faiss_id"]),
+                    "max_score": max_score,
+                    "avg_score": avg_score,
+                    "vote_count": vote_count,
+                    "aggregate_score": aggregate_score,
+                }
+            )
+
+        ranked.sort(
+            key=lambda item: (
+                float(item["aggregate_score"]),
+                float(item["max_score"]),
+                int(item["vote_count"]),
+            ),
+            reverse=True,
+        )
+        return ranked
+
+    def _select_face_match(self, embedding) -> dict[str, Any] | None:
+        ranked = self._group_face_matches(embedding, top_k=_FACE_MATCH_SEARCH_K)
+        if not ranked:
+            return None
+
+        best = ranked[0]
+        if float(best["aggregate_score"]) < FACE_SIMILARITY_THRESHOLD:
+            return None
+
+        runner_up_score = float(ranked[1]["aggregate_score"]) if len(ranked) > 1 else None
+        if (
+            runner_up_score is not None
+            and float(best["aggregate_score"]) - runner_up_score < _FACE_MATCH_SCORE_MARGIN
+        ):
+            log.info(
+                "data_service.face_match_ambiguous",
+                best_face_id=best["face_id"],
+                best_score=best["aggregate_score"],
+                runner_up_face_id=ranked[1]["face_id"],
+                runner_up_score=runner_up_score,
+            )
+            return None
+
+        return best
 
     # ── StoreTranscription ──
 
@@ -608,73 +709,81 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             context.set_details(f"Face embedding failed: {e}")
             return data_pb2.StoreFaceEmbeddingResponse()
 
-        # Check for existing match (dedup)
-        try:
-            matches = self._faces_faiss.search(embedding, k=1)
-        except Exception as e:
-            log.error("data_service.face_match_error", error=str(e))
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"Face match failed: {e}")
-            return data_pb2.StoreFaceEmbeddingResponse()
-        if matches and matches[0][1] > FACE_SIMILARITY_THRESHOLD:
-            matched_faiss_id, score, meta = matches[0]
-            matched_face = self._sqlite.get_face_by_faiss_id(matched_faiss_id)
-            if matched_face:
-                matched_face_id = matched_face["id"]
+        with self._face_store_lock:
+            # Match-and-store must be atomic across gRPC worker threads or identical
+            # requests can race and create duplicate identities.
+            try:
+                matched = self._select_face_match(embedding)
+            except Exception as e:
+                log.error("data_service.face_match_error", error=str(e))
+                context.set_code(grpc.StatusCode.INTERNAL)
+                context.set_details(f"Face match failed: {e}")
+                return data_pb2.StoreFaceEmbeddingResponse()
+            if matched is not None:
+                matched_face_id = int(matched["face_id"])
                 self._store_face_sighting_image(
                     face_id=matched_face_id,
                     image_data=request.image_data,
                     timestamp=request.timestamp,
                 )
                 self._sqlite.update_face_seen(matched_face_id, request.timestamp)
+
+                exemplar_faiss_id = self._faces_faiss.add(
+                    embedding,
+                    {"face_id": matched_face_id, "timestamp": request.timestamp},
+                )
+                self._sqlite.update_face_faiss_id(matched_face_id, exemplar_faiss_id)
                 log.info(
                     "data_service.face_dedup",
                     face_id=matched_face_id,
-                    score=score,
+                    best_score=matched["max_score"],
+                    aggregate_score=matched["aggregate_score"],
+                    vote_count=matched["vote_count"],
+                    exemplar_faiss_id=exemplar_faiss_id,
                 )
                 return data_pb2.StoreFaceEmbeddingResponse(
                     face_id=matched_face_id,
-                    faiss_id=matched_faiss_id,
+                    faiss_id=exemplar_faiss_id,
                     is_new=False,
                     matched_face_id=matched_face_id,
                 )
 
-        # New face — save thumbnail, insert SQLite, add to FAISS
-        thumbnail_name = f"face_{request.timestamp:.6f}.jpg"
-        thumbnail_path = self._face_dir / thumbnail_name
-        thumbnail_path.write_bytes(request.image_data)
+            # New face - save thumbnail, insert SQLite, add to FAISS
+            thumbnail_name = f"face_{request.timestamp:.6f}.jpg"
+            thumbnail_path = self._face_dir / thumbnail_name
+            thumbnail_path.write_bytes(request.image_data)
 
-        face_id = self._sqlite.insert_face(
-            thumbnail_path=str(thumbnail_path),
-            confidence=request.confidence,
-            first_seen=request.timestamp,
-        )
-
-        try:
-            faiss_id = self._faces_faiss.add(
-                embedding, {"face_id": face_id, "timestamp": request.timestamp}
+            face_id = self._sqlite.insert_face(
+                thumbnail_path=str(thumbnail_path),
+                confidence=request.confidence,
+                first_seen=request.timestamp,
             )
-        except Exception as e:
-            log.error("data_service.face_store_index_error", error=str(e), face_id=face_id)
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"Face index update failed: {e}")
-            return data_pb2.StoreFaceEmbeddingResponse()
-        self._sqlite.update_face_faiss_id(face_id, faiss_id)
-        self._sqlite.insert_face_sighting(
-            face_id=face_id,
-            image_path=str(thumbnail_path),
-            seen_at=request.timestamp,
-        )
 
-        log.info(
-            "data_service.face_stored",
-            face_id=face_id,
-            faiss_id=faiss_id,
-            thumbnail=str(thumbnail_path),
-        )
-        return data_pb2.StoreFaceEmbeddingResponse(
-            face_id=face_id, faiss_id=faiss_id, is_new=True
-        )
+            try:
+                faiss_id = self._faces_faiss.add(
+                    embedding, {"face_id": face_id, "timestamp": request.timestamp}
+                )
+            except Exception as e:
+                log.error("data_service.face_store_index_error", error=str(e), face_id=face_id)
+                context.set_code(grpc.StatusCode.INTERNAL)
+                context.set_details(f"Face index update failed: {e}")
+                return data_pb2.StoreFaceEmbeddingResponse()
+            self._sqlite.update_face_faiss_id(face_id, faiss_id)
+            self._sqlite.insert_face_sighting(
+                face_id=face_id,
+                image_path=str(thumbnail_path),
+                seen_at=request.timestamp,
+            )
+
+            log.info(
+                "data_service.face_stored",
+                face_id=face_id,
+                faiss_id=faiss_id,
+                thumbnail=str(thumbnail_path),
+            )
+            return data_pb2.StoreFaceEmbeddingResponse(
+                face_id=face_id, faiss_id=faiss_id, is_new=True
+            )
 
     # ── SearchFaces ──
 
@@ -690,7 +799,10 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             return data_pb2.SearchFacesResponse()
 
         try:
-            faiss_results = self._faces_faiss.search(query_vec, k=top_k)
+            grouped_matches = self._group_face_matches(
+                query_vec,
+                top_k=max(top_k * _FACE_SEARCH_RESULT_MULTIPLIER, top_k),
+            )
         except Exception as e:
             log.error("data_service.face_search_match_error", error=str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -698,14 +810,12 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             return data_pb2.SearchFacesResponse()
 
         results = []
-        for faiss_id, score, meta in faiss_results:
-            face = self._sqlite.get_face_by_faiss_id(faiss_id)
-            if face is None:
-                continue
+        for match in grouped_matches[:top_k]:
+            face = match["face"]
             results.append(
                 data_pb2.FaceSearchResult(
                     face_id=face["id"],
-                    score=score,
+                    score=float(match["aggregate_score"]),
                     first_seen=face["first_seen"],
                     last_seen=face["last_seen"],
                     seen_count=face["seen_count"],

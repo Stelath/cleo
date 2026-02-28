@@ -1,5 +1,6 @@
 """Tests for data.service.DataServiceServicer and data.sql.db.CleoSQLite."""
 
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -646,6 +647,8 @@ def test_store_face_embedding_dedup_rpc(data_servicer, tmp_path):
         assert face is not None
         assert face["seen_count"] == 2
         assert len(sightings) == 2
+        assert data_servicer._faces_faiss.size == 2
+        assert face["faiss_id"] == resp2.faiss_id
 
 
 def test_search_faces_rpc(data_servicer, tmp_path):
@@ -673,6 +676,93 @@ def test_search_faces_rpc(data_servicer, tmp_path):
         assert len(resp.results) >= 1
         assert resp.results[0].face_id >= 1
         assert resp.results[0].seen_count >= 1
+
+
+def test_search_faces_groups_multiple_exemplars_into_one_result(data_servicer):
+    from generated import data_pb2
+
+    fixed_vec = np.random.randn(512).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec):
+        fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+        first = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=1000.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
+        second = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=1010.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
+
+        assert second.face_id == first.face_id
+
+        resp = data_servicer.SearchFaces(
+            data_pb2.SearchFacesRequest(image_data=fake_face, top_k=5),
+            _mock_context(),
+        )
+
+        assert len(resp.results) == 1
+        assert resp.results[0].face_id == first.face_id
+        assert resp.results[0].score >= 1.0
+
+
+def test_store_face_embedding_concurrent_identical_requests_share_identity(data_servicer):
+    from generated import data_pb2
+
+    fixed_vec = np.random.randn(512).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+    original_select = data_servicer._select_face_match
+
+    def delayed_select(embedding):
+        result = original_select(embedding)
+        time.sleep(0.05)
+        return result
+
+    responses: list[data_pb2.StoreFaceEmbeddingResponse] = []
+    errors: list[Exception] = []
+    start_barrier = threading.Barrier(2)
+
+    def worker(ts: float) -> None:
+        try:
+            start_barrier.wait(timeout=1.0)
+            resp = data_servicer.StoreFaceEmbedding(
+                data_pb2.StoreFaceEmbeddingRequest(
+                    image_data=fake_face,
+                    timestamp=ts,
+                    confidence=99.0,
+                ),
+                _mock_context(),
+            )
+            responses.append(resp)
+        except Exception as exc:  # pragma: no cover - test failure path
+            errors.append(exc)
+
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec), patch.object(
+        data_servicer, "_select_face_match", side_effect=delayed_select
+    ):
+        threads = [
+            threading.Thread(target=worker, args=(1000.0,)),
+            threading.Thread(target=worker, args=(1001.0,)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2.0)
+
+    assert not errors
+    assert len(responses) == 2
+    assert {resp.face_id for resp in responses} == {responses[0].face_id}
+    rows, total = data_servicer._sqlite.list_faces(limit=10, offset=0)
+    assert total == 1
+    assert rows[0]["seen_count"] == 2
 
 
 def test_list_faces_rpc(data_servicer):
