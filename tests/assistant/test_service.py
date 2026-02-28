@@ -120,3 +120,59 @@ class TestAssistantService:
 
         assert not response.success
         assert "Failed to reach tool service" in response.response_text
+
+    def test_whitespace_only_command(self, servicer, mock_grpc_context):
+        request = assistant_pb2.CommandRequest(text="   \n\t  ")
+        response = servicer.ProcessCommand(request, mock_grpc_context)
+        assert not response.success
+        assert response.response_text == "Empty command"
+
+    @patch("assistant.service.grpc.insecure_channel")
+    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    def test_tool_failure_passed_through(
+        self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
+    ):
+        """When the tool returns success=False, the response reflects that."""
+        mock_bedrock.converse.return_value = ToolUseResult(
+            tool_use_id="tu_4",
+            tool_name="color_blindness_assist",
+            parameters={"query": "colors"},
+        )
+
+        mock_stub = MagicMock()
+        mock_stub.Execute.return_value = tool_pb2.ToolResponse(
+            success=False, result_text="Camera unavailable"
+        )
+        mock_stub_cls.return_value = mock_stub
+
+        request = assistant_pb2.CommandRequest(text="help with colors")
+        response = servicer.ProcessCommand(request, mock_grpc_context)
+
+        assert not response.success
+        assert response.response_text == "Camera unavailable"
+        assert response.tool_name == "color_blindness_assist"
+
+    @patch("assistant.service.grpc.insecure_channel")
+    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    def test_channel_closed_on_grpc_error(
+        self, mock_stub_cls, mock_channel_cls, servicer, mock_bedrock, mock_grpc_context
+    ):
+        """Channel is closed even when the tool gRPC call fails."""
+        import grpc
+
+        mock_bedrock.converse.return_value = ToolUseResult(
+            tool_use_id="tu_5",
+            tool_name="color_blindness_assist",
+            parameters={},
+        )
+
+        mock_channel = MagicMock()
+        mock_channel_cls.return_value = mock_channel
+        mock_stub = MagicMock()
+        mock_stub.Execute.side_effect = grpc.RpcError()
+        mock_stub_cls.return_value = mock_stub
+
+        request = assistant_pb2.CommandRequest(text="colors")
+        servicer.ProcessCommand(request, mock_grpc_context)
+
+        mock_channel.close.assert_called_once()

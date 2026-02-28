@@ -1,7 +1,9 @@
 """Tool registry: static list of tool definitions for Bedrock tool-use routing."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+from core.ports import COLOR_BLIND_PORT, NAVIGATION_ASSIST_PORT, OBJECT_RECOGNITION_PORT
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ _DEFAULT_TOOLS: list[ToolDefinition] = [
             },
             "required": ["query"],
         },
-        grpc_address="localhost:50060",
+        grpc_address=f"localhost:{COLOR_BLIND_PORT}",
     ),
     ToolDefinition(
         name="object_recognition",
@@ -52,7 +54,7 @@ _DEFAULT_TOOLS: list[ToolDefinition] = [
             },
             "required": ["query"],
         },
-        grpc_address="localhost:50061",
+        grpc_address=f"localhost:{OBJECT_RECOGNITION_PORT}",
     ),
     ToolDefinition(
         name="navigation_assist",
@@ -70,7 +72,7 @@ _DEFAULT_TOOLS: list[ToolDefinition] = [
             },
             "required": ["query"],
         },
-        grpc_address="localhost:50062",
+        grpc_address=f"localhost:{NAVIGATION_ASSIST_PORT}",
     ),
 ]
 
@@ -79,7 +81,7 @@ class ToolRegistry:
     """Registry of available tools with Bedrock-compatible config generation."""
 
     def __init__(self, tools: list[ToolDefinition] | None = None):
-        self._tools = {t.name: t for t in (tools or _DEFAULT_TOOLS)}
+        self._tools = {t.name: t for t in (_DEFAULT_TOOLS if tools is None else tools)}
 
     def get(self, name: str) -> ToolDefinition | None:
         """Look up a tool by name."""
