@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { listen, emit } from '@tauri-apps/api/event';
 
-import HudVideo from '../components/HudVideo';
-import HudImage from '../components/HudImage';
-import HudHtmlOverlay from '../components/HudHtmlOverlay';
-import HudThrobber from '../components/HudThrobber';
-import HudText from '../components/HudText';
-import HudProgress from '../components/HudProgress';
-import HudToast from '../components/HudToast';
-import HudStatusBar from '../components/HudStatusBar';
-import HudCardStack from '../components/HudCardStack';
+import Video from '../components/Video';
+import Image from '../components/Image';
+import HtmlOverlay from '../components/HtmlOverlay';
+import Throbber from '../components/Throbber';
+import Text from '../components/Text';
+import Progress from '../components/Progress';
+import Toast from '../components/Toast';
+import StatusBar from '../components/StatusBar';
+import CardStack from '../components/CardStack';
 import type { HudComponentHandle } from '../lib/hud/types';
 
 type HudTestWindow = Window & {
@@ -138,30 +138,30 @@ export default function HudPage() {
       <title>VITURE HUD</title>
       <div className="hud-root">
         <div className="layer video-layer">
-          <HudVideo ref={videoRef} onVideoEnded={onVideoEnded} />
+          <Video ref={videoRef} onVideoEnded={onVideoEnded} />
         </div>
 
         <div className="layer image-layer">
-          <HudImage ref={imageRef} />
+          <Image ref={imageRef} />
         </div>
 
         <div className="layer html-layer">
-          <HudHtmlOverlay ref={htmlRef} />
+          <HtmlOverlay ref={htmlRef} />
         </div>
 
         <div className="layer overlay-layer">
-          <HudThrobber ref={throbberRef} />
-          <HudText ref={textRef} />
-          <HudProgress ref={progressRef} />
-          <HudCardStack ref={cardRef} />
+          <Throbber ref={throbberRef} />
+          <Text ref={textRef} />
+          <Progress ref={progressRef} />
+          <CardStack ref={cardRef} />
         </div>
 
         <div className="layer toast-layer">
-          <HudToast ref={toastRef} />
+          <Toast ref={toastRef} />
         </div>
 
         <div className="layer status-layer">
-          <HudStatusBar ref={statusBarRef} />
+          <StatusBar ref={statusBarRef} />
         </div>
       </div>
     </>

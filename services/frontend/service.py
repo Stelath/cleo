@@ -119,6 +119,10 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
         log.info("frontend_service.render_html")
         return self._publish_update(render_html=request)
 
+    def ShowThrobber(self, request, context):
+        log.info("frontend_service.show_throbber", visible=request.visible)
+        return self._publish_update(throbber=request)
+
     # ── Streaming (Tauri subscribes here) ──
 
     def StreamUpdates(self, request, context):

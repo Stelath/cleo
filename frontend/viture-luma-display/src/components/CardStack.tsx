@@ -11,7 +11,7 @@ import {
 } from '../lib/hud/cards';
 import type { HudComponentHandle } from '../lib/hud/types';
 
-const HudCardStack = forwardRef<HudComponentHandle>((_props, ref) => {
+const CardStack = forwardRef<HudComponentHandle>((_props, ref) => {
   const [cards, setCards] = useState<HudCard[]>([]);
   const [cardPosition, setCardPosition] = useState<CardPosition>('right');
   const [cardWidth, setCardWidth] = useState('min(34vw, 460px)');
@@ -131,5 +131,5 @@ const HudCardStack = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudCardStack.displayName = 'HudCardStack';
-export default HudCardStack;
+CardStack.displayName = 'CardStack';
+export default CardStack;

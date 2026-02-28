@@ -10,6 +10,7 @@ const POSITION_STYLES: Record<string, string> = {
   'center-right': 'top:50%;right:4%;transform:translateY(-50%);',
   'top-left': 'top:6%;left:4%;',
   'top-right': 'top:6%;right:4%;',
+  'upper-right': 'top:15%;right:4%;',
   'bottom-left': 'bottom:8%;left:4%;',
   'bottom-right': 'bottom:8%;right:4%;',
 };

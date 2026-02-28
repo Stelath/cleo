@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13transcription.proto\x12\x12\x63leo.transcription\"\x84\x01\n\nAudioInput\x12\x12\n\naudio_data\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\x12\x10\n\x08is_final\x18\x03 \x01(\x08\x12\x11\n\tstream_id\x18\x04 \x01(\t\x12\x15\n\rreset_context\x18\x05 \x01(\x08\x12\x11\n\ttimestamp\x18\x06 \x01(\x01\"\x87\x01\n\x13TranscriptionResult\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\x12\x12\n\nstart_time\x18\x03 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x04 \x01(\x01\x12\x12\n\nis_partial\x18\x05 \x01(\x08\x12\x14\n\x0cutterance_id\x18\x06 \x01(\t2\xce\x01\n\x14TranscriptionService\x12_\n\x10TranscribeStream\x12\x1e.cleo.transcription.AudioInput\x1a\'.cleo.transcription.TranscriptionResult(\x01\x30\x01\x12U\n\nTranscribe\x12\x1e.cleo.transcription.AudioInput\x1a\'.cleo.transcription.TranscriptionResultb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13transcription.proto\x12\x12\x63leo.transcription\"\x84\x01\n\nAudioInput\x12\x12\n\naudio_data\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\x05\x12\x10\n\x08is_final\x18\x03 \x01(\x08\x12\x11\n\tstream_id\x18\x04 \x01(\t\x12\x15\n\rreset_context\x18\x05 \x01(\x08\x12\x11\n\ttimestamp\x18\x06 \x01(\x01\"\xd6\x01\n\x13TranscriptionResult\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x12\n\nconfidence\x18\x02 \x01(\x02\x12\x12\n\nstart_time\x18\x03 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x04 \x01(\x01\x12\x12\n\nis_partial\x18\x05 \x01(\x08\x12\x14\n\x0cutterance_id\x18\x06 \x01(\t\x12\x15\n\rspeaker_label\x18\x07 \x01(\t\x12\x36\n\rspeaker_turns\x18\x08 \x03(\x0b\x32\x1f.cleo.transcription.SpeakerTurn\"X\n\x0bSpeakerTurn\x12\x15\n\rspeaker_label\x18\x01 \x01(\t\x12\x0c\n\x04text\x18\x02 \x01(\t\x12\x12\n\nstart_time\x18\x03 \x01(\x01\x12\x10\n\x08\x65nd_time\x18\x04 \x01(\x01\x32\xce\x01\n\x14TranscriptionService\x12_\n\x10TranscribeStream\x12\x1e.cleo.transcription.AudioInput\x1a\'.cleo.transcription.TranscriptionResult(\x01\x30\x01\x12U\n\nTranscribe\x12\x1e.cleo.transcription.AudioInput\x1a\'.cleo.transcription.TranscriptionResultb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,7 +34,9 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_AUDIOINPUT']._serialized_start=44
   _globals['_AUDIOINPUT']._serialized_end=176
   _globals['_TRANSCRIPTIONRESULT']._serialized_start=179
-  _globals['_TRANSCRIPTIONRESULT']._serialized_end=314
-  _globals['_TRANSCRIPTIONSERVICE']._serialized_start=317
-  _globals['_TRANSCRIPTIONSERVICE']._serialized_end=523
+  _globals['_TRANSCRIPTIONRESULT']._serialized_end=393
+  _globals['_SPEAKERTURN']._serialized_start=395
+  _globals['_SPEAKERTURN']._serialized_end=483
+  _globals['_TRANSCRIPTIONSERVICE']._serialized_start=486
+  _globals['_TRANSCRIPTIONSERVICE']._serialized_end=692
 # @@protoc_insertion_point(module_scope)

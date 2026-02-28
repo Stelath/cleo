@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
 import type { HudComponentHandle } from '../lib/hud/types';
 
-const HudStatusBar = forwardRef<HudComponentHandle>((_props, ref) => {
+const StatusBar = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [left, setLeft] = useState('');
   const [center, setCenter] = useState('');
@@ -34,5 +34,5 @@ const HudStatusBar = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudStatusBar.displayName = 'HudStatusBar';
-export default HudStatusBar;
+StatusBar.displayName = 'StatusBar';
+export default StatusBar;

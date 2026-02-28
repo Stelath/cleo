@@ -4,11 +4,11 @@ import { getVideoBounds } from '../lib/hud/sizing';
 import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
-interface HudVideoProps {
+interface VideoProps {
   onVideoEnded?: () => void;
 }
 
-const HudVideo = forwardRef<HudComponentHandle, HudVideoProps>(({ onVideoEnded }, ref) => {
+const Video = forwardRef<HudComponentHandle, VideoProps>(({ onVideoEnded }, ref) => {
   const [visible, setVisible] = useState(false);
   const [videoPosition, setVideoPosition] = useState('center');
   const [videoWidth, setVideoWidth] = useState('1280px');
@@ -223,5 +223,5 @@ const HudVideo = forwardRef<HudComponentHandle, HudVideoProps>(({ onVideoEnded }
   );
 });
 
-HudVideo.displayName = 'HudVideo';
-export default HudVideo;
+Video.displayName = 'Video';
+export default Video;

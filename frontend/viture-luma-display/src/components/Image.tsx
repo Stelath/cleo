@@ -3,7 +3,7 @@ import { getPositionStyle } from '../lib/hud/position';
 import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
-const HudImage = forwardRef<HudComponentHandle>((_props, ref) => {
+const Image = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [src, setSrc] = useState('');
   const [state, setState] = useState('idle');
@@ -89,5 +89,5 @@ const HudImage = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudImage.displayName = 'HudImage';
-export default HudImage;
+Image.displayName = 'Image';
+export default Image;

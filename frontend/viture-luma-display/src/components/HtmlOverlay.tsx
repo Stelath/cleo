@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useState } from 'react';
 import type { HudComponentHandle } from '../lib/hud/types';
 
-const HudHtmlOverlay = forwardRef<HudComponentHandle>((_props, ref) => {
+const HtmlOverlay = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [htmlContent, setHtmlContent] = useState('');
 
@@ -32,5 +32,5 @@ const HudHtmlOverlay = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudHtmlOverlay.displayName = 'HudHtmlOverlay';
-export default HudHtmlOverlay;
+HtmlOverlay.displayName = 'HtmlOverlay';
+export default HtmlOverlay;

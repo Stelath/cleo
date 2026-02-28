@@ -15,6 +15,17 @@ cd_workspace_root() {
     cd "$(workspace_root)"
 }
 
+load_dotenv() {
+    local env_file
+    env_file="$(workspace_root)/.env"
+    if [[ -f "$env_file" ]]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$env_file"
+        set +a
+    fi
+}
+
 command_exists() {
     command -v "$1" &>/dev/null
 }

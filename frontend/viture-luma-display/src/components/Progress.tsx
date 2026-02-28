@@ -3,7 +3,7 @@ import { getPositionStyle } from '../lib/hud/position';
 import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
-const HudProgress = forwardRef<HudComponentHandle>((_props, ref) => {
+const Progress = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [style, setStyle] = useState<'bar' | 'ring'>('bar');
   const [position, setPosition] = useState('bottom-center');
@@ -80,5 +80,5 @@ const HudProgress = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudProgress.displayName = 'HudProgress';
-export default HudProgress;
+Progress.displayName = 'Progress';
+export default Progress;

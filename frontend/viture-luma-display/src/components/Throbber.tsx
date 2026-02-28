@@ -12,7 +12,7 @@ function normalizeSize(input: unknown): number {
   return Math.max(16, Math.min(96, Math.round(value)));
 }
 
-const HudThrobber = forwardRef<HudComponentHandle>((_props, ref) => {
+const Throbber = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState('top-right');
   const [color, setColor] = useState('#ffffff');
@@ -122,5 +122,5 @@ const HudThrobber = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudThrobber.displayName = 'HudThrobber';
-export default HudThrobber;
+Throbber.displayName = 'Throbber';
+export default Throbber;

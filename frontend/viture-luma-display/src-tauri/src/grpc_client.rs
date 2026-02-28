@@ -378,6 +378,42 @@ async fn handle_display_update(
         DisplayVariant::RenderHtml(cmd) => {
             app.emit_to("hud", "hud:render_html", cmd.html)?;
         }
+        DisplayVariant::Throbber(req) => {
+            if req.visible {
+                let mut params = serde_json::Map::new();
+                if !req.position.is_empty() {
+                    params.insert("position".to_string(), serde_json::Value::String(req.position));
+                }
+                if !req.color.is_empty() {
+                    params.insert("color".to_string(), serde_json::Value::String(req.color));
+                }
+                if req.hz > 0.0 {
+                    params.insert("hz".to_string(), serde_json::json!(req.hz));
+                }
+                if req.size_px > 0 {
+                    params.insert("size_px".to_string(), serde_json::json!(req.size_px));
+                }
+                app.emit_to(
+                    "hud",
+                    "hud:command",
+                    serde_json::json!({
+                        "component": "throbber",
+                        "action": "show",
+                        "params": params
+                    }),
+                )?;
+            } else {
+                app.emit_to(
+                    "hud",
+                    "hud:command",
+                    serde_json::json!({
+                        "component": "throbber",
+                        "action": "hide",
+                        "params": {}
+                    }),
+                )?;
+            }
+        }
     }
 
     Ok(())

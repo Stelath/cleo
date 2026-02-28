@@ -22,6 +22,7 @@ fi
 source "$COMMON_SH"
 
 cd_workspace_root
+load_dotenv
 ensure_uv_runtime_deps
 generate_protos
 ensure_viture_sensors

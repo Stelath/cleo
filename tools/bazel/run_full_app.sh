@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd_workspace_root
+load_dotenv
 ensure_uv_runtime_deps
 generate_protos
 ensure_viture_sensors

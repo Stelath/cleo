@@ -3,7 +3,7 @@ html, body {
   --hud-surface: #000000;
 
   /* Card backgrounds */
-  --hud-card-bg: rgba(255, 255, 255, 0.95);
+  --hud-card-bg: #ffffff;
   --hud-card-bg-secondary: rgba(240, 242, 245, 0.92);
   --hud-card-border: rgba(0, 0, 0, 0.08);
   --hud-statusbar-bg: rgba(255, 255, 255, 0.92);
@@ -23,13 +23,13 @@ html, body {
 
   /* Toast variants */
   --hud-toast-info-border: #1a73e8;
-  --hud-toast-info-bg: rgba(26, 115, 232, 0.08);
+  --hud-toast-info-bg: #edf3fd;
   --hud-toast-success-border: #1e8e3e;
-  --hud-toast-success-bg: rgba(30, 142, 62, 0.08);
+  --hud-toast-success-bg: #edf7f0;
   --hud-toast-warning-border: #e8a817;
-  --hud-toast-warning-bg: rgba(232, 168, 23, 0.08);
+  --hud-toast-warning-bg: #fdf5e7;
   --hud-toast-error-border: #d93025;
-  --hud-toast-error-bg: rgba(217, 48, 37, 0.08);
+  --hud-toast-error-bg: #fcecea;
 
   width: 100%;
   height: 100%;
@@ -69,6 +69,7 @@ html, body {
   color: var(--hud-text-primary);
   box-shadow: var(--hud-shadow-md);
   max-width: 80%;
+  white-space: pre-line;
 }
 
 /* ── HudStatusBar ── */

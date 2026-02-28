@@ -3,7 +3,7 @@ import { getPositionStyle } from '../lib/hud/position';
 import type { HudComponentHandle } from '../lib/hud/types';
 import { parseInlineStyle } from './utils';
 
-const HudText = forwardRef<HudComponentHandle>((_props, ref) => {
+const Text = forwardRef<HudComponentHandle>((_props, ref) => {
   const [visible, setVisible] = useState(false);
   const [content, setContent] = useState('');
   const [position, setPosition] = useState('center');
@@ -36,5 +36,5 @@ const HudText = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudText.displayName = 'HudText';
-export default HudText;
+Text.displayName = 'Text';
+export default Text;

@@ -11,7 +11,7 @@ type ToastItem = {
   position: string;
 };
 
-const HudToast = forwardRef<HudComponentHandle>((_props, ref) => {
+const Toast = forwardRef<HudComponentHandle>((_props, ref) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastIdRef = useRef(0);
 
@@ -26,7 +26,7 @@ const HudToast = forwardRef<HudComponentHandle>((_props, ref) => {
         const message = String(params.message ?? params.text ?? '').trim();
         const rawStyle = String(params.style ?? 'info');
         const style = ['info', 'success', 'warning', 'error'].includes(rawStyle) ? rawStyle : 'info';
-        const position = String(params.position ?? 'top-right');
+        const position = String(params.position ?? 'right');
         const durationMs = Number(params.duration_ms ?? 3000);
 
         toastIdRef.current += 1;
@@ -69,5 +69,5 @@ const HudToast = forwardRef<HudComponentHandle>((_props, ref) => {
   );
 });
 
-HudToast.displayName = 'HudToast';
-export default HudToast;
+Toast.displayName = 'Toast';
+export default Toast;
