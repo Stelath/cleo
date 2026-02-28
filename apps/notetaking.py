@@ -185,6 +185,11 @@ class NotetakingServicer(ToolServiceBase):
                 return True, f"Notetaking already active since {self._session_start:.3f}"
             self._session_start = timestamp
         log.info("notetaking.started", timestamp=timestamp)
+        self._notify(
+            title="Notetaking started",
+            message="Capturing notes until you stop the session.",
+            style="info",
+        )
         return True, f"Started notetaking at {timestamp:.3f}"
 
     def _stop_session(self) -> tuple[bool, str]:
@@ -217,7 +222,12 @@ class NotetakingServicer(ToolServiceBase):
             transcripts=len(context.transcripts),
             clips=len(context.clips),
         )
-        self._notify_summary_saved(stored.id)
+        self._notify(
+            title="Note saved",
+            message=f"Saved note summary #{stored.id}",
+            style="success",
+            note_id=stored.id,
+        )
         return True, summary_text
 
     def _load_note_context(self, start_timestamp: float, stop_timestamp: float) -> NoteContext:
@@ -269,19 +279,27 @@ class NotetakingServicer(ToolServiceBase):
             return transcript_fallback
         return "Video was captured during this note session, but no textual summary was generated."
 
-    def _notify_summary_saved(self, note_id: int) -> None:
+    def _notify(
+        self,
+        *,
+        title: str,
+        message: str,
+        style: str,
+        note_id: int | None = None,
+    ) -> None:
         try:
             self._frontend.ShowNotification(
                 frontend_pb2.NotificationRequest(
-                    title="Note saved",
-                    message=f"Saved note summary #{note_id}",
-                    style="success",
+                    title=title,
+                    message=message,
+                    style=style,
                 )
             )
         except Exception as exc:
             log.warning(
-                "notetaking.summary_notification_failed",
+                "notetaking.notification_failed",
                 note_id=note_id,
+                title=title,
                 error=str(exc),
             )
 

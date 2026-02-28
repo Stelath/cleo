@@ -201,7 +201,15 @@ class TestNotetakingServicer:
         assert stop_response.success
         assert "No transcript or video activity" in stop_response.result_text
         mock_data.StoreNoteSummary.assert_called_once()
-        servicer._frontend.ShowNotification.assert_called_once()
+        assert servicer._frontend.ShowNotification.call_count == 2
+        start_notification = servicer._frontend.ShowNotification.call_args_list[0].args[0]
+        saved_notification = servicer._frontend.ShowNotification.call_args_list[1].args[0]
+        assert start_notification.title == "Notetaking started"
+        assert start_notification.message == "Capturing notes until you stop the session."
+        assert start_notification.style == "info"
+        assert saved_notification.title == "Note saved"
+        assert saved_notification.message == "Saved note summary #1"
+        assert saved_notification.style == "success"
 
     def test_stop_requires_active_session(self, mock_grpc_context):
         import threading
