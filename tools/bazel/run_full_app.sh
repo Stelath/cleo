@@ -52,8 +52,35 @@ pnpm_install "$WEBSITE_DIR"
 
 BACKEND_PID=""
 WEBSITE_PID=""
+WEBSITE_API_PID=""
 BACKEND_STOP_TIMEOUT_SECONDS=12
 WEBSITE_STOP_TIMEOUT_SECONDS=12
+WEBSITE_API_STOP_TIMEOUT_SECONDS=12
+STARTED_WEBSITE_API=0
+
+find_website_api_pids() {
+    if command -v lsof &>/dev/null; then
+        lsof -tiTCP:8008 -sTCP:LISTEN 2>/dev/null || true
+        return
+    fi
+    if command -v fuser &>/dev/null; then
+        fuser 8008/tcp 2>/dev/null || true
+        return
+    fi
+}
+
+stop_existing_website_api() {
+    local pids
+    pids="$(find_website_api_pids)"
+    if [[ -z "$pids" ]]; then
+        return
+    fi
+
+    echo "Stopping existing website API listener(s) on port 8008: $pids"
+    for pid in $pids; do
+        stop_process "$pid" "website API" "$WEBSITE_API_STOP_TIMEOUT_SECONDS"
+    done
+}
 
 stop_process() {
     local pid
@@ -92,6 +119,9 @@ cleanup() {
     trap - EXIT INT TERM
 
     stop_process "$WEBSITE_PID" "website" "$WEBSITE_STOP_TIMEOUT_SECONDS"
+    if [[ "$STARTED_WEBSITE_API" -eq 1 ]]; then
+        stop_process "$WEBSITE_API_PID" "website API" "$WEBSITE_API_STOP_TIMEOUT_SECONDS"
+    fi
     stop_process "$BACKEND_PID" "backend" "$BACKEND_STOP_TIMEOUT_SECONDS"
 
     exit "$exit_code"
@@ -108,7 +138,20 @@ if ! kill -0 "$BACKEND_PID" &>/dev/null; then
     wait "$BACKEND_PID"
 fi
 
-echo "Starting website..."
+echo "Starting website services..."
+stop_existing_website_api
+
+echo "Starting website API..."
+uv run python -m services.website_api &
+WEBSITE_API_PID=$!
+STARTED_WEBSITE_API=1
+
+sleep 1
+if ! kill -0 "$WEBSITE_API_PID" &>/dev/null; then
+    echo "ERROR: Website API exited before website launch." >&2
+    wait "$WEBSITE_API_PID"
+fi
+
 pnpm --dir "$WEBSITE_DIR" run dev &
 WEBSITE_PID=$!
 

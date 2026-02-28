@@ -125,10 +125,9 @@ Initial requirements:
 
 Important note:
 
-- `data.proto` currently exposes `StoreFoodMacros` but does not yet expose a read/list RPC for food macros.
-- To make this page functional, the backend will need a retrieval RPC such as `ListFoodMacros` or `GetFoodMacros`.
-
-This page should still be included in the website plan, but it depends on that backend addition.
+- The website now reads nutrition entries through `GET /api/food-macros`.
+- That endpoint currently reads from the shared SQLite database through the website BFF.
+- Longer term, this should move behind a dedicated `DataService` read/list RPC so the HTTP layer can proxy the gRPC contract instead of reading SQLite directly.
 
 ### 5. Apps
 
@@ -226,6 +225,8 @@ Use Bazel to start the website, and use `pnpm` as the package manager:
 bazel run //:website_run
 ```
 
+This launcher starts the Vite dev server and the local website API used for `/api/*` requests.
+
 To install website dependencies without starting the dev server:
 
 ```bash
@@ -271,8 +272,7 @@ Suggested initial HTTP endpoints:
 
 Backend gaps to add soon:
 
-- `GET /api/food-macros`
-- corresponding data-layer read RPC (not yet present in `data.proto`)
+- corresponding `DataService` read RPC for food macros so the website BFF no longer needs direct SQLite reads
 
 ## Recommended Frontend Stack
 
@@ -323,7 +323,7 @@ Ship the first website with:
 4. Apps
 5. Preferences
 
-Add Nutrition after the backend exposes read APIs for food macros.
+Include Nutrition in v1. It already reads from the local database through the website API layer.
 
 ## Implementation Notes
 
@@ -336,7 +336,7 @@ Add Nutrition after the backend exposes read APIs for food macros.
 ## Backend Follow-Ups Needed
 
 1. Add read/list support for food macros to `DataService`.
-2. Add an HTTP/JSON layer (or `grpc-web` gateway) for browser access.
+2. Expand the HTTP/JSON layer (or add a `grpc-web` gateway) for the rest of the browser-facing endpoints.
 3. Optionally add combined dashboard summary endpoints so the UI does not need to fan out across many requests.
 
 ## Success Criteria

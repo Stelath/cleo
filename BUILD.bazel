@@ -80,6 +80,13 @@ sh_binary(
 )
 
 sh_binary(
+    name = "website_api_run",
+    srcs = ["tools/bazel/website_api_run.sh"],
+    data = [":bazel_script_lib"],
+    tags = ["local"],
+)
+
+sh_binary(
     name = "website_run",
     srcs = ["tools/bazel/website_run.sh"],
     data = [":bazel_script_lib"],

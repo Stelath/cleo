@@ -7,7 +7,7 @@ import pytest
 
 from generated import tool_pb2
 from apps.color_blind import ColorBlindnessServicer
-from apps.notetaking import NotetakingServicer
+from apps.notetaking import NoteSummaryBedrockClient, NotetakingServicer
 from apps.tool_base import ToolServiceBase
 
 class DummyTool(ToolServiceBase):
@@ -204,6 +204,63 @@ class TestNotetakingServicer:
     def test_tool_name(self):
         servicer = NotetakingServicer.__new__(NotetakingServicer)
         assert servicer.tool_name == "notetaking"
+
+
+class TestNoteSummaryBedrockClient:
+    def test_uses_sampled_keyframes_as_images(self):
+        metadata = MagicMock(
+            clip_id=7,
+            start_timestamp=1.25,
+            end_timestamp=2.5,
+            num_frames=12,
+        )
+        transcript = MagicMock(start_time=1.0, end_time=2.0, text="Discussed action items")
+        mock_client = MagicMock()
+        mock_client.converse.return_value = {
+            "output": {
+                "message": {
+                    "content": [
+                        {"text": "Fallback summary"},
+                    ]
+                }
+            }
+        }
+
+        client = NoteSummaryBedrockClient(client=mock_client)
+        client._extract_keyframes = MagicMock(return_value=[b"frame-1", b"frame-2"])
+        summary = client.summarize(
+            start_timestamp=1.0,
+            end_timestamp=3.0,
+            transcripts=[transcript],
+            clips=[(metadata, b"fake-mp4")],
+        )
+
+        assert summary == "Fallback summary"
+        assert mock_client.converse.call_count == 1
+        content = mock_client.converse.call_args.kwargs["messages"][0]["content"]
+        assert all("video" not in block for block in content)
+        image_blocks = [block for block in content if "image" in block]
+        assert len(image_blocks) == 2
+        assert image_blocks[0]["image"]["source"]["bytes"] == b"frame-1"
+        assert image_blocks[1]["image"]["source"]["bytes"] == b"frame-2"
+
+    def test_sample_frame_indices_are_evenly_spaced(self):
+        assert NoteSummaryBedrockClient._sample_frame_indices(10, 4) == [0, 3, 6, 9]
+        assert NoteSummaryBedrockClient._sample_frame_indices(3, 16) == [0, 1, 2]
+
+    def test_notetaking_does_not_fall_back_to_raw_transcript(self):
+        servicer = NotetakingServicer.__new__(NotetakingServicer)
+        servicer._bedrock = MagicMock()
+        servicer._bedrock.summarize.return_value = ""
+
+        context = MagicMock(
+            transcripts=[MagicMock(text="This should not be stored verbatim")],
+            clips=[],
+        )
+
+        summary = servicer._summarize_context(1.0, 2.0, context)
+
+        assert summary == "A note summary could not be generated for this session."
 
 
 class TestFaceDetectionServicerProperties:
