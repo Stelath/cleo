@@ -72,17 +72,6 @@ pub fn find_hud_monitor(app: &tauri::AppHandle) -> Result<tauri::Monitor> {
         .ok_or(AppError::DisplayNotFound)
 }
 
-pub fn display_info(monitor: &tauri::Monitor) -> crate::protocol::DisplayInfo {
-    crate::protocol::DisplayInfo {
-        name: monitor
-            .name()
-            .cloned()
-            .unwrap_or_else(|| "Unknown".to_string()),
-        width: monitor.size().width,
-        height: monitor.size().height,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{choose_monitor_index, MonitorCandidate};

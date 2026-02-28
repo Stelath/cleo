@@ -54,6 +54,13 @@ bazel run //:frontend_run -- --web
 bazel run //:run_full_app -- --web
 ```
 
+Debug HUD mode (shows live final transcripts in the top-right HUD text panel):
+
+```bash
+bazel run --config=debug //:backend_run
+bazel run --config=debug //:run_full_app
+```
+
 ## Non-Bazel equivalents
 
 If you need to run commands directly:

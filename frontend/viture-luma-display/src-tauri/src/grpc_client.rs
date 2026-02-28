@@ -1,4 +1,4 @@
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 use tokio::sync::broadcast;
 
 use crate::audio;
