@@ -44,7 +44,14 @@ _DEBUG_TRANSCRIPT_MAX_CHARS = 180
 _DEBUG_TRANSCRIPT_MAX_LINES = 5
 _ASSISTANT_RESPONSE_LOG_MAX_CHARS = 240
 _SPEAKER_ALIAS_RESET_SECONDS = 90.0
-_TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
+_TRIGGER_PHRASES = (
+    "cleo",
+    "clio",
+    "hey cleo",
+    "hey clio",
+    "hi cleo",
+    "hi clio",
+)
 _TRIGGER_CAPTURE_SECONDS = 3.0
 _TRIGGER_PREROLL_SECONDS = 0.75
 _TRIGGER_FINAL_FLUSH_GRACE_SECONDS = 0.2
@@ -166,6 +173,10 @@ class CommandClient(Protocol):
         *,
         is_follow_up: bool = False,
     ) -> assistant_pb2.CommandResponse | None: ...
+
+
+class AudioControlClient(Protocol):
+    def stop_audio(self) -> None: ...
 
 
 class DataClient:
@@ -394,6 +405,33 @@ class FrontendThrobberClient:
             log.warning("transcription.throbber_hide_failed", error=str(exc))
 
 
+class FrontendAudioControlClient:
+    """Best-effort client to stop currently playing frontend audio."""
+
+    def __init__(self, address: str = FRONTEND_ADDRESS, timeout: float = 2.0):
+        self._timeout = timeout
+        self._channel = grpc.insecure_channel(
+            address,
+            options=[
+                ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+            ],
+        )
+        self._stub = frontend_pb2_grpc.FrontendServiceStub(self._channel)
+
+    def close(self) -> None:
+        self._channel.close()
+
+    def stop_audio(self) -> None:
+        try:
+            self._stub.StopAudio(
+                frontend_pb2.StopAudioRequest(),
+                timeout=self._timeout,
+            )
+        except grpc.RpcError as exc:
+            log.warning("transcription.stop_audio_failed", error=str(exc))
+
+
 class TriggerRouter:
     """Tracks wake phrases and sends the next three seconds of transcript to the assistant."""
 
@@ -409,6 +447,7 @@ class TriggerRouter:
         speaker_handoff_seconds: float = _TRIGGER_SPEAKER_HANDOFF_SECONDS,
         on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
         throbber_client: FrontendThrobberClient | None = None,
+        audio_control_client: AudioControlClient | None = None,
     ):
         self._command_client = command_client
         self._trigger_phrases = tuple(
@@ -421,6 +460,7 @@ class TriggerRouter:
         self._speaker_handoff_seconds = max(0.0, speaker_handoff_seconds)
         self._on_trigger_detected = on_trigger_detected
         self._throbber_client = throbber_client
+        self._audio_control_client = audio_control_client
         self._history: deque[TranscriptSpan] = deque()
         self._pending: list[PendingTrigger] = []
         self._last_trigger_start: float | None = None
@@ -496,6 +536,8 @@ class TriggerRouter:
                 )
                 if self._throbber_client is not None:
                     self._throbber_client.show()
+                if self._audio_control_client is not None:
+                    self._audio_control_client.stop_audio()
                 if self._on_trigger_detected is not None:
                     self._on_trigger_detected(result)
 
@@ -693,7 +735,11 @@ class TriggerRouter:
             return ""
 
         matches = list(
-            re.finditer(r"\b(?:hey|hi)\W+cl(?:eo|io)\b", text, flags=re.IGNORECASE)
+            re.finditer(
+                r"\b(?:(?:hey|hi)\W+)?cl(?:eo|io)\b",
+                text,
+                flags=re.IGNORECASE,
+            )
         )
         if not matches:
             return text.strip()
@@ -1107,11 +1153,13 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
         command_client: AssistantCommandClient | None = None,
         on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
         throbber_client: FrontendThrobberClient | None = None,
+        audio_control_client: AudioControlClient | None = None,
     ):
         self._backend = backend or AmazonTranscribeBackend()
         self._command_client = command_client or AssistantCommandClient()
         self._on_trigger_detected = on_trigger_detected
         self._throbber_client = throbber_client
+        self._audio_control_client = audio_control_client
 
     def Transcribe(self, request, context):
         if not request.audio_data:
@@ -1130,6 +1178,7 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
                 self._command_client,
                 on_trigger_detected=self._on_trigger_detected,
                 throbber_client=self._throbber_client,
+                audio_control_client=self._audio_control_client,
             )
             trigger_router.observe(result)
             trigger_router.finalize()
@@ -1149,6 +1198,7 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
             self._command_client,
             on_trigger_detected=self._on_trigger_detected,
             throbber_client=self._throbber_client,
+            audio_control_client=self._audio_control_client,
         )
         try:
             for result in self._backend.transcribe_stream(request_iterator):
@@ -1267,9 +1317,11 @@ def serve(port: int = TRANSCRIPTION_PORT) -> None:
     command_client = AssistantCommandClient(address=ASSISTANT_ADDRESS)
     debug_client = FrontendTranscriptDebugClient(address=FRONTEND_ADDRESS)
     throbber_client = FrontendThrobberClient(address=FRONTEND_ADDRESS)
+    audio_control_client = FrontendAudioControlClient(address=FRONTEND_ADDRESS)
     servicer = TranscriptionServiceServicer(
         command_client=command_client,
         throbber_client=throbber_client,
+        audio_control_client=audio_control_client,
     )
     pipeline = SensorTranscriptionPipeline(servicer, debug_client=debug_client)
 
@@ -1294,6 +1346,7 @@ def serve(port: int = TRANSCRIPTION_PORT) -> None:
         command_client.close()
         debug_client.close()
         throbber_client.close()
+        audio_control_client.close()
         server.stop(grace=2)
 
     signal.signal(signal.SIGINT, _shutdown)

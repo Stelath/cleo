@@ -249,6 +249,14 @@ class _RecordingCommandClient:
         return None
 
 
+class _RecordingAudioControlClient:
+    def __init__(self):
+        self.stop_calls = 0
+
+    def stop_audio(self) -> None:
+        self.stop_calls += 1
+
+
 def _result(
     *,
     text: str,
@@ -315,6 +323,95 @@ def test_trigger_router_anchors_capture_to_detection_time():
     assert len(client.calls) == 1
     assert client.calls[0].lower().startswith("hey cleo")
     assert "how many calories is this" in client.calls[0].lower()
+
+
+def test_trigger_router_stops_audio_immediately_on_wake_phrase():
+    client = _RecordingCommandClient()
+    audio_client = _RecordingAudioControlClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.1,
+        final_flush_grace_seconds=0.0,
+        audio_control_client=audio_client,
+    )
+
+    router.observe(
+        _result(
+            text="Hey, Cleo, what time is it",
+            start_time=10.0,
+            end_time=10.4,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+
+    assert audio_client.stop_calls == 1
+
+
+def test_trigger_router_stops_audio_once_for_partial_then_final_duplicate():
+    client = _RecordingCommandClient()
+    audio_client = _RecordingAudioControlClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=1.0,
+        preroll_seconds=0.0,
+        final_flush_grace_seconds=999.0,
+        audio_control_client=audio_client,
+    )
+
+    router.observe(
+        _result(
+            text="Cleo what's on my calendar",
+            start_time=20.0,
+            end_time=20.4,
+            is_partial=True,
+            utterance_id="u1",
+        )
+    )
+    router.observe(
+        _result(
+            text="Cleo what's on my calendar",
+            start_time=20.0,
+            end_time=20.8,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+
+    assert audio_client.stop_calls == 1
+
+
+def test_trigger_router_dispatches_when_trigger_is_bare_cleo():
+    client = _RecordingCommandClient()
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.1,
+        final_flush_grace_seconds=0.0,
+    )
+
+    router.observe(
+        _result(
+            text="Cleo what is the weather",
+            start_time=30.0,
+            end_time=30.4,
+            is_partial=False,
+            utterance_id="u1",
+        )
+    )
+    router.observe(
+        _result(
+            text="thanks",
+            start_time=30.6,
+            end_time=30.8,
+            is_partial=False,
+            utterance_id="u2",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0].lower().startswith("cleo what is the weather")
 
 
 def test_trigger_router_does_not_duplicate_final_span_text():
