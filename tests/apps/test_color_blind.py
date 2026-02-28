@@ -97,6 +97,13 @@ class TestColorBlindnessServicer:
         assert "Applied deuteranopia correction" in response.result_text
         servicer.frontend_stub.StreamImage.assert_called_once()
 
+        # Verify duration_ms=8000 is set on every ImageChunk
+        chunk_iter = servicer.frontend_stub.StreamImage.call_args[0][0]
+        chunks = list(chunk_iter)
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert chunk.duration_ms == 8000
+
     def test_tool_name(self):
         assert ColorBlindnessServicer().tool_name == "color_blindness_assist"
 
@@ -150,6 +157,13 @@ class TestColorBlindnessServicer:
         assert response.success
         assert "Applied protanopia correction" in response.result_text
         servicer.frontend_stub.StreamImage.assert_called_once()
+
+        # Verify duration_ms=8000 is set on every ImageChunk
+        chunk_iter = servicer.frontend_stub.StreamImage.call_args[0][0]
+        chunks = list(chunk_iter)
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert chunk.duration_ms == 8000
 
     def test_execute_reports_imwrite_failure(self, mock_grpc_context, mocker):
         """If cv2.imwrite fails, execute should return failure."""
