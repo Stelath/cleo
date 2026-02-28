@@ -7,7 +7,7 @@ import pytest
 from services.assistant.bedrock import TextResult, ToolUseResult
 from services.assistant.registry import ToolDefinition, ToolRegistry
 from services.assistant.service import AssistantServiceServicer
-from generated import assistant_pb2, tool_pb2
+from generated import assistant_pb2, frontend_pb2, tool_pb2
 
 
 @pytest.fixture
@@ -51,9 +51,16 @@ class TestAssistantService:
         assert response.tool_name == ""
 
     @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
     @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_use_flow(
-        self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
+        self,
+        mock_tool_stub_cls,
+        mock_frontend_stub_cls,
+        mock_channel,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
     ):
         # Bedrock returns tool use
         mock_bedrock.converse.return_value = ToolUseResult(
@@ -63,11 +70,13 @@ class TestAssistantService:
         )
 
         # Tool gRPC returns success
-        mock_stub = MagicMock()
-        mock_stub.Execute.return_value = tool_pb2.ToolResponse(
+        mock_tool_stub = MagicMock()
+        mock_tool_stub.Execute.return_value = tool_pb2.ToolResponse(
             success=True, result_text="The shirt is blue"
         )
-        mock_stub_cls.return_value = mock_stub
+        mock_tool_stub_cls.return_value = mock_tool_stub
+        mock_frontend_stub = MagicMock()
+        mock_frontend_stub_cls.return_value = mock_frontend_stub
 
         request = assistant_pb2.CommandRequest(text="help me with colors")
         response = servicer.ProcessCommand(request, mock_grpc_context)
@@ -75,6 +84,14 @@ class TestAssistantService:
         assert response.success
         assert response.response_text == "The shirt is blue"
         assert response.tool_name == "color_blindness_assist"
+        mock_frontend_stub.ShowNotification.assert_called_once_with(
+            frontend_pb2.NotificationRequest(
+                title="Tool called",
+                message="color_blindness_assist",
+                style="debug",
+                duration_ms=2000,
+            )
+        )
 
     def test_unknown_tool_from_bedrock(self, servicer, mock_bedrock, mock_grpc_context):
         mock_bedrock.converse.return_value = ToolUseResult(
@@ -99,9 +116,16 @@ class TestAssistantService:
         assert "Assistant error" in response.response_text
 
     @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
     @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_grpc_error_handled(
-        self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
+        self,
+        mock_tool_stub_cls,
+        mock_frontend_stub_cls,
+        mock_channel,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
     ):
         import grpc
 
@@ -111,9 +135,10 @@ class TestAssistantService:
             parameters={"query": "colors"},
         )
 
-        mock_stub = MagicMock()
-        mock_stub.Execute.side_effect = grpc.RpcError()
-        mock_stub_cls.return_value = mock_stub
+        mock_tool_stub = MagicMock()
+        mock_tool_stub.Execute.side_effect = grpc.RpcError()
+        mock_tool_stub_cls.return_value = mock_tool_stub
+        mock_frontend_stub_cls.return_value = MagicMock()
 
         request = assistant_pb2.CommandRequest(text="help with colors")
         response = servicer.ProcessCommand(request, mock_grpc_context)
@@ -128,9 +153,16 @@ class TestAssistantService:
         assert response.response_text == "Empty command"
 
     @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
     @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_failure_passed_through(
-        self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
+        self,
+        mock_tool_stub_cls,
+        mock_frontend_stub_cls,
+        mock_channel,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
     ):
         """When the tool returns success=False, the response reflects that."""
         mock_bedrock.converse.return_value = ToolUseResult(
@@ -139,11 +171,12 @@ class TestAssistantService:
             parameters={"query": "colors"},
         )
 
-        mock_stub = MagicMock()
-        mock_stub.Execute.return_value = tool_pb2.ToolResponse(
+        mock_tool_stub = MagicMock()
+        mock_tool_stub.Execute.return_value = tool_pb2.ToolResponse(
             success=False, result_text="Camera unavailable"
         )
-        mock_stub_cls.return_value = mock_stub
+        mock_tool_stub_cls.return_value = mock_tool_stub
+        mock_frontend_stub_cls.return_value = MagicMock()
 
         request = assistant_pb2.CommandRequest(text="help with colors")
         response = servicer.ProcessCommand(request, mock_grpc_context)
@@ -153,9 +186,16 @@ class TestAssistantService:
         assert response.tool_name == "color_blindness_assist"
 
     @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
     @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_channel_closed_on_grpc_error(
-        self, mock_stub_cls, mock_channel_cls, servicer, mock_bedrock, mock_grpc_context
+        self,
+        mock_tool_stub_cls,
+        mock_frontend_stub_cls,
+        mock_channel_cls,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
     ):
         """Channel is closed even when the tool gRPC call fails."""
         import grpc
@@ -166,13 +206,57 @@ class TestAssistantService:
             parameters={},
         )
 
-        mock_channel = MagicMock()
-        mock_channel_cls.return_value = mock_channel
-        mock_stub = MagicMock()
-        mock_stub.Execute.side_effect = grpc.RpcError()
-        mock_stub_cls.return_value = mock_stub
+        frontend_channel = MagicMock()
+        tool_channel = MagicMock()
+        mock_channel_cls.side_effect = [frontend_channel, tool_channel]
+        mock_frontend_stub_cls.return_value = MagicMock()
+        mock_tool_stub = MagicMock()
+        mock_tool_stub.Execute.side_effect = grpc.RpcError()
+        mock_tool_stub_cls.return_value = mock_tool_stub
 
         request = assistant_pb2.CommandRequest(text="colors")
         servicer.ProcessCommand(request, mock_grpc_context)
 
-        mock_channel.close.assert_called_once()
+        frontend_channel.close.assert_called_once()
+        tool_channel.close.assert_called_once()
+
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
+    @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
+    def test_frontend_notification_error_does_not_block_tool_call(
+        self,
+        mock_tool_stub_cls,
+        mock_frontend_stub_cls,
+        mock_channel_cls,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
+    ):
+        import grpc
+
+        mock_bedrock.converse.return_value = ToolUseResult(
+            tool_use_id="tu_6",
+            tool_name="color_blindness_assist",
+            parameters={"query": "colors"},
+        )
+
+        frontend_channel = MagicMock()
+        tool_channel = MagicMock()
+        mock_channel_cls.side_effect = [frontend_channel, tool_channel]
+
+        mock_frontend_stub = MagicMock()
+        mock_frontend_stub.ShowNotification.side_effect = grpc.RpcError()
+        mock_frontend_stub_cls.return_value = mock_frontend_stub
+
+        mock_tool_stub = MagicMock()
+        mock_tool_stub.Execute.return_value = tool_pb2.ToolResponse(
+            success=True,
+            result_text="The shirt is blue",
+        )
+        mock_tool_stub_cls.return_value = mock_tool_stub
+
+        request = assistant_pb2.CommandRequest(text="help me with colors")
+        response = servicer.ProcessCommand(request, mock_grpc_context)
+
+        assert response.success
+        assert response.response_text == "The shirt is blue"
