@@ -43,6 +43,10 @@ bazel run //:frontend_build
 bazel run //:frontend_test
 bazel run //:frontend_run
 
+# Website
+bazel run //:website_build
+bazel run //:website_run
+
 # full stack
 bazel run //:run_full_app
 ```

@@ -21,42 +21,16 @@ fi
 # shellcheck source=tools/bazel/common.sh
 source "$COMMON_SH"
 
-MODE="tauri"
-EXTRA_ARGS=()
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --web)
-            MODE="web"
-            ;;
-        --tauri)
-            MODE="tauri"
-            ;;
-        *)
-            EXTRA_ARGS+=("$1")
-            ;;
-    esac
-    shift
-done
-
 cd_workspace_root
 ensure_uv_runtime_deps
-generate_protos
-ensure_viture_sensors
 
-FRONTEND_DIR="frontend/viture-luma-display"
 WEBSITE_DIR="website"
-ensure_frontend_deps "$FRONTEND_DIR"
-pnpm_install "$FRONTEND_DIR"
 ensure_frontend_deps "$WEBSITE_DIR"
 pnpm_install "$WEBSITE_DIR"
 
-BACKEND_PID=""
-WEBSITE_PID=""
-WEBSITE_API_PID=""
-BACKEND_STOP_TIMEOUT_SECONDS=12
-WEBSITE_STOP_TIMEOUT_SECONDS=12
-WEBSITE_API_STOP_TIMEOUT_SECONDS=12
-STARTED_WEBSITE_API=0
+API_PID=""
+API_STOP_TIMEOUT_SECONDS=12
+STARTED_API=0
 
 find_website_api_pids() {
     if command -v lsof &>/dev/null; then
@@ -78,7 +52,7 @@ stop_existing_website_api() {
 
     echo "Stopping existing website API listener(s) on port 8008: $pids"
     for pid in $pids; do
-        stop_process "$pid" "website API" "$WEBSITE_API_STOP_TIMEOUT_SECONDS"
+        stop_process "$pid" "website API" "$API_STOP_TIMEOUT_SECONDS"
     done
 }
 
@@ -118,62 +92,30 @@ cleanup() {
     exit_code=$?
     trap - EXIT INT TERM
 
-    stop_process "$WEBSITE_PID" "website" "$WEBSITE_STOP_TIMEOUT_SECONDS"
-    if [[ "$STARTED_WEBSITE_API" -eq 1 ]]; then
-        stop_process "$WEBSITE_API_PID" "website API" "$WEBSITE_API_STOP_TIMEOUT_SECONDS"
+    if [[ "$STARTED_API" -eq 1 ]]; then
+        stop_process "$API_PID" "website API" "$API_STOP_TIMEOUT_SECONDS"
     fi
-    stop_process "$BACKEND_PID" "backend" "$BACKEND_STOP_TIMEOUT_SECONDS"
 
     exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting backend services..."
-uv run python -m services.main &
-BACKEND_PID=$!
-
-sleep 2
-if ! kill -0 "$BACKEND_PID" &>/dev/null; then
-    echo "ERROR: Backend exited before frontend launch." >&2
-    wait "$BACKEND_PID"
-fi
-
-echo "Starting website services..."
 stop_existing_website_api
 
 echo "Starting website API..."
 uv run python -m services.website_api &
-WEBSITE_API_PID=$!
-STARTED_WEBSITE_API=1
+API_PID=$!
+STARTED_API=1
 
 sleep 1
-if ! kill -0 "$WEBSITE_API_PID" &>/dev/null; then
-    echo "ERROR: Website API exited before website launch." >&2
-    wait "$WEBSITE_API_PID"
+if ! kill -0 "$API_PID" &>/dev/null; then
+    echo "ERROR: Website API exited before the website launched." >&2
+    wait "$API_PID"
 fi
 
-pnpm --dir "$WEBSITE_DIR" run dev &
-WEBSITE_PID=$!
-
-sleep 2
-if ! kill -0 "$WEBSITE_PID" &>/dev/null; then
-    echo "ERROR: Website exited before frontend launch." >&2
-    wait "$WEBSITE_PID"
+echo "Starting website in web mode (vite dev server)..."
+if [[ $# -gt 0 ]]; then
+    pnpm --dir "$WEBSITE_DIR" run dev -- "$@"
+    exit $?
 fi
-
-if [[ "$MODE" == "web" ]]; then
-    echo "Starting frontend (web mode)..."
-    if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-        pnpm --dir "$FRONTEND_DIR" run dev -- "${EXTRA_ARGS[@]}"
-    else
-        pnpm --dir "$FRONTEND_DIR" run dev
-    fi
-else
-    ensure_command cargo
-    echo "Starting frontend (Tauri mode)..."
-    if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
-        pnpm --dir "$FRONTEND_DIR" run tauri dev -- "${EXTRA_ARGS[@]}"
-    else
-        pnpm --dir "$FRONTEND_DIR" run tauri dev
-    fi
-fi
+pnpm --dir "$WEBSITE_DIR" run dev

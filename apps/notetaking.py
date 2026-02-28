@@ -4,24 +4,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import tempfile
 import threading
 import time
 from typing import Any
 
+import cv2
 import grpc
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
 from generated import data_pb2, data_pb2_grpc, frontend_pb2, frontend_pb2_grpc
 from services.config import DATA_ADDRESS, FRONTEND_ADDRESS, NOTETAKING_PORT
+from services.media.camera_transport import encode_rgb_to_jpeg
 
 log = structlog.get_logger()
 
 _MODEL_ID = os.environ.get(
-    "CLEO_NOTETAKING_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    "CLEO_NOTETAKING_MODEL", "amazon.nova-pro-v1:0"
 )
 _BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
+_MAX_VIDEO_KEYFRAMES = 16
 
 
 @dataclass
@@ -68,7 +72,21 @@ class NoteSummaryBedrockClient:
             "Transcripts:\n"
             f"{chr(10).join(transcript_lines) if transcript_lines else '(none)'}"
         )
+        content = self._build_content(prompt=prompt, clips=clips)
+        response = self._converse(content)
+        text_parts = [
+            block["text"]
+            for block in response.get("output", {}).get("message", {}).get("content", [])
+            if "text" in block
+        ]
+        return "\n".join(text_parts).strip()
 
+    def _build_content(
+        self,
+        *,
+        prompt: str,
+        clips: list[tuple[data_pb2.VideoClipMetadata, bytes]],
+    ) -> list[dict[str, Any]]:
         content: list[dict[str, Any]] = [{"text": prompt}]
         for metadata, clip_mp4_data in clips:
             content.append(
@@ -80,25 +98,86 @@ class NoteSummaryBedrockClient:
                     )
                 }
             )
-            content.append(
-                {
-                    "video": {
-                        "format": "mp4",
-                        "source": {"bytes": clip_mp4_data},
+            for frame_jpeg in self._extract_keyframes(clip_mp4_data):
+                content.append(
+                    {
+                        "image": {
+                            "format": "jpeg",
+                            "source": {"bytes": frame_jpeg},
+                        }
                     }
-                }
-            )
+                )
+        return content
 
-        response = self._client.converse(
+    def _extract_keyframes(
+        self,
+        clip_mp4_data: bytes,
+        max_frames: int = _MAX_VIDEO_KEYFRAMES,
+    ) -> list[bytes]:
+        if not clip_mp4_data or max_frames <= 0:
+            return []
+
+        temp_path: str | None = None
+        capture: cv2.VideoCapture | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                tmp.write(clip_mp4_data)
+                temp_path = tmp.name
+
+            capture = cv2.VideoCapture(temp_path)
+            if not capture.isOpened():
+                raise RuntimeError("Failed to open temporary video clip for keyframe sampling")
+
+            total_frames = max(int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0), 0)
+            if total_frames <= 0:
+                return []
+
+            target_indices = self._sample_frame_indices(total_frames, max_frames)
+            keyframes: list[bytes] = []
+            for frame_index in target_indices:
+                capture.set(cv2.CAP_PROP_POS_FRAMES, float(frame_index))
+                ok, frame_bgr = capture.read()
+                if not ok or frame_bgr is None:
+                    log.warning(
+                        "notetaking.keyframe_read_failed",
+                        frame_index=frame_index,
+                        total_frames=total_frames,
+                    )
+                    continue
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                keyframes.append(encode_rgb_to_jpeg(frame_rgb))
+            return keyframes
+        except Exception as exc:
+            log.warning("notetaking.keyframe_sampling_failed", error=str(exc))
+            return []
+        finally:
+            if capture is not None:
+                capture.release()
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _sample_frame_indices(total_frames: int, max_frames: int) -> list[int]:
+        if total_frames <= 0 or max_frames <= 0:
+            return []
+        sample_count = min(total_frames, max_frames)
+        if sample_count == 1:
+            return [0]
+        return sorted(
+            {
+                round(index * (total_frames - 1) / (sample_count - 1))
+                for index in range(sample_count)
+            }
+        )
+
+    def _converse(self, content: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._client.converse(
             modelId=self._model_id,
             messages=[{"role": "user", "content": content}],
         )
-        text_parts = [
-            block["text"]
-            for block in response.get("output", {}).get("message", {}).get("content", [])
-            if "text" in block
-        ]
-        return "\n".join(text_parts).strip()
 
 
 class NotetakingServicer(ToolServiceBase):
@@ -290,10 +369,7 @@ class NotetakingServicer(ToolServiceBase):
         if summary_text:
             return summary_text
 
-        transcript_fallback = " ".join(entry.text for entry in context.transcripts if entry.text).strip()
-        if transcript_fallback:
-            return transcript_fallback
-        return "Video was captured during this note session, but no textual summary was generated."
+        return "A note summary could not be generated for this session."
 
     def _notify(
         self,

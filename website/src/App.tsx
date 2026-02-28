@@ -1,0 +1,678 @@
+import { startTransition, useEffect, useState } from "react";
+
+type Section =
+  | "Dashboard"
+  | "Memory"
+  | "Notes"
+  | "Nutrition"
+  | "Apps"
+  | "Preferences"
+  | "System";
+
+type FoodEntry = {
+  id: number;
+  productName: string;
+  brand: string;
+  caloriesKcal: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+  carbsG: number | null;
+  servingSize: string;
+  servingQuantity: number | null;
+  basis: string;
+  recordedAt: number;
+};
+
+type NoteEntry = {
+  id: number;
+  summaryText: string;
+  startTimestamp: number;
+  endTimestamp: number;
+  createdAt: number;
+};
+
+type Preferences = {
+  colorBlindness: string;
+  contrast: "Balanced" | "High";
+  textScale: "Compact" | "Comfortable" | "Large";
+  density: "Dense" | "Relaxed";
+  verbosity: "Quiet" | "Balanced" | "Verbose";
+  defaultRange: string;
+};
+
+const sections: Section[] = [
+  "Dashboard",
+  "Memory",
+  "Notes",
+  "Nutrition",
+  "Apps",
+  "Preferences",
+  "System",
+];
+
+const defaultPrefs: Preferences = {
+  colorBlindness: "None",
+  contrast: "Balanced",
+  textScale: "Comfortable",
+  density: "Relaxed",
+  verbosity: "Balanced",
+  defaultRange: "24 hours",
+};
+
+function App() {
+  const [section, setSection] = useState<Section>("Dashboard");
+  const [foodEntries, setFoodEntries] = useState<FoodEntry[]>([]);
+  const [foodError, setFoodError] = useState<string | null>(null);
+  const [foodLoading, setFoodLoading] = useState(true);
+  const [noteEntries, setNoteEntries] = useState<NoteEntry[]>([]);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteLoading, setNoteLoading] = useState(true);
+  const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
+  const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
+
+  const densityClass = preferences.density === "Dense" ? "density-dense" : "density-relaxed";
+  const contrastClass = preferences.contrast === "High" ? "contrast-high" : "contrast-balanced";
+  const scaleClass =
+    preferences.textScale === "Compact"
+      ? "scale-compact"
+      : preferences.textScale === "Large"
+        ? "scale-large"
+        : "scale-comfortable";
+  const websiteApiState = foodLoading || noteLoading ? "Checking" : foodError || noteError ? "Unavailable" : "Ready";
+  const nutritionSummary =
+    foodLoading
+      ? "Refreshing"
+      : foodError
+        ? "Unavailable"
+        : String(foodEntries.length);
+  const notesSummary =
+    noteLoading
+      ? "Refreshing"
+      : noteError
+        ? "Unavailable"
+        : String(noteEntries.length);
+  const selectedNote = noteEntries.find((entry) => entry.id === selectedNoteId) ?? noteEntries[0] ?? null;
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadFoodMacros() {
+      try {
+        setFoodLoading(true);
+        setFoodError(null);
+
+        const response = await fetch("/api/food-macros?limit=100", {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as {
+          entries?: Array<{
+            id: number;
+            productName: string;
+            brand: string;
+            caloriesKcal: number | null;
+            proteinG: number | null;
+            fatG: number | null;
+            carbsG: number | null;
+            servingSize: string;
+            servingQuantity: number | null;
+            basis: string;
+            recordedAt: number;
+          }>;
+        };
+        setFoodEntries(payload.entries ?? []);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setFoodError(error instanceof Error ? error.message : "Unable to load nutrition entries.");
+        setFoodEntries([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setFoodLoading(false);
+        }
+      }
+    }
+
+    void loadFoodMacros();
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadNotes() {
+      try {
+        setNoteLoading(true);
+        setNoteError(null);
+
+        const response = await fetch("/api/notes?limit=100", {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as {
+          entries?: Array<{
+            id: number;
+            summaryText: string;
+            startTimestamp: number;
+            endTimestamp: number;
+            createdAt: number;
+          }>;
+        };
+        const entries = payload.entries ?? [];
+        setNoteEntries(entries);
+        setSelectedNoteId((current) => {
+          if (entries.length === 0) {
+            return null;
+          }
+          if (current !== null && entries.some((entry) => entry.id === current)) {
+            return current;
+          }
+          return entries[0].id;
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setNoteError(error instanceof Error ? error.message : "Unable to load note summaries.");
+        setNoteEntries([]);
+        setSelectedNoteId(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setNoteLoading(false);
+        }
+      }
+    }
+
+    void loadNotes();
+
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <div className={`app-shell ${densityClass} ${contrastClass} ${scaleClass}`}>
+      <div className="ambient ambient-left" />
+      <div className="ambient ambient-right" />
+      <aside className="sidebar">
+        <div className="brand-block">
+          <p className="eyebrow">Cleo</p>
+          <h1>Control Center</h1>
+          <p className="muted">Personal memory dashboard for notes, history, nutrition, and system controls.</p>
+        </div>
+        <nav className="nav-list" aria-label="Primary">
+          {sections.map((item) => (
+            <button
+              key={item}
+              className={item === section ? "nav-item active" : "nav-item"}
+              onClick={() => {
+                startTransition(() => setSection(item));
+              }}
+              type="button"
+            >
+              <span>{item}</span>
+              <small>{sectionHint(item)}</small>
+            </button>
+          ))}
+        </nav>
+        <div className="status-card">
+          <p className="eyebrow">System Health</p>
+          <div className="health-row">
+            <span>Website API</span>
+            <strong>{websiteApiState}</strong>
+          </div>
+          <div className="health-row">
+            <span>Nutrition Feed</span>
+            <strong>{foodLoading ? "Loading" : foodError ? "Error" : "Synced"}</strong>
+          </div>
+          <div className="health-row">
+            <span>Other Sections</span>
+            <strong className="warn">Pending</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main className="main-panel">
+        <header className="top-bar">
+          <div>
+            <p className="eyebrow">Workspace</p>
+            <h2>{section}</h2>
+          </div>
+          <div className="top-actions">
+            <button className="ghost-button" type="button" onClick={() => startTransition(() => setSection("Memory"))}>
+              Search Memory
+            </button>
+            <button className="ghost-button" type="button" onClick={() => startTransition(() => setSection("Notes"))}>
+              Review Notes
+            </button>
+            <button
+              className="solid-button"
+              type="button"
+              onClick={() => startTransition(() => setSection("Preferences"))}
+            >
+              Edit Preferences
+            </button>
+          </div>
+        </header>
+
+        {section === "Dashboard" && (
+          <section className="stacked-layout">
+            <div className="stats-grid">
+              <StatCard label="Nutrition entries" value={nutritionSummary} meta="Live count from local database" />
+              <StatCard label="Memory" value="Pending" meta="No API connected yet" />
+              <StatCard label="Notes" value={notesSummary} meta={noteError ?? "Live count from local database"} />
+              <StatCard label="Apps" value="Pending" meta="No API connected yet" />
+            </div>
+
+            <div className="hero-grid">
+              <section className="surface-panel">
+                <div className="panel-heading">
+                  <div>
+                    <p className="eyebrow">Live Data</p>
+                    <h3>Current website wiring</h3>
+                  </div>
+                </div>
+                <div className="empty-state">
+                  <h4>Notes and Nutrition are live</h4>
+                  <p>
+                    The website no longer renders fake records. Notes and nutrition read from the local database, and
+                    the remaining sections are waiting for real API endpoints.
+                  </p>
+                </div>
+              </section>
+
+              <section className="surface-panel accent-panel">
+                <p className="eyebrow">Next Up</p>
+                <h3>Connect the remaining sections</h3>
+                <p>
+                  Memory, Apps, and System no longer use seeded content. They will stay empty until their
+                  corresponding backend routes are implemented.
+                </p>
+                <div className="quick-link-row">
+                  <button className="ghost-button" type="button" onClick={() => setSection("Memory")}>
+                    View Memory
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => setSection("Nutrition")}>
+                    View Nutrition
+                  </button>
+                </div>
+              </section>
+            </div>
+          </section>
+        )}
+
+        {section === "Memory" && (
+          <section className="stacked-layout">
+            <section className="surface-panel">
+              <div className="empty-state">
+                <h4>Memory is not connected yet</h4>
+                <p>Static transcript placeholders have been removed. Add the memory API endpoints to populate this page.</p>
+              </div>
+            </section>
+          </section>
+        )}
+
+        {section === "Notes" && (
+          <section className="notes-grid">
+            <section className="surface-panel">
+                <div className="panel-heading">
+                  <div>
+                    <p className="eyebrow">Note Summaries</p>
+                    <h3>Captured note history</h3>
+                  </div>
+                </div>
+              <div className="note-list">
+                {noteLoading && (
+                  <div className="empty-state">
+                    <h4>Loading note summaries</h4>
+                    <p>Reading the latest saved notes from the local database.</p>
+                  </div>
+                )}
+                {!noteLoading && noteError && (
+                  <div className="empty-state">
+                    <h4>Note summaries unavailable</h4>
+                    <p>{noteError}</p>
+                  </div>
+                )}
+                {!noteLoading && !noteError && noteEntries.length === 0 && (
+                  <div className="empty-state">
+                    <h4>No note summaries saved yet</h4>
+                    <p>Start and stop notetaking once and the summary will appear here.</p>
+                  </div>
+                )}
+                {!noteLoading &&
+                  !noteError &&
+                  noteEntries.map((entry) => (
+                    <button
+                      key={entry.id}
+                      className={entry.id === selectedNote?.id ? "note-card active" : "note-card"}
+                      type="button"
+                      onClick={() => setSelectedNoteId(entry.id)}
+                    >
+                      <div className="panel-heading">
+                        <p className="eyebrow">Note #{entry.id}</p>
+                        <span className="pill success">{formatUnixTimestamp(entry.createdAt)}</span>
+                      </div>
+                      <h4>{truncateText(entry.summaryText, 120)}</h4>
+                      <p className="muted">
+                        Session {formatUnixTimestamp(entry.startTimestamp)} to {formatUnixTimestamp(entry.endTimestamp)}
+                      </p>
+                    </button>
+                  ))}
+              </div>
+            </section>
+
+            <aside className="surface-panel note-detail">
+              <p className="eyebrow">Detail</p>
+              {!selectedNote && (
+                <div className="empty-state">
+                  <h4>No note selected</h4>
+                  <p>This panel will activate once note data is loaded from the backend.</p>
+                </div>
+              )}
+              {selectedNote && (
+                <>
+                  <h3>Note #{selectedNote.id}</h3>
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Created</span>
+                      <strong>{formatUnixTimestamp(selectedNote.createdAt)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Duration</span>
+                      <strong>{formatDuration(selectedNote.startTimestamp, selectedNote.endTimestamp)}</strong>
+                    </div>
+                  </div>
+                  <div className="meta-stack">
+                    <div>
+                      <span className="meta-label">Started</span>
+                      <strong>{formatUnixTimestamp(selectedNote.startTimestamp)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Ended</span>
+                      <strong>{formatUnixTimestamp(selectedNote.endTimestamp)}</strong>
+                    </div>
+                  </div>
+                  <p>{selectedNote.summaryText}</p>
+                </>
+              )}
+            </aside>
+          </section>
+        )}
+
+        {section === "Nutrition" && (
+          <section className="stacked-layout">
+            <section className="surface-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Food Macros</p>
+                  <h3>Captured nutrition entries</h3>
+                </div>
+              </div>
+              <div className="table-shell">
+                <div className="table-head nutrition-head">
+                  <span>Product</span>
+                  <span>Brand</span>
+                  <span>Calories</span>
+                  <span>Protein</span>
+                  <span>Fat</span>
+                  <span>Carbs</span>
+                  <span>Serving</span>
+                  <span>Recorded</span>
+                </div>
+                {foodLoading && (
+                  <div className="empty-state">
+                    <h4>Loading nutrition entries</h4>
+                    <p>Reading the latest food macro records from the local database.</p>
+                  </div>
+                )}
+                {!foodLoading && foodError && (
+                  <div className="empty-state">
+                    <h4>Nutrition data unavailable</h4>
+                    <p>{foodError}</p>
+                  </div>
+                )}
+                {!foodLoading && !foodError && foodEntries.length === 0 && (
+                  <div className="empty-state">
+                    <h4>No food macros saved yet</h4>
+                    <p>Use the food macro tool once and the entry will appear here.</p>
+                  </div>
+                )}
+                {!foodLoading &&
+                  !foodError &&
+                  foodEntries.map((entry) => (
+                    <div className="table-row nutrition-row" key={entry.id}>
+                      <span>{entry.productName}</span>
+                      <span>{entry.brand || "Unknown"}</span>
+                      <span>{formatNumber(entry.caloriesKcal)}</span>
+                      <span>{formatMetric(entry.proteinG, "g")}</span>
+                      <span>{formatMetric(entry.fatG, "g")}</span>
+                      <span>{formatMetric(entry.carbsG, "g")}</span>
+                      <span>{formatServing(entry)}</span>
+                      <span>{formatUnixTimestamp(entry.recordedAt)}</span>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          </section>
+        )}
+
+        {section === "Apps" && (
+          <section className="apps-grid">
+            <section className="surface-panel">
+              <div className="empty-state">
+                <h4>No app integrations loaded</h4>
+                <p>Static app cards were removed. Connect the apps API before enabling this section.</p>
+              </div>
+            </section>
+
+            <aside className="surface-panel detail-panel">
+              <p className="eyebrow">Integration Detail</p>
+              <div className="empty-state">
+                <h4>No app selected</h4>
+                <p>This panel will show live integration metadata after the apps endpoint is wired.</p>
+              </div>
+            </aside>
+          </section>
+        )}
+
+        {section === "Preferences" && (
+          <section className="stacked-layout">
+            <section className="surface-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Persistent Preferences</p>
+                  <h3>Structured client-side schema</h3>
+                </div>
+              </div>
+
+              <div className="preferences-grid">
+                <PreferenceSelect
+                  label="Color blindness type"
+                  value={preferences.colorBlindness}
+                  options={["None", "Protanopia", "Deuteranopia", "Tritanopia"]}
+                  onChange={(value) => setPreferences({ ...preferences, colorBlindness: value })}
+                />
+                <PreferenceSelect
+                  label="Preferred contrast mode"
+                  value={preferences.contrast}
+                  options={["Balanced", "High"]}
+                  onChange={(value) =>
+                    setPreferences({ ...preferences, contrast: value as Preferences["contrast"] })
+                  }
+                />
+                <PreferenceSelect
+                  label="Text size"
+                  value={preferences.textScale}
+                  options={["Compact", "Comfortable", "Large"]}
+                  onChange={(value) =>
+                    setPreferences({ ...preferences, textScale: value as Preferences["textScale"] })
+                  }
+                />
+                <PreferenceSelect
+                  label="UI density"
+                  value={preferences.density}
+                  options={["Dense", "Relaxed"]}
+                  onChange={(value) =>
+                    setPreferences({ ...preferences, density: value as Preferences["density"] })
+                  }
+                />
+                <PreferenceSelect
+                  label="Notification verbosity"
+                  value={preferences.verbosity}
+                  options={["Quiet", "Balanced", "Verbose"]}
+                  onChange={(value) =>
+                    setPreferences({ ...preferences, verbosity: value as Preferences["verbosity"] })
+                  }
+                />
+                <PreferenceSelect
+                  label="Default time range"
+                  value={preferences.defaultRange}
+                  options={["24 hours", "7 days", "30 days"]}
+                  onChange={(value) => setPreferences({ ...preferences, defaultRange: value })}
+                />
+              </div>
+            </section>
+          </section>
+        )}
+
+        {section === "System" && (
+          <section className="stacked-layout">
+            <section className="surface-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Operational Visibility</p>
+                  <h3>Connected services</h3>
+                </div>
+              </div>
+              <div className="stats-grid">
+                <StatCard label="Website API" value={websiteApiState} meta="Backs the /api routes used by the website" />
+                <StatCard
+                  label="Nutrition fetch"
+                  value={foodLoading ? "Loading" : foodError ? "Error" : "Healthy"}
+                  meta={foodError ?? "Derived from the food macros endpoint"}
+                />
+                <StatCard
+                  label="Notes fetch"
+                  value={noteLoading ? "Loading" : noteError ? "Error" : "Healthy"}
+                  meta={noteError ?? "Derived from the notes endpoint"}
+                />
+                <StatCard label="Other sections" value="Pending" meta="Memory and apps are still not connected" />
+                <StatCard label="Mock data" value="Removed" meta="This page no longer shows seeded values" />
+              </div>
+            </section>
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function PreferenceSelect(props: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field preference-field">
+      <span>{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
+        {props.options.map((option) => (
+          <option key={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function StatCard(props: { label: string; value: string; meta: string }) {
+  return (
+    <section className="stat-card">
+      <p>{props.label}</p>
+      <h3>{props.value}</h3>
+      <small>{props.meta}</small>
+    </section>
+  );
+}
+
+function formatUnixTimestamp(value: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value * 1000));
+}
+
+function formatNumber(value: number | null) {
+  if (value === null) {
+    return "--";
+  }
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatMetric(value: number | null, unit: string) {
+  const formatted = formatNumber(value);
+  if (formatted === "--") {
+    return formatted;
+  }
+  return `${formatted} ${unit}`;
+}
+
+function formatServing(entry: FoodEntry) {
+  if (entry.servingSize) {
+    return entry.servingSize;
+  }
+  if (entry.servingQuantity !== null) {
+    return `${formatNumber(entry.servingQuantity)} ${entry.basis}`.trim();
+  }
+  return entry.basis || "--";
+}
+
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function formatDuration(startTimestamp: number, endTimestamp: number) {
+  const durationSeconds = Math.max(0, Math.round(endTimestamp - startTimestamp));
+  if (durationSeconds < 60) {
+    return `${durationSeconds}s`;
+  }
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+  if (seconds === 0) {
+    return `${minutes}m`;
+  }
+  return `${minutes}m ${seconds}s`;
+}
+
+function sectionHint(section: Section) {
+  switch (section) {
+    case "Dashboard":
+      return "Recent activity";
+    case "Memory":
+      return "Search + clips";
+    case "Notes":
+      return "Summaries";
+    case "Nutrition":
+      return "Food macros";
+    case "Apps":
+      return "Integrations";
+    case "Preferences":
+      return "Accessibility";
+    case "System":
+      return "Diagnostics";
+  }
+}
+
+export default App;
