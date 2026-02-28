@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useState, type FormEvent } from "react";
 
 type Section =
   | "Dashboard"
@@ -29,6 +29,15 @@ type NoteEntry = {
   startTimestamp: number;
   endTimestamp: number;
   createdAt: number;
+};
+
+type MemoryClipEntry = {
+  clipId: number;
+  score: number;
+  startTimestamp: number;
+  endTimestamp: number;
+  numFrames: number;
+  videoUrl: string;
 };
 
 type Preferences = {
@@ -68,6 +77,12 @@ function App() {
   const [noteError, setNoteError] = useState<string | null>(null);
   const [noteLoading, setNoteLoading] = useState(true);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
+  const [memoryQuery, setMemoryQuery] = useState("");
+  const [memoryResults, setMemoryResults] = useState<MemoryClipEntry[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoryHasSearched, setMemoryHasSearched] = useState(false);
+  const [selectedMemoryClipId, setSelectedMemoryClipId] = useState<number | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
 
   const densityClass = preferences.density === "Dense" ? "density-dense" : "density-relaxed";
@@ -78,7 +93,10 @@ function App() {
       : preferences.textScale === "Large"
         ? "scale-large"
         : "scale-comfortable";
-  const websiteApiState = foodLoading || noteLoading ? "Checking" : foodError || noteError ? "Unavailable" : "Ready";
+  const websiteApiState =
+    foodLoading || noteLoading ? "Checking" : foodError || noteError ? "Unavailable" : "Ready";
+  const memorySummary =
+    memoryLoading ? "Searching" : memoryError ? "Error" : memoryHasSearched ? String(memoryResults.length) : "Ready";
   const nutritionSummary =
     foodLoading
       ? "Refreshing"
@@ -91,7 +109,14 @@ function App() {
       : noteError
         ? "Unavailable"
         : String(noteEntries.length);
+  const memorySummaryMeta = memoryError
+    ? memoryError
+    : memoryHasSearched
+      ? `Latest search returned ${memoryResults.length} clip${memoryResults.length === 1 ? "" : "s"}`
+      : "Vector search is connected";
   const selectedNote = noteEntries.find((entry) => entry.id === selectedNoteId) ?? noteEntries[0] ?? null;
+  const selectedMemoryClip =
+    memoryResults.find((entry) => entry.clipId === selectedMemoryClipId) ?? memoryResults[0] ?? null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -141,6 +166,54 @@ function App() {
 
     return () => controller.abort();
   }, []);
+
+  async function searchMemory(queryOverride?: string) {
+    const query = (queryOverride ?? memoryQuery).trim();
+    setMemoryHasSearched(true);
+    if (!query) {
+      setMemoryError("Enter a text prompt to search saved video clips.");
+      setMemoryResults([]);
+      setSelectedMemoryClipId(null);
+      return;
+    }
+
+    try {
+      setMemoryLoading(true);
+      setMemoryError(null);
+
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=8`);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        entries?: MemoryClipEntry[];
+      };
+      const entries = payload.entries ?? [];
+      setMemoryResults(entries);
+      setSelectedMemoryClipId((current) => {
+        if (entries.length === 0) {
+          return null;
+        }
+        if (current !== null && entries.some((entry) => entry.clipId === current)) {
+          return current;
+        }
+        return entries[0].clipId;
+      });
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : "Unable to search saved video clips.");
+      setMemoryResults([]);
+      setSelectedMemoryClipId(null);
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  function handleMemorySearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void searchMemory();
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -265,7 +338,7 @@ function App() {
           <section className="stacked-layout">
             <div className="stats-grid">
               <StatCard label="Nutrition entries" value={nutritionSummary} meta="Live count from local database" />
-              <StatCard label="Memory" value="Pending" meta="No API connected yet" />
+              <StatCard label="Memory" value={memorySummary} meta={memorySummaryMeta} />
               <StatCard label="Notes" value={notesSummary} meta={noteError ?? "Live count from local database"} />
               <StatCard label="Apps" value="Pending" meta="No API connected yet" />
             </div>
@@ -279,10 +352,10 @@ function App() {
                   </div>
                 </div>
                 <div className="empty-state">
-                  <h4>Notes and Nutrition are live</h4>
+                  <h4>Notes, nutrition, and memory search are live</h4>
                   <p>
-                    The website no longer renders fake records. Notes and nutrition read from the local database, and
-                    the remaining sections are waiting for real API endpoints.
+                    The website no longer renders fake records. Notes and nutrition read from the backend, and memory
+                    search now queries saved video embeddings through the website API.
                   </p>
                 </div>
               </section>
@@ -291,7 +364,7 @@ function App() {
                 <p className="eyebrow">Next Up</p>
                 <h3>Connect the remaining sections</h3>
                 <p>
-                  Memory, Apps, and System no longer use seeded content. They will stay empty until their
+                  Apps and the remaining system views no longer use seeded content. They will stay empty until their
                   corresponding backend routes are implemented.
                 </p>
                 <div className="quick-link-row">
@@ -308,13 +381,122 @@ function App() {
         )}
 
         {section === "Memory" && (
-          <section className="stacked-layout">
+          <section className="memory-grid">
             <section className="surface-panel">
-              <div className="empty-state">
-                <h4>Memory is not connected yet</h4>
-                <p>Static transcript placeholders have been removed. Add the memory API endpoints to populate this page.</p>
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Video Memory Search</p>
+                  <h3>Find saved clips by text</h3>
+                </div>
+                <span className="pill success">Vector DB</span>
+              </div>
+              <form className="toolbar" onSubmit={handleMemorySearchSubmit}>
+                <label className="field">
+                  <span>Search prompt</span>
+                  <input
+                    type="search"
+                    value={memoryQuery}
+                    placeholder="What happened near the whiteboard?"
+                    onChange={(event) => setMemoryQuery(event.target.value)}
+                  />
+                </label>
+                <button className="solid-button" type="submit" disabled={memoryLoading}>
+                  {memoryLoading ? "Searching..." : "Search clips"}
+                </button>
+              </form>
+              <div className="table-shell">
+                <div className="table-head memory-head">
+                  <span>Clip</span>
+                  <span>Time window</span>
+                  <span>Match</span>
+                  <span>Frames</span>
+                </div>
+                {!memoryHasSearched && (
+                  <div className="empty-state">
+                    <h4>Search your saved clips</h4>
+                    <p>Enter a description and the website will query the video vector index through DataService.</p>
+                  </div>
+                )}
+                {memoryHasSearched && memoryLoading && (
+                  <div className="empty-state">
+                    <h4>Searching video memory</h4>
+                    <p>Embedding your text prompt and looking up the nearest saved clips.</p>
+                  </div>
+                )}
+                {memoryHasSearched && !memoryLoading && memoryError && (
+                  <div className="empty-state">
+                    <h4>Memory search unavailable</h4>
+                    <p>{memoryError}</p>
+                  </div>
+                )}
+                {memoryHasSearched && !memoryLoading && !memoryError && memoryResults.length === 0 && (
+                  <div className="empty-state">
+                    <h4>No matching clips</h4>
+                    <p>Try a broader description or search for a different moment.</p>
+                  </div>
+                )}
+                {memoryHasSearched &&
+                  !memoryLoading &&
+                  !memoryError &&
+                  memoryResults.map((entry) => (
+                    <button
+                      key={entry.clipId}
+                      className={entry.clipId === selectedMemoryClip?.clipId ? "table-row memory-row active" : "table-row memory-row"}
+                      type="button"
+                      onClick={() => setSelectedMemoryClipId(entry.clipId)}
+                    >
+                      <span>Clip #{entry.clipId}</span>
+                      <span>
+                        {formatUnixTimestamp(entry.startTimestamp)} to {formatUnixTimestamp(entry.endTimestamp)}
+                      </span>
+                      <span>{formatScore(entry.score)}</span>
+                      <span>{entry.numFrames}</span>
+                    </button>
+                  ))}
               </div>
             </section>
+
+            <aside className="surface-panel detail-panel">
+              <p className="eyebrow">Clip Preview</p>
+              {!selectedMemoryClip && (
+                <div className="empty-state">
+                  <h4>No clip selected</h4>
+                  <p>Run a search and select a result to play it here.</p>
+                </div>
+              )}
+              {selectedMemoryClip && (
+                <div className="clip-preview">
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Clip</span>
+                      <strong>#{selectedMemoryClip.clipId}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Similarity</span>
+                      <strong>{formatScore(selectedMemoryClip.score)}</strong>
+                    </div>
+                  </div>
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Started</span>
+                      <strong>{formatUnixTimestamp(selectedMemoryClip.startTimestamp)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Duration</span>
+                      <strong>{formatDuration(selectedMemoryClip.startTimestamp, selectedMemoryClip.endTimestamp)}</strong>
+                    </div>
+                  </div>
+                  <video
+                    className="clip-player"
+                    controls
+                    preload="metadata"
+                    src={selectedMemoryClip.videoUrl}
+                  >
+                    Your browser does not support MP4 playback.
+                  </video>
+                </div>
+              )}
+            </aside>
           </section>
         )}
 
@@ -563,7 +745,12 @@ function App() {
                   value={noteLoading ? "Loading" : noteError ? "Error" : "Healthy"}
                   meta={noteError ?? "Derived from the notes endpoint"}
                 />
-                <StatCard label="Other sections" value="Pending" meta="Memory and apps are still not connected" />
+                <StatCard
+                  label="Memory search"
+                  value={memoryLoading ? "Loading" : memoryError ? "Error" : "Healthy"}
+                  meta={memoryError ?? "Derived from the clip search endpoint"}
+                />
+                <StatCard label="Other sections" value="Pending" meta="Apps are still not connected" />
                 <StatCard label="Mock data" value="Removed" meta="This page no longer shows seeded values" />
               </div>
             </section>
@@ -616,6 +803,10 @@ function formatNumber(value: number | null) {
     return "--";
   }
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatScore(value: number) {
+  return value.toFixed(3);
 }
 
 function formatMetric(value: number | null, unit: string) {

@@ -232,6 +232,31 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             context.set_details(f"Query embedding failed: {e}")
             return data_pb2.SearchResponse()
 
+        return self._search_video_clips(query_vec, top_k=top_k, query_type=query_type)
+
+    def SearchVideoClipsByText(self, request, context):
+        query_text = request.query_text.strip()
+        if not query_text:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("SearchVideoClipsByText query_text is required")
+            return data_pb2.SearchResponse()
+
+        top_k = request.top_k if request.top_k > 0 else 5
+        try:
+            query_vec = embed_text(
+                query_text,
+                dimension=self._embedding_dim,
+                embedding_purpose="VIDEO_RETRIEVAL",
+            )
+        except Exception as e:
+            log.error("data_service.text_search_embed_error", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Query embedding failed: {e}")
+            return data_pb2.SearchResponse()
+
+        return self._search_video_clips(query_vec, top_k=top_k, query_type="text")
+
+    def _search_video_clips(self, query_vec, *, top_k: int, query_type: str):
         faiss_results = self._faiss.search(query_vec, k=top_k)
 
         results = []
@@ -489,6 +514,39 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             barcode=request.barcode or None,
         )
         return data_pb2.StoreFoodMacrosResponse(id=row_id)
+
+    def GetFoodMacros(self, request, context):
+        limit = request.limit if request.limit > 0 else 50
+        offset = request.offset if request.offset > 0 else 0
+        rows, total = self._sqlite.query_food_macros(limit=limit, offset=offset)
+        entries = []
+        for row in rows:
+            entry = data_pb2.FoodMacroEntry(
+                id=row["id"],
+                product_name=row["product_name"] or "",
+                brand=row["brand"] or "",
+                barcode=row["barcode"] or "",
+                basis=row["basis"] or "",
+                serving_size=row["serving_size"] or "",
+                recorded_at=row["recorded_at"] or 0.0,
+                created_at=row["created_at"],
+            )
+            if row["calories_kcal"] is not None:
+                entry.calories_kcal = row["calories_kcal"]
+            if row["protein_g"] is not None:
+                entry.protein_g = row["protein_g"]
+            if row["fat_g"] is not None:
+                entry.fat_g = row["fat_g"]
+            if row["carbs_g"] is not None:
+                entry.carbs_g = row["carbs_g"]
+            if row["serving_quantity"] is not None:
+                entry.serving_quantity = row["serving_quantity"]
+            entries.append(entry)
+
+        return data_pb2.GetFoodMacrosResponse(
+            entries=entries,
+            total_count=total,
+        )
 
     # ── StoreFaceEmbedding ──
 

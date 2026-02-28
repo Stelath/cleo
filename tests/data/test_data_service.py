@@ -262,6 +262,24 @@ def test_search_rpc(data_servicer):
     assert resp.results[0].clip_id >= 1
 
 
+def test_search_video_clips_by_text_rpc(data_servicer):
+    store_req_iter = _store_clip_request_iter(
+        upload_id="store-video-text-search",
+        mp4_data=b"\x01" * 100,
+        start_timestamp=120.0,
+        end_timestamp=126.0,
+        num_frames=12,
+    )
+    data_servicer.StoreVideoClip(store_req_iter, _mock_context())
+
+    resp = data_servicer.SearchVideoClipsByText(
+        data_pb2.SearchVideoClipsByTextRequest(query_text="find the clip", top_k=3),
+        _mock_context(),
+    )
+    assert len(resp.results) >= 1
+    assert resp.results[0].clip_id >= 1
+
+
 def test_get_transcription_log_rpc(data_servicer):
     from generated import data_pb2
 
@@ -319,6 +337,33 @@ def test_store_food_macros_rpc(data_servicer):
     rows, total = data_servicer._sqlite.query_food_macros(limit=10)
     assert total == 1
     assert rows[0]["barcode"] == "111222333444"
+
+
+def test_get_food_macros_rpc(data_servicer):
+    from generated import data_pb2
+
+    data_servicer.StoreFoodMacros(
+        data_pb2.StoreFoodMacrosRequest(
+            product_name="Sparkling Water",
+            brand="Cleo",
+            basis="per can",
+            calories_kcal=0.0,
+            protein_g=0.0,
+            fat_g=0.0,
+            carbs_g=0.0,
+            recorded_at=200.0,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.GetFoodMacros(
+        data_pb2.GetFoodMacrosRequest(limit=10),
+        _mock_context(),
+    )
+    assert resp.total_count == 1
+    assert resp.entries[0].product_name == "Sparkling Water"
+    assert resp.entries[0].calories_kcal == pytest.approx(0.0)
+    assert resp.entries[0].HasField("calories_kcal")
 
 
 def test_get_transcriptions_in_range_rpc(data_servicer):

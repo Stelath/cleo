@@ -414,6 +414,11 @@ button {
   grid-template-columns: 1.5fr 1fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr 1.2fr;
 }
 
+.memory-head,
+.memory-row {
+  grid-template-columns: 0.9fr 1.8fr 0.7fr 0.6fr;
+}
+
 .detail-panel,
 .note-detail {
   display: grid;
@@ -512,6 +517,13 @@ button {
     rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(94, 85, 65, 0.08);
   color: var(--text-muted);
+}
+
+.clip-player {
+  width: 100%;
+  border-radius: 22px;
+  background: rgba(18, 26, 22, 0.92);
+  min-height: 260px;
 }
 
 .density-dense {

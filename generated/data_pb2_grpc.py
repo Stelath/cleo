@@ -49,6 +49,11 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SearchRequest.SerializeToString,
                 response_deserializer=data__pb2.SearchResponse.FromString,
                 _registered_method=True)
+        self.SearchVideoClipsByText = channel.unary_unary(
+                '/cleo.data.DataService/SearchVideoClipsByText',
+                request_serializer=data__pb2.SearchVideoClipsByTextRequest.SerializeToString,
+                response_deserializer=data__pb2.SearchResponse.FromString,
+                _registered_method=True)
         self.GetTranscriptionLog = channel.unary_unary(
                 '/cleo.data.DataService/GetTranscriptionLog',
                 request_serializer=data__pb2.TranscriptionLogRequest.SerializeToString,
@@ -109,6 +114,11 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.StoreFoodMacrosRequest.SerializeToString,
                 response_deserializer=data__pb2.StoreFoodMacrosResponse.FromString,
                 _registered_method=True)
+        self.GetFoodMacros = channel.unary_unary(
+                '/cleo.data.DataService/GetFoodMacros',
+                request_serializer=data__pb2.GetFoodMacrosRequest.SerializeToString,
+                response_deserializer=data__pb2.GetFoodMacrosResponse.FromString,
+                _registered_method=True)
         self.StoreFaceEmbedding = channel.unary_unary(
                 '/cleo.data.DataService/StoreFaceEmbedding',
                 request_serializer=data__pb2.StoreFaceEmbeddingRequest.SerializeToString,
@@ -140,6 +150,13 @@ class DataServiceServicer(object):
 
     def Search(self, request, context):
         """Search by text, image, or video — embed query, search FAISS, join SQLite
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SearchVideoClipsByText(self, request, context):
+        """Search video clips by text query for frontend memory lookups
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -229,6 +246,13 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetFoodMacros(self, request, context):
+        """Get paginated food macro entries
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StoreFaceEmbedding(self, request, context):
         """Store a face embedding with deduplication
         """
@@ -259,6 +283,11 @@ def add_DataServiceServicer_to_server(servicer, server):
             'Search': grpc.unary_unary_rpc_method_handler(
                     servicer.Search,
                     request_deserializer=data__pb2.SearchRequest.FromString,
+                    response_serializer=data__pb2.SearchResponse.SerializeToString,
+            ),
+            'SearchVideoClipsByText': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchVideoClipsByText,
+                    request_deserializer=data__pb2.SearchVideoClipsByTextRequest.FromString,
                     response_serializer=data__pb2.SearchResponse.SerializeToString,
             ),
             'GetTranscriptionLog': grpc.unary_unary_rpc_method_handler(
@@ -320,6 +349,11 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.StoreFoodMacros,
                     request_deserializer=data__pb2.StoreFoodMacrosRequest.FromString,
                     response_serializer=data__pb2.StoreFoodMacrosResponse.SerializeToString,
+            ),
+            'GetFoodMacros': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFoodMacros,
+                    request_deserializer=data__pb2.GetFoodMacrosRequest.FromString,
+                    response_serializer=data__pb2.GetFoodMacrosResponse.SerializeToString,
             ),
             'StoreFaceEmbedding': grpc.unary_unary_rpc_method_handler(
                     servicer.StoreFaceEmbedding,
@@ -412,6 +446,33 @@ class DataService(object):
             target,
             '/cleo.data.DataService/Search',
             data__pb2.SearchRequest.SerializeToString,
+            data__pb2.SearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchVideoClipsByText(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/SearchVideoClipsByText',
+            data__pb2.SearchVideoClipsByTextRequest.SerializeToString,
             data__pb2.SearchResponse.FromString,
             options,
             channel_credentials,
@@ -737,6 +798,33 @@ class DataService(object):
             '/cleo.data.DataService/StoreFoodMacros',
             data__pb2.StoreFoodMacrosRequest.SerializeToString,
             data__pb2.StoreFoodMacrosResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFoodMacros(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/GetFoodMacros',
+            data__pb2.GetFoodMacrosRequest.SerializeToString,
+            data__pb2.GetFoodMacrosResponse.FromString,
             options,
             channel_credentials,
             insecure,

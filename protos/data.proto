@@ -12,6 +12,9 @@ service DataService {
   // Search by text, image, or video — embed query, search FAISS, join SQLite
   rpc Search(SearchRequest) returns (SearchResponse);
 
+  // Search video clips by text query for frontend memory lookups
+  rpc SearchVideoClipsByText(SearchVideoClipsByTextRequest) returns (SearchResponse);
+
   // Get paginated transcription history
   rpc GetTranscriptionLog(TranscriptionLogRequest) returns (TranscriptionLogResponse);
 
@@ -47,6 +50,9 @@ service DataService {
 
   // Store extracted food macro information for later recall
   rpc StoreFoodMacros(StoreFoodMacrosRequest) returns (StoreFoodMacrosResponse);
+
+  // Get paginated food macro entries
+  rpc GetFoodMacros(GetFoodMacrosRequest) returns (GetFoodMacrosResponse);
 
   // Store a face embedding with deduplication
   rpc StoreFaceEmbedding(StoreFaceEmbeddingRequest) returns (StoreFaceEmbeddingResponse);
@@ -131,6 +137,11 @@ message SearchResult {
 
 message SearchResponse {
   repeated SearchResult results = 1;
+}
+
+message SearchVideoClipsByTextRequest {
+  string query_text = 1;
+  int32 top_k = 2;
 }
 
 // ── Transcription Log ──
@@ -308,6 +319,32 @@ message StoreFoodMacrosRequest {
 
 message StoreFoodMacrosResponse {
   int64 id = 1;
+}
+
+message GetFoodMacrosRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message FoodMacroEntry {
+  int64 id = 1;
+  string product_name = 2;
+  string brand = 3;
+  string barcode = 4;
+  string basis = 5;
+  optional double calories_kcal = 6;
+  optional double protein_g = 7;
+  optional double fat_g = 8;
+  optional double carbs_g = 9;
+  string serving_size = 10;
+  optional double serving_quantity = 11;
+  double recorded_at = 12;
+  double created_at = 13;
+}
+
+message GetFoodMacrosResponse {
+  repeated FoodMacroEntry entries = 1;
+  int32 total_count = 2;
 }
 
 // ── Faces ──
