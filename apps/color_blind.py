@@ -125,7 +125,11 @@ class ColorBlindnessServicer(ToolServiceBase):
             output_file = output_dir / f"color_corrected_{int(time.time())}.jpg"
 
             bgr_img = cv2.cvtColor(corrected_rgb, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(str(output_file), bgr_img)
+            written = cv2.imwrite(str(output_file), bgr_img)
+
+            if not written:
+                log.error("color_blind.imwrite_failed", path=str(output_file))
+                return False, f"Failed to save corrected frame to {output_file}"
 
             return True, f"Applied {correction_type} correction to frame and saved to {output_file}"
 

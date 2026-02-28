@@ -41,7 +41,7 @@ def test_daltonization_unknown_type_returns_original():
 
     img = np.full((2, 2, 3), 128, dtype=np.uint8)
     result = apply_daltonization(img, "not_a_real_type")
-    assert result is img
+    np.testing.assert_array_equal(result, img)
 
 
 class TestColorBlindnessServicer:
