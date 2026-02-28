@@ -2,7 +2,7 @@
 
 ## Commands
 
-Use Bazel as the primary setup/build/run/test entrypoint. Use `uv` for direct Python commands.
+Use Bazel as the primary setup/build/run/test entrypoint. Use `uv` for direct Python commands. Use `pnpm` for frontend JavaScript/TypeScript dependency management.
 
 ```bash
 # One-time bootstrap (installs Bazel/Bazelisk if missing, then runs setup)
@@ -35,9 +35,12 @@ uv run python -m services.main
 
 # Build viture-sensors (Rust/PyO3 driver) — needed after Rust changes
 uv run maturin develop --release --manifest-path packages/viture-luma-interop-layer/viture-sensors/Cargo.toml
+
+# Adding frontend dependencies (use pnpm, never npm)
+cd frontend/viture-luma-display && pnpm add <package>
 ```
 
-**Important:** Prefer Bazel targets for orchestration. For direct Python execution, always use `uv run` to ensure the correct Python (3.10–3.12) and project dependencies are used.
+**Important:** Prefer Bazel targets for orchestration. For direct Python execution, always use `uv run` to ensure the correct Python (3.10–3.12) and project dependencies are used. For frontend dependency management, always use `pnpm` — never `npm` or `yarn`.
 
 ## Architecture
 
@@ -74,3 +77,5 @@ VITURE_HARDWARE=1 uv run pytest tests/integration/ -v
 ## Dependencies
 
 Python >=3.10,<3.13. Managed with `uv` and locked in `uv.lock`. The `viture-sensors` package is a Rust/PyO3 extension built with maturin (requires Rust toolchain). PyAudio requires system `portaudio` (macOS: `brew install portaudio`). `pyzbar` requires the `zbar` shared library (macOS: `brew install zbar`).
+
+Frontend JavaScript/TypeScript dependencies are managed with `pnpm` and locked in `pnpm-lock.yaml`. Always use `pnpm add` / `pnpm remove` — never `npm install` or `yarn add`.
