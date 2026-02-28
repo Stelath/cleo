@@ -9,7 +9,7 @@ import structlog
 
 from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 from services.assistant.registry import ToolRegistry
-from services.config import ASSISTANT_PORT
+from services.config import ASSISTANT_PORT, DATA_ADDRESS
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import tool_pb2, tool_pb2_grpc
 
@@ -103,7 +103,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
 def serve(port: int = ASSISTANT_PORT):
     """Start the assistant gRPC server."""
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    servicer = AssistantServiceServicer()
+    registry = ToolRegistry(data_address=DATA_ADDRESS)
+    servicer = AssistantServiceServicer(registry=registry)
     assistant_pb2_grpc.add_AssistantServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()

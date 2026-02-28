@@ -15,6 +15,27 @@ class ObjectRecognitionServicer(ToolServiceBase):
     def tool_name(self) -> str:
         return "object_recognition"
 
+    @property
+    def tool_description(self) -> str:
+        return (
+            "Identify and describe objects in the user's current view. Use when "
+            "the user asks 'what is this?', 'what am I looking at?', or wants "
+            "to identify something in front of them."
+        )
+
+    @property
+    def tool_input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What the user wants identified or described",
+                },
+            },
+            "required": ["query"],
+        }
+
     def execute(self, params: dict) -> tuple[bool, str]:
         query = params.get("query", "")
         log.info("object_recognition.execute", query=query)

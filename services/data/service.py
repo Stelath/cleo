@@ -1,5 +1,6 @@
 """DataService gRPC servicer — owns SQLite, FAISS, Bedrock embeddings, and video storage."""
 
+import json
 import signal
 import time
 from concurrent import futures
@@ -171,6 +172,71 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             for r in rows
         ]
         return data_pb2.TranscriptionLogResponse(entries=entries, total_count=total)
+
+    # ── RegisterApp ──
+
+    def RegisterApp(self, request, context):
+        # Validate input_schema_json is valid JSON
+        schema_json = request.input_schema_json or "{}"
+        try:
+            json.loads(schema_json)
+        except json.JSONDecodeError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(f"input_schema_json is not valid JSON: {e}")
+            return data_pb2.RegisterAppResponse()
+
+        row_id, created = self._sqlite.upsert_app(
+            name=request.name,
+            description=request.description,
+            app_type=request.app_type or "on_demand",
+            grpc_address=request.grpc_address,
+            input_schema_json=schema_json,
+        )
+        log.info(
+            "data_service.app_registered",
+            name=request.name,
+            id=row_id,
+            created=created,
+        )
+        return data_pb2.RegisterAppResponse(id=row_id, created=created)
+
+    # ── ListApps ──
+
+    def ListApps(self, request, context):
+        rows = self._sqlite.list_apps(
+            enabled_only=request.enabled_only,
+            app_type=request.app_type,
+        )
+        apps = [
+            data_pb2.AppInfo(
+                id=r["id"],
+                name=r["name"],
+                description=r["description"],
+                app_type=r["app_type"],
+                grpc_address=r["grpc_address"],
+                input_schema_json=r["input_schema_json"],
+                enabled=bool(r["enabled"]),
+                registered_at=r["registered_at"],
+                updated_at=r["updated_at"],
+            )
+            for r in rows
+        ]
+        return data_pb2.ListAppsResponse(apps=apps)
+
+    # ── SetAppEnabled ──
+
+    def SetAppEnabled(self, request, context):
+        found = self._sqlite.set_app_enabled(request.name, request.enabled)
+        if not found:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"App '{request.name}' not found")
+            return data_pb2.SetAppEnabledResponse(success=False)
+        log.info(
+            "data_service.app_enabled_toggled",
+            name=request.name,
+            enabled=request.enabled,
+        )
+        return data_pb2.SetAppEnabledResponse(success=True)
 
     # ── GetVideoClip ──
 

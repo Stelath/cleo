@@ -221,3 +221,7 @@ uv.lock
 transcription_output.txt
 .claude
 .uv_lock
+*.db
+*.index
+*.meta.json
+

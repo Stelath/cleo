@@ -54,6 +54,14 @@ class TestToolServiceBase:
             def tool_name(self) -> str:
                 return "broken"
 
+            @property
+            def tool_description(self) -> str:
+                return "A broken tool"
+
+            @property
+            def tool_input_schema(self) -> dict:
+                return {"type": "object"}
+
             def execute(self, params: dict) -> tuple[bool, str]:
                 raise RuntimeError("something went wrong")
 
@@ -120,3 +128,35 @@ class TestNavigationAssistServicer:
 
     def test_tool_name(self):
         assert NavigationAssistServicer().tool_name == "navigation_assist"
+
+
+class TestToolServiceProperties:
+    """Verify tool_description, tool_input_schema, and tool_type on all servicers."""
+
+    @pytest.mark.parametrize(
+        "servicer_cls",
+        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+    )
+    def test_tool_description_is_nonempty(self, servicer_cls):
+        servicer = servicer_cls()
+        assert isinstance(servicer.tool_description, str)
+        assert len(servicer.tool_description) > 0
+
+    @pytest.mark.parametrize(
+        "servicer_cls",
+        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+    )
+    def test_tool_input_schema_has_type(self, servicer_cls):
+        servicer = servicer_cls()
+        schema = servicer.tool_input_schema
+        assert isinstance(schema, dict)
+        assert schema.get("type") == "object"
+        assert "properties" in schema
+
+    @pytest.mark.parametrize(
+        "servicer_cls",
+        [ColorBlindnessServicer, ObjectRecognitionServicer, NavigationAssistServicer],
+    )
+    def test_tool_type_defaults_to_on_demand(self, servicer_cls):
+        servicer = servicer_cls()
+        assert servicer.tool_type == "on_demand"

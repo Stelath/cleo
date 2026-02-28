@@ -17,6 +17,15 @@ service DataService {
 
   // Retrieve a video clip by ID
   rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
+
+  // Register or update an app
+  rpc RegisterApp(RegisterAppRequest) returns (RegisterAppResponse);
+
+  // List registered apps with optional filters
+  rpc ListApps(ListAppsRequest) returns (ListAppsResponse);
+
+  // Enable or disable an app by name
+  rpc SetAppEnabled(SetAppEnabledRequest) returns (SetAppEnabledResponse);
 }
 
 // ── Store Transcription ──
@@ -113,4 +122,49 @@ message VideoClipResponse {
   double start_timestamp = 2;
   double end_timestamp = 3;
   int32 num_frames = 4;
+}
+
+// ── App Registration ──
+
+message RegisterAppRequest {
+  string name = 1;
+  string description = 2;
+  string app_type = 3;
+  string grpc_address = 4;
+  string input_schema_json = 5;
+}
+
+message RegisterAppResponse {
+  int64 id = 1;
+  bool created = 2;
+}
+
+message ListAppsRequest {
+  bool enabled_only = 1;
+  string app_type = 2;
+}
+
+message AppInfo {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string app_type = 4;
+  string grpc_address = 5;
+  string input_schema_json = 6;
+  bool enabled = 7;
+  double registered_at = 8;
+  double updated_at = 9;
+}
+
+message ListAppsResponse {
+  repeated AppInfo apps = 1;
+}
+
+message SetAppEnabledRequest {
+  string name = 1;
+  bool enabled = 2;
+}
+
+message SetAppEnabledResponse {
+  bool success = 1;
 }

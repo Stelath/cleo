@@ -15,6 +15,27 @@ class ColorBlindnessServicer(ToolServiceBase):
     def tool_name(self) -> str:
         return "color_blindness_assist"
 
+    @property
+    def tool_description(self) -> str:
+        return (
+            "Help a color-blind user identify or distinguish colors in their "
+            "current view. Use when the user asks about colors, color matching, "
+            "or needs help telling colors apart."
+        )
+
+    @property
+    def tool_input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What the user wants to know about colors",
+                },
+            },
+            "required": ["query"],
+        }
+
     def execute(self, params: dict) -> tuple[bool, str]:
         query = params.get("query", "")
         log.info("color_blind.execute", query=query)
