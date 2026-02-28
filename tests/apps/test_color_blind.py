@@ -75,3 +75,70 @@ class TestColorBlindnessServicer:
 
     def test_tool_name(self):
         assert ColorBlindnessServicer().tool_name == "color_blindness_assist"
+
+    def test_execute_rejects_wrong_tool_name(self, mock_grpc_context, mocker):
+        """The base class should reject a request with the wrong tool name."""
+        import grpc
+
+        mocker.patch("apps.color_blind.grpc.insecure_channel")
+        servicer = ColorBlindnessServicer()
+
+        request = tool_pb2.ToolRequest(
+            tool_name="wrong_tool",
+            parameters_json="{}",
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+        assert not response.success
+        mock_grpc_context.set_code.assert_called_with(grpc.StatusCode.INVALID_ARGUMENT)
+
+    def test_execute_works_with_empty_params(self, mock_grpc_context, mocker):
+        """Tool should work fine with empty parameters (no query needed)."""
+        mocker.patch("apps.color_blind.grpc.insecure_channel")
+        servicer = ColorBlindnessServicer()
+
+        servicer.data_stub = mocker.MagicMock()
+        pref_resp = mocker.MagicMock(found=True, value="protanopia")
+        servicer.data_stub.GetPreference.return_value = pref_resp
+
+        servicer.sensor_stub = mocker.MagicMock()
+        frame_resp = mocker.MagicMock()
+        frame_resp.data = b"\x00" * 300
+        frame_resp.width = 10
+        frame_resp.height = 10
+        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+
+        mocker.patch("apps.color_blind.cv2.imwrite", return_value=True)
+
+        request = tool_pb2.ToolRequest(
+            tool_name="color_blindness_assist",
+            parameters_json="",
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+        assert response.success
+        assert "Applied protanopia correction" in response.result_text
+
+    def test_execute_reports_imwrite_failure(self, mock_grpc_context, mocker):
+        """If cv2.imwrite fails, execute should return failure."""
+        mocker.patch("apps.color_blind.grpc.insecure_channel")
+        servicer = ColorBlindnessServicer()
+
+        servicer.data_stub = mocker.MagicMock()
+        pref_resp = mocker.MagicMock(found=False)
+        servicer.data_stub.GetPreference.return_value = pref_resp
+
+        servicer.sensor_stub = mocker.MagicMock()
+        frame_resp = mocker.MagicMock()
+        frame_resp.data = b"\x00" * 300
+        frame_resp.width = 10
+        frame_resp.height = 10
+        servicer.sensor_stub.CaptureFrame.return_value = frame_resp
+
+        mocker.patch("apps.color_blind.cv2.imwrite", return_value=False)
+
+        request = tool_pb2.ToolRequest(
+            tool_name="color_blindness_assist",
+            parameters_json="{}",
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+        assert not response.success
+        assert "Failed to save" in response.result_text
