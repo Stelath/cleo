@@ -20,13 +20,13 @@ service SensorService {
 }
 
 message StreamRequest {
-  // Target frames per second for camera streaming (default: 2)
+  // Target frames per second for camera streaming (default: 30)
   float fps = 1;
 
   // Audio chunk duration in milliseconds (default: 500)
   int32 chunk_ms = 2;
 
-  // Audio sample rate in Hz (default: 16000)
+  // Audio sample rate in Hz (default: 48000)
   int32 sample_rate = 3;
 }
 
@@ -36,7 +36,7 @@ message RecordRequest {
   // Duration in milliseconds
   int32 duration_ms = 1;
 
-  // Sample rate in Hz (default: 16000)
+  // Sample rate in Hz (default: 48000)
   int32 sample_rate = 2;
 }
 

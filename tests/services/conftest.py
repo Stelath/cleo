@@ -22,7 +22,7 @@ def mock_camera_frame():
 @pytest.fixture
 def mock_audio_chunk():
     """Return an AudioChunk with synthetic PCM float32 data."""
-    sample_rate = 16000
+    sample_rate = 48000
     duration_s = 0.5
     num_samples = int(sample_rate * duration_s)
     audio = np.random.randn(num_samples).astype(np.float32)

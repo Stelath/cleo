@@ -47,7 +47,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sample-rate",
         type=int,
-        default=16000,
+        default=48000,
         help="Microphone sample rate in Hz.",
     )
     parser.add_argument(

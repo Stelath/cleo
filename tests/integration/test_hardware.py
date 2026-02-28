@@ -40,7 +40,7 @@ def test_camera_capture_real_frame(usb_camera):
 @requires_hardware
 def test_audio_record_real_samples(audio_recorder):
     """Record audio from the real microphone and validate it."""
-    audio = audio_recorder.record(duration_ms=500, sample_rate=16000)
+    audio = audio_recorder.record(duration_ms=500, sample_rate=48000)
 
     # Must be float32 with samples
     assert audio.dtype == np.float32
@@ -92,7 +92,7 @@ def test_grpc_record_audio(sensor_server):
     stub = sensor_pb2_grpc.SensorServiceStub(channel)
 
     response = stub.RecordAudio(
-        sensor_pb2.RecordRequest(duration_ms=500, sample_rate=16000)
+        sensor_pb2.RecordRequest(duration_ms=500, sample_rate=48000)
     )
 
     assert response.sample_rate > 0
@@ -115,7 +115,7 @@ def test_grpc_stream_camera_frames(sensor_server):
     stub = sensor_pb2_grpc.SensorServiceStub(channel)
 
     frames = []
-    stream = stub.StreamCamera(sensor_pb2.StreamRequest(fps=2))
+    stream = stub.StreamCamera(sensor_pb2.StreamRequest(fps=30))
     for frame_msg in stream:
         frames.append(frame_msg)
         if len(frames) >= 3:
