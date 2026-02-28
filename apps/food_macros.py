@@ -14,10 +14,7 @@ from urllib.request import Request, urlopen
 
 import grpc
 from PIL import Image
-try:
-    from pyzbar.pyzbar import decode as pyzbar_decode
-except ImportError:  # pragma: no cover - handled at runtime if zbar/pyzbar is unavailable
-    pyzbar_decode = None
+from pyzbar.pyzbar import decode as pyzbar_decode
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
