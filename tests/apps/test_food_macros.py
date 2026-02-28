@@ -1,10 +1,18 @@
 """Tests for the food macros tool."""
 
 import json
+import os
+from pathlib import Path
 from unittest.mock import MagicMock
+
+from PIL import Image
+import pytest
 
 from apps.food_macros import FoodDetection, FoodMacrosServicer, extract_food_macros
 from generated import sensor_pb2, tool_pb2
+
+
+_IMAGE_DIR = Path(__file__).resolve().parent.parent / "image"
 
 
 def test_extract_food_macros_prefers_serving_values():
@@ -206,3 +214,67 @@ class TestFoodMacrosServicer:
         assert "calories" in response.result_text
         food.get_product_by_barcode.assert_not_called()
         food.search_products_by_name.assert_not_called()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.getenv("RUN_FOOD_MACROS_LIVE") != "1",
+    reason="Set RUN_FOOD_MACROS_LIVE=1 to run the live Bedrock/OpenFoodFacts smoke test",
+)
+@pytest.mark.parametrize(
+    ("image_name", "query"),
+    [
+        ("chexmix.jpg", "What are the macros of this food?"),
+        ("poptart_box.png", "How many calories are in this?"),
+        ("hamburger_meal.png", "What are the macros of this meal?"),
+    ],
+)
+def test_live_food_macros_pipeline_prints_estimated_macros(mock_grpc_context, mocker, image_name, query):
+    """Opt-in live smoke test that prints the final macros from the full pipeline."""
+    image_path = _IMAGE_DIR / image_name
+    with Image.open(image_path) as image:
+        rgb_image = image.convert("RGB")
+        width, height = rgb_image.size
+        frame = sensor_pb2.CameraFrame(
+            data=rgb_image.tobytes(),
+            width=width,
+            height=height,
+        )
+
+    servicer = FoodMacrosServicer()
+    servicer._sensor = MagicMock()
+    servicer._sensor.CaptureFrame.return_value = frame
+
+    captured = {}
+
+    def _capture_store(request):
+        captured["request"] = request
+        return MagicMock(id=1)
+
+    servicer._data = MagicMock()
+    servicer._data.StoreFoodMacros.side_effect = _capture_store
+    servicer._frontend = MagicMock()
+
+    request = tool_pb2.ToolRequest(
+        tool_name="food_macros",
+        parameters_json=json.dumps({"query": query}),
+    )
+
+    try:
+        response = servicer.Execute(request, mock_grpc_context)
+    finally:
+        servicer.close()
+
+    assert response.success, response.result_text
+    store_request = captured["request"]
+    print(
+        (
+            f"{image_name}: "
+            f"product={store_request.product_name!r}, "
+            f"basis={store_request.basis!r}, "
+            f"calories_kcal={store_request.calories_kcal}, "
+            f"protein_g={store_request.protein_g}, "
+            f"fat_g={store_request.fat_g}, "
+            f"carbs_g={store_request.carbs_g}"
+        )
+    )

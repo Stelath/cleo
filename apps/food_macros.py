@@ -8,6 +8,7 @@ import json
 import os
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -25,7 +26,7 @@ _MODEL_ID = os.environ.get(
     "CLEO_FOOD_MACROS_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"
 )
 _BEDROCK_REGION = os.environ.get("AWS_REGION", "us-east-1")
-_OPEN_FOOD_FACTS_BASE = "https://world.openfoodfacts.org"
+_OPEN_FOOD_FACTS_BASE = "https://world.openfoodfacts.net"
 _OPEN_FOOD_FACTS_TIMEOUT_S = 10
 _OPEN_FOOD_FACTS_USER_AGENT = os.environ.get(
     "CLEO_OPEN_FOOD_FACTS_USER_AGENT",
@@ -158,7 +159,15 @@ class OpenFoodFactsClient:
                 "nutriments",
             ]
         )
-        data = self._get_json(f"/api/v2/product/{barcode}.json", {"fields": fields})
+        try:
+            data = self._get_json(f"/api/v2/product/{barcode}.json", {"fields": fields})
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            log.warning(
+                "food_macros.openfoodfacts_barcode_lookup_failed",
+                barcode=barcode,
+                error=str(exc),
+            )
+            return None
         product = data.get("product")
         if isinstance(product, dict) and product:
             return product
@@ -166,18 +175,26 @@ class OpenFoodFactsClient:
 
     def search_products_by_name(self, query: str, page_size: int = 5) -> list[dict[str, Any]]:
         """Search products by name."""
-        data = self._get_json(
-            "/cgi/search.pl",
-            {
-                "search_terms": query,
-                "page": 1,
-                "page_size": page_size,
-                "sort_by": "unique_scans",
-                "search_simple": 1,
-                "action": "process",
-                "json": 1,
-            },
-        )
+        try:
+            data = self._get_json(
+                "/cgi/search.pl",
+                {
+                    "search_terms": query,
+                    "page": 1,
+                    "page_size": page_size,
+                    "sort_by": "unique_scans",
+                    "search_simple": 1,
+                    "action": "process",
+                    "json": 1,
+                },
+            )
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            log.warning(
+                "food_macros.openfoodfacts_name_search_failed",
+                query=query,
+                error=str(exc),
+            )
+            return []
         products = data.get("products") or []
         return [product for product in products if isinstance(product, dict)]
 
