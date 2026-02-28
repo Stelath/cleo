@@ -41,12 +41,14 @@ _TRANSCRIBE_REGION = (
 )
 _DEBUG_TRANSCRIPTION_HUD_ENV = "CLEO_DEBUG_TRANSCRIPTION_HUD"
 _DEBUG_TRANSCRIPT_MAX_CHARS = 180
+_DEBUG_TRANSCRIPT_MAX_LINES = 5
 _ASSISTANT_RESPONSE_LOG_MAX_CHARS = 240
 _TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
 _TRIGGER_CAPTURE_SECONDS = 3.0
 _TRIGGER_PREROLL_SECONDS = 0.75
 _TRIGGER_FINAL_FLUSH_GRACE_SECONDS = 0.2
 _TRIGGER_EARLY_FINAL_SECONDS = 1.25
+_TRIGGER_SPEAKER_HANDOFF_SECONDS = 0.45
 _FOLLOW_UP_BASE_WINDOW_SECONDS = 6.0
 _FOLLOW_UP_MAX_WINDOW_SECONDS = 14.0
 _FOLLOW_UP_BUFFER_SECONDS = 1.25
@@ -92,6 +94,7 @@ class TranscriptSpan:
     start_time: float
     end_time: float
     is_partial: bool
+    speaker_label: str
 
 
 @dataclass(slots=True)
@@ -100,6 +103,7 @@ class PendingTrigger:
     capture_start_time: float
     capture_end_time: float
     detected_monotonic: float
+    speaker_label: str
 
 
 class AssistantCommandClient:
@@ -208,6 +212,10 @@ class FrontendTranscriptDebugClient:
         self._timeout = timeout
         self._channel = None
         self._stub = None
+        self._speaker_aliases: dict[str, str] = {}
+        self._speaker_index = 1
+        self._recent_lines: deque[str] = deque(maxlen=_DEBUG_TRANSCRIPT_MAX_LINES)
+        self._lock = threading.Lock()
 
         if self._enabled:
             self._channel = grpc.insecure_channel(
@@ -232,23 +240,105 @@ class FrontendTranscriptDebugClient:
         if not self._enabled or self._stub is None or result.is_partial:
             return
 
-        text = result.text.strip()
-        if not text:
+        lines = self._format_debug_lines(result)
+        if not lines:
             return
 
-        if len(text) > _DEBUG_TRANSCRIPT_MAX_CHARS:
-            text = f"{text[:_DEBUG_TRANSCRIPT_MAX_CHARS - 1]}..."
+        clipped_lines = []
+        for line in lines:
+            if len(line) <= _DEBUG_TRANSCRIPT_MAX_CHARS:
+                clipped_lines.append(line)
+            else:
+                clipped_lines.append(f"{line[:_DEBUG_TRANSCRIPT_MAX_CHARS - 3]}...")
+
+        with self._lock:
+            self._recent_lines.extend(clipped_lines)
+            while self._recent_lines and len("\n".join(self._recent_lines)) > _DEBUG_TRANSCRIPT_MAX_CHARS:
+                self._recent_lines.popleft()
+            text = "\n".join(self._recent_lines)
 
         try:
             self._stub.ShowText(
                 frontend_pb2.TextRequest(
-                    text=f"ASR: {text}",
-                    position="top-right",
+                    text=f"ASR:\n{text}",
+                    position="upper-right",
                 ),
                 timeout=self._timeout,
             )
         except grpc.RpcError as exc:
             log.warning("transcription.debug_hud_publish_failed", error=str(exc))
+
+    def _format_debug_lines(
+        self,
+        result: transcription_pb2.TranscriptionResult,
+    ) -> list[str]:
+        if result.speaker_turns:
+            lines: list[str] = []
+            for turn in result.speaker_turns:
+                text = turn.text.strip()
+                if not text:
+                    continue
+                lines.append(f"{self._speaker_tag(turn.speaker_label)}: {text}")
+            if lines:
+                return lines
+
+        text = result.text.strip()
+        if not text:
+            return []
+        return [f"{self._speaker_tag(result.speaker_label)}: {text}"]
+
+    def _speaker_tag(self, speaker_label: str) -> str:
+        label = speaker_label.strip() or "unknown"
+        with self._lock:
+            existing = self._speaker_aliases.get(label)
+            if existing is not None:
+                return existing
+            tag = f"S{self._speaker_index}"
+            self._speaker_index += 1
+            self._speaker_aliases[label] = tag
+            return tag
+
+
+class FrontendThrobberClient:
+    """Best-effort client to show/hide the activation throbber on the HUD."""
+
+    def __init__(self, address: str = FRONTEND_ADDRESS, timeout: float = 2.0):
+        self._timeout = timeout
+        self._channel = grpc.insecure_channel(
+            address,
+            options=[
+                ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+            ],
+        )
+        self._stub = frontend_pb2_grpc.FrontendServiceStub(self._channel)
+
+    def close(self) -> None:
+        self._channel.close()
+
+    def show(self) -> None:
+        try:
+            self._stub.ShowThrobber(
+                frontend_pb2.ThrobberRequest(
+                    visible=True,
+                    position="top-right",
+                    color="#d7ebff",
+                    hz=0.6,
+                    size_px=28,
+                ),
+                timeout=self._timeout,
+            )
+        except grpc.RpcError as exc:
+            log.warning("transcription.throbber_show_failed", error=str(exc))
+
+    def hide(self) -> None:
+        try:
+            self._stub.ShowThrobber(
+                frontend_pb2.ThrobberRequest(visible=False),
+                timeout=self._timeout,
+            )
+        except grpc.RpcError as exc:
+            log.warning("transcription.throbber_hide_failed", error=str(exc))
 
 
 class TriggerRouter:
@@ -263,7 +353,9 @@ class TriggerRouter:
         preroll_seconds: float = _TRIGGER_PREROLL_SECONDS,
         final_flush_grace_seconds: float = _TRIGGER_FINAL_FLUSH_GRACE_SECONDS,
         early_final_seconds: float = _TRIGGER_EARLY_FINAL_SECONDS,
+        speaker_handoff_seconds: float = _TRIGGER_SPEAKER_HANDOFF_SECONDS,
         on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
+        throbber_client: FrontendThrobberClient | None = None,
     ):
         self._command_client = command_client
         self._trigger_phrases = tuple(
@@ -273,12 +365,15 @@ class TriggerRouter:
         self._preroll_seconds = max(0.0, preroll_seconds)
         self._final_flush_grace_seconds = max(0.0, final_flush_grace_seconds)
         self._early_final_seconds = max(0.0, early_final_seconds)
+        self._speaker_handoff_seconds = max(0.0, speaker_handoff_seconds)
         self._on_trigger_detected = on_trigger_detected
+        self._throbber_client = throbber_client
         self._history: deque[TranscriptSpan] = deque()
         self._pending: list[PendingTrigger] = []
         self._last_trigger_start: float | None = None
         self._last_trigger_utterance_id: str | None = None
         self._follow_up_until: float | None = None
+        self._follow_up_speakers: set[str] = set()
         self._last_follow_up_utterance_id: str | None = None
         self._lock = threading.Lock()
 
@@ -289,6 +384,7 @@ class TriggerRouter:
                 result.end_time,
                 force=result.is_partial is False,
                 current_is_final=result.is_partial is False,
+                current_speaker_label=result.speaker_label,
             )
             return
 
@@ -297,6 +393,7 @@ class TriggerRouter:
             start_time=result.start_time,
             end_time=result.end_time,
             is_partial=result.is_partial,
+            speaker_label=result.speaker_label.strip(),
         )
 
         with self._lock:
@@ -317,7 +414,10 @@ class TriggerRouter:
             ):
                 is_duplicate = True
             if trigger_seen and not is_duplicate:
-                self._deactivate_follow_up()
+                trigger_speaker = self._speaker_for_last_trigger_phrase(result)
+                if trigger_speaker:
+                    self._follow_up_speakers.add(trigger_speaker)
+                self._deactivate_follow_up(clear_speakers=False)
                 trigger_time = result.end_time if result.end_time > 0 else result.start_time
                 capture_start_time = max(0.0, trigger_time - self._preroll_seconds)
                 capture_end_time = trigger_time + self._capture_seconds
@@ -327,6 +427,7 @@ class TriggerRouter:
                         capture_start_time=capture_start_time,
                         capture_end_time=capture_end_time,
                         detected_monotonic=time.monotonic(),
+                        speaker_label=trigger_speaker,
                     )
                 )
                 self._last_trigger_start = result.start_time
@@ -337,8 +438,11 @@ class TriggerRouter:
                     trigger_time=trigger_time,
                     capture_start_time=capture_start_time,
                     capture_end_time=capture_end_time,
+                    speaker_label=trigger_speaker,
                     text=text,
                 )
+                if self._throbber_client is not None:
+                    self._throbber_client.show()
                 if self._on_trigger_detected is not None:
                     self._on_trigger_detected(result)
 
@@ -351,6 +455,7 @@ class TriggerRouter:
                 force=False,
                 partial_span=span if result.is_partial else None,
                 current_is_final=result.is_partial is False,
+                current_speaker_label=result.speaker_label,
             )
 
     def finalize(self) -> None:
@@ -361,6 +466,7 @@ class TriggerRouter:
                 force=True,
                 partial_span=None,
                 current_is_final=True,
+                current_speaker_label="",
             )
 
     def _prune_history(self, *, current_time: float) -> None:
@@ -376,6 +482,7 @@ class TriggerRouter:
         *,
         force: bool,
         current_is_final: bool,
+        current_speaker_label: str,
         partial_span: TranscriptSpan | None = None,
     ) -> None:
         if not self._pending:
@@ -388,11 +495,18 @@ class TriggerRouter:
             early_final_ready = current_is_final and (
                 current_time >= trigger.trigger_time + self._early_final_seconds
             )
+            speaker_handoff_ready = self._speaker_handoff_ready(
+                trigger=trigger,
+                current_time=current_time,
+                current_speaker_label=current_speaker_label,
+            )
             timed_out = (
                 time.monotonic() - trigger.detected_monotonic
                 >= self._capture_seconds + self._final_flush_grace_seconds
             )
-            if force or early_final_ready or (window_elapsed and (current_is_final or timed_out)):
+            if force or early_final_ready or speaker_handoff_ready or (
+                window_elapsed and (current_is_final or timed_out)
+            ):
                 ready.append(trigger)
             else:
                 waiting.append(trigger)
@@ -410,6 +524,8 @@ class TriggerRouter:
                 text=snippet,
             )
             response = self._command_client.send_command(snippet)
+            if self._throbber_client is not None:
+                self._throbber_client.hide()
             if response is not None and response.success and response.continue_follow_up:
                 self._activate_follow_up(current_time=current_time, response_text=response.response_text)
             else:
@@ -422,6 +538,13 @@ class TriggerRouter:
         if not self._is_follow_up_active(current_time=result.end_time):
             return
 
+        if not self._speaker_allowed_for_follow_up(result.speaker_label):
+            log.info(
+                "transcription.follow_up_ignored_speaker",
+                speaker_label=result.speaker_label,
+            )
+            return
+
         text = result.text.strip()
         if not text:
             return
@@ -431,6 +554,8 @@ class TriggerRouter:
             return
 
         response = self._command_client.send_command(text, is_follow_up=True)
+        if self._throbber_client is not None:
+            self._throbber_client.hide()
         if utterance_id:
             self._last_follow_up_utterance_id = utterance_id
 
@@ -452,11 +577,13 @@ class TriggerRouter:
             self._follow_up_until = max(self._follow_up_until, follow_up_until)
         log.info("transcription.follow_up_active", until=self._follow_up_until)
 
-    def _deactivate_follow_up(self) -> None:
+    def _deactivate_follow_up(self, *, clear_speakers: bool = True) -> None:
         if self._follow_up_until is not None:
             log.info("transcription.follow_up_ended")
         self._follow_up_until = None
         self._last_follow_up_utterance_id = None
+        if clear_speakers:
+            self._follow_up_speakers.clear()
 
     def _is_follow_up_active(self, *, current_time: float) -> bool:
         if self._follow_up_until is None:
@@ -487,12 +614,20 @@ class TriggerRouter:
             for span in self._history
             if span.end_time > trigger.capture_start_time
             and span.start_time < trigger.capture_end_time
+            and self._speaker_matches_trigger(
+                span_speaker=span.speaker_label,
+                trigger_speaker=trigger.speaker_label,
+            )
         ]
 
         if (
             partial_span is not None
             and partial_span.end_time > trigger.capture_start_time
             and partial_span.start_time < trigger.capture_end_time
+            and self._speaker_matches_trigger(
+                span_speaker=partial_span.speaker_label,
+                trigger_speaker=trigger.speaker_label,
+            )
         ):
             parts.append(partial_span.text)
 
@@ -512,6 +647,61 @@ class TriggerRouter:
 
         trimmed = text[matches[-1].start() :].strip()
         return trimmed or text.strip()
+
+    def _speaker_allowed_for_follow_up(self, speaker_label: str) -> bool:
+        if not self._follow_up_speakers:
+            return True
+
+        label = speaker_label.strip()
+        if not label:
+            return True
+        return label in self._follow_up_speakers
+
+    def _speaker_for_last_trigger_phrase(
+        self,
+        result: transcription_pb2.TranscriptionResult,
+    ) -> str:
+        trigger_speaker = ""
+        for turn in result.speaker_turns:
+            normalized = normalize_for_trigger_match(turn.text)
+            if any(phrase in normalized for phrase in self._trigger_phrases):
+                trigger_speaker = turn.speaker_label.strip()
+        if trigger_speaker:
+            return trigger_speaker
+        return result.speaker_label.strip()
+
+    @staticmethod
+    def _speaker_matches_trigger(*, span_speaker: str, trigger_speaker: str) -> bool:
+        if not trigger_speaker:
+            return True
+        if not span_speaker:
+            return True
+        return span_speaker == trigger_speaker
+
+    def _speaker_handoff_ready(
+        self,
+        *,
+        trigger: PendingTrigger,
+        current_time: float,
+        current_speaker_label: str,
+    ) -> bool:
+        trigger_speaker = trigger.speaker_label.strip()
+        if not trigger_speaker:
+            return False
+        if current_time < trigger.trigger_time + self._speaker_handoff_seconds:
+            return False
+
+        current_speaker = current_speaker_label.strip()
+        if not current_speaker or current_speaker == trigger_speaker:
+            return False
+
+        return any(
+            span.end_time > trigger.capture_start_time
+            and span.start_time < trigger.capture_end_time
+            and span.speaker_label == trigger_speaker
+            and bool(span.text.strip())
+            for span in self._history
+        )
 
 
 class AmazonTranscribeBackend:
@@ -542,6 +732,84 @@ class AmazonTranscribeBackend:
             ) from exc
 
         return TranscribeStreamingClient, TranscriptResultStreamHandler
+
+    @staticmethod
+    def _speaker_turns_from_alternative(
+        alternative,
+        *,
+        stream_start_epoch: float,
+        result_start_offset: float,
+        result_end_offset: float,
+    ) -> list[transcription_pb2.SpeakerTurn]:
+        turns: list[transcription_pb2.SpeakerTurn] = []
+        items = getattr(alternative, "items", []) or []
+
+        fallback_start_time = stream_start_epoch + max(0.0, result_start_offset)
+        fallback_end_time = stream_start_epoch + max(result_start_offset, result_end_offset)
+
+        for item in items:
+            item_type = str(getattr(item, "item_type", "") or "")
+            content = str(getattr(item, "content", "") or "").strip()
+            if not content:
+                continue
+
+            if item_type == "punctuation":
+                if turns:
+                    turns[-1].text = f"{turns[-1].text}{content}"
+                continue
+            if item_type and item_type != "pronunciation":
+                continue
+
+            speaker_label = str(getattr(item, "speaker", "") or "").strip()
+            start_offset = float(getattr(item, "start_time", 0.0) or 0.0)
+            end_offset = float(getattr(item, "end_time", 0.0) or start_offset)
+            start_time = (
+                stream_start_epoch + start_offset
+                if start_offset > 0.0
+                else fallback_start_time
+            )
+            end_time = (
+                stream_start_epoch + end_offset
+                if end_offset > 0.0
+                else max(start_time, fallback_end_time)
+            )
+
+            if turns and turns[-1].speaker_label == speaker_label:
+                turns[-1].text = f"{turns[-1].text} {content}".strip()
+                turns[-1].end_time = max(turns[-1].end_time, end_time)
+                continue
+
+            turns.append(
+                transcription_pb2.SpeakerTurn(
+                    speaker_label=speaker_label,
+                    text=content,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+            )
+
+        return turns
+
+    @staticmethod
+    def _dominant_speaker_label(
+        speaker_turns: list[transcription_pb2.SpeakerTurn],
+    ) -> str:
+        if not speaker_turns:
+            return ""
+
+        speaker_weights: dict[str, float] = {}
+        for turn in speaker_turns:
+            label = turn.speaker_label.strip()
+            if not label:
+                continue
+            duration = max(0.0, turn.end_time - turn.start_time)
+            if duration == 0.0:
+                duration = max(1, len(re.findall(r"\w+", turn.text)))
+            speaker_weights[label] = speaker_weights.get(label, 0.0) + float(duration)
+
+        if not speaker_weights:
+            return ""
+        return max(speaker_weights.items(), key=lambda item: item[1])[0]
 
     def transcribe_stream(
         self, requests: Iterable[transcription_pb2.AudioInput]
@@ -646,6 +914,7 @@ class AmazonTranscribeBackend:
             language_code="en-US",
             media_sample_rate_hz=sample_rate,
             media_encoding="pcm",
+            show_speaker_label=True,
             enable_partial_results_stabilization=True,
             partial_results_stability="medium",
         )
@@ -658,20 +927,35 @@ class AmazonTranscribeBackend:
                     alternatives = getattr(result, "alternatives", [])
                     if not alternatives:
                         continue
-                    text = getattr(alternatives[0], "transcript", "").strip()
+                    alternative = alternatives[0]
+                    text = getattr(alternative, "transcript", "").strip()
                     if not text:
                         continue
+
+                    result_start_offset = float(getattr(result, "start_time", 0.0) or 0.0)
+                    result_end_offset = float(getattr(result, "end_time", 0.0) or 0.0)
+                    speaker_turns = AmazonTranscribeBackend._speaker_turns_from_alternative(
+                        alternative,
+                        stream_start_epoch=stream_start_epoch,
+                        result_start_offset=result_start_offset,
+                        result_end_offset=result_end_offset,
+                    )
+                    dominant_speaker = AmazonTranscribeBackend._dominant_speaker_label(
+                        speaker_turns
+                    )
 
                     output_queue.put(
                         transcription_pb2.TranscriptionResult(
                             text=text,
                             confidence=1.0,
                             start_time=stream_start_epoch
-                            + float(getattr(result, "start_time", 0.0) or 0.0),
+                            + result_start_offset,
                             end_time=stream_start_epoch
-                            + float(getattr(result, "end_time", 0.0) or 0.0),
+                            + result_end_offset,
                             is_partial=bool(getattr(result, "is_partial", False)),
                             utterance_id=str(getattr(result, "result_id", "") or ""),
+                            speaker_label=dominant_speaker,
+                            speaker_turns=speaker_turns,
                         )
                     )
 
@@ -721,9 +1005,38 @@ class AmazonTranscribeBackend:
                 utterance_id="",
             )
 
+        speaker_turns: list[transcription_pb2.SpeakerTurn] = []
+        for segment in segments:
+            for turn in segment.speaker_turns:
+                turn_text = turn.text.strip()
+                if not turn_text:
+                    continue
+                if (
+                    speaker_turns
+                    and speaker_turns[-1].speaker_label == turn.speaker_label
+                    and turn.start_time <= speaker_turns[-1].end_time + 0.35
+                ):
+                    speaker_turns[-1].text = (
+                        f"{speaker_turns[-1].text} {turn_text}".strip()
+                    )
+                    speaker_turns[-1].end_time = max(
+                        speaker_turns[-1].end_time,
+                        turn.end_time,
+                    )
+                    continue
+                speaker_turns.append(
+                    transcription_pb2.SpeakerTurn(
+                        speaker_label=turn.speaker_label,
+                        text=turn_text,
+                        start_time=turn.start_time,
+                        end_time=turn.end_time,
+                    )
+                )
+
         start_time = min(segment.start_time for segment in segments)
         end_time = max(segment.end_time for segment in segments)
         confidence = sum(segment.confidence for segment in segments) / len(segments)
+        speaker_label = AmazonTranscribeBackend._dominant_speaker_label(speaker_turns)
 
         return transcription_pb2.TranscriptionResult(
             text=text,
@@ -732,6 +1045,8 @@ class AmazonTranscribeBackend:
             end_time=end_time,
             is_partial=False,
             utterance_id=segments[-1].utterance_id,
+            speaker_label=speaker_label,
+            speaker_turns=speaker_turns,
         )
 
 
@@ -744,10 +1059,12 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
         backend: AmazonTranscribeBackend | None = None,
         command_client: AssistantCommandClient | None = None,
         on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
+        throbber_client: FrontendThrobberClient | None = None,
     ):
         self._backend = backend or AmazonTranscribeBackend()
         self._command_client = command_client or AssistantCommandClient()
         self._on_trigger_detected = on_trigger_detected
+        self._throbber_client = throbber_client
 
     def Transcribe(self, request, context):
         if not request.audio_data:
@@ -765,6 +1082,7 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
             trigger_router = TriggerRouter(
                 self._command_client,
                 on_trigger_detected=self._on_trigger_detected,
+                throbber_client=self._throbber_client,
             )
             trigger_router.observe(result)
             trigger_router.finalize()
@@ -783,6 +1101,7 @@ class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceSe
         trigger_router = TriggerRouter(
             self._command_client,
             on_trigger_detected=self._on_trigger_detected,
+            throbber_client=self._throbber_client,
         )
         try:
             for result in self._backend.transcribe_stream(request_iterator):
@@ -900,7 +1219,11 @@ def serve(port: int = TRANSCRIPTION_PORT) -> None:
     """Start transcription service and persistent sensor ingestion pipeline."""
     command_client = AssistantCommandClient(address=ASSISTANT_ADDRESS)
     debug_client = FrontendTranscriptDebugClient(address=FRONTEND_ADDRESS)
-    servicer = TranscriptionServiceServicer(command_client=command_client)
+    throbber_client = FrontendThrobberClient(address=FRONTEND_ADDRESS)
+    servicer = TranscriptionServiceServicer(
+        command_client=command_client,
+        throbber_client=throbber_client,
+    )
     pipeline = SensorTranscriptionPipeline(servicer, debug_client=debug_client)
 
     server = grpc.server(
@@ -923,6 +1246,7 @@ def serve(port: int = TRANSCRIPTION_PORT) -> None:
         pipeline.join(timeout=5)
         command_client.close()
         debug_client.close()
+        throbber_client.close()
         server.stop(grace=2)
 
     signal.signal(signal.SIGINT, _shutdown)

@@ -52,7 +52,7 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             stub.ShowText(
                 frontend_pb2.TextRequest(
                     text=f"LLM: {_truncate(text)}",
-                    position="top-right",
+                    position="upper-right",
                 ),
                 timeout=2,
             )

@@ -11,6 +11,7 @@ from services.transcription.service import (
     _ASSISTANT_RESPONSE_LOG_MAX_CHARS,
     AmazonTranscribeBackend,
     AssistantCommandClient,
+    FrontendTranscriptDebugClient,
     SensorTranscriptionPipeline,
     TriggerRouter,
 )
@@ -143,6 +144,8 @@ def _result(
     end_time: float,
     is_partial: bool,
     utterance_id: str = "",
+    speaker_label: str = "",
+    speaker_turns: list[transcription_pb2.SpeakerTurn] | None = None,
 ) -> transcription_pb2.TranscriptionResult:
     return transcription_pb2.TranscriptionResult(
         text=text,
@@ -151,6 +154,8 @@ def _result(
         end_time=end_time,
         is_partial=is_partial,
         utterance_id=utterance_id,
+        speaker_label=speaker_label,
+        speaker_turns=speaker_turns or [],
     )
 
 
@@ -376,3 +381,181 @@ def test_follow_up_continues_without_wake_word_then_stops_when_unrelated():
         ("Hey Cleo how many calories are in this", False),
         ("what about protein", True),
     ]
+
+
+def test_trigger_router_dispatches_on_speaker_handoff_without_waiting_for_other_finals():
+    responses = [
+        assistant_pb2.CommandResponse(
+            success=True,
+            response_text="Got it.",
+            tool_name="",
+            responded=True,
+            continue_follow_up=True,
+        ),
+    ]
+    client = _RecordingCommandClient(responses=responses)
+    router = TriggerRouter(
+        client,
+        capture_seconds=3.0,
+        preroll_seconds=0.5,
+        early_final_seconds=10.0,
+        final_flush_grace_seconds=999.0,
+        speaker_handoff_seconds=0.45,
+    )
+
+    router.observe(
+        _result(
+            text="Hey Cleo what are my macros",
+            start_time=10.0,
+            end_time=10.4,
+            is_partial=False,
+            utterance_id="u1",
+            speaker_label="spk_0",
+        )
+    )
+    assert client.calls == []
+
+    router.observe(
+        _result(
+            text="background chatter still going",
+            start_time=10.5,
+            end_time=10.95,
+            is_partial=True,
+            utterance_id="u2",
+            speaker_label="spk_1",
+        )
+    )
+
+    assert len(client.calls) == 1
+    assert client.calls[0].lower().startswith("hey cleo")
+
+
+def test_transcribe_backend_extracts_diarized_turns():
+    class _Item:
+        def __init__(self, item_type, content, speaker, start_time, end_time):
+            self.item_type = item_type
+            self.content = content
+            self.speaker = speaker
+            self.start_time = start_time
+            self.end_time = end_time
+
+    class _Alternative:
+        def __init__(self, items):
+            self.items = items
+
+    alt = _Alternative(
+        [
+            _Item("pronunciation", "Hey", "spk_0", 1.00, 1.12),
+            _Item("pronunciation", "Cleo", "spk_0", 1.13, 1.32),
+            _Item("punctuation", ",", "", 0.0, 0.0),
+            _Item("pronunciation", "hello", "spk_1", 1.50, 1.65),
+        ]
+    )
+
+    turns = AmazonTranscribeBackend._speaker_turns_from_alternative(
+        alt,
+        stream_start_epoch=100.0,
+        result_start_offset=1.0,
+        result_end_offset=1.7,
+    )
+
+    assert len(turns) == 2
+    assert turns[0].speaker_label == "spk_0"
+    assert turns[0].text == "Hey Cleo,"
+    assert turns[0].start_time == 101.0
+    assert turns[1].speaker_label == "spk_1"
+    assert turns[1].text == "hello"
+
+
+def test_trigger_router_ignores_non_invoking_speaker_follow_up():
+    responses = [
+        assistant_pb2.CommandResponse(
+            success=True,
+            response_text="Sure.",
+            tool_name="",
+            responded=True,
+            continue_follow_up=True,
+        ),
+        assistant_pb2.CommandResponse(
+            success=True,
+            response_text="Protein is around 12g.",
+            tool_name="",
+            responded=True,
+            continue_follow_up=True,
+        ),
+    ]
+    client = _RecordingCommandClient(responses=responses)
+    router = TriggerRouter(
+        client,
+        capture_seconds=0.1,
+        preroll_seconds=0.5,
+        final_flush_grace_seconds=0.0,
+    )
+
+    router.observe(
+        _result(
+            text="Hey Cleo how many calories are in this",
+            start_time=10.0,
+            end_time=10.4,
+            is_partial=False,
+            utterance_id="u1",
+            speaker_label="spk_0",
+        )
+    )
+    router.observe(
+        _result(
+            text="thanks",
+            start_time=10.6,
+            end_time=10.8,
+            is_partial=False,
+            utterance_id="u2",
+            speaker_label="spk_0",
+        )
+    )
+
+    router.observe(
+        _result(
+            text="you should ask about sodium",
+            start_time=11.0,
+            end_time=11.2,
+            is_partial=False,
+            utterance_id="u3",
+            speaker_label="spk_1",
+        )
+    )
+    router.observe(
+        _result(
+            text="what about protein",
+            start_time=11.4,
+            end_time=11.6,
+            is_partial=False,
+            utterance_id="u4",
+            speaker_label="spk_0",
+        )
+    )
+
+    assert len(client.call_details) == 2
+    assert client.call_details[0][1] is False
+    assert client.call_details[1] == ("what about protein", True)
+
+
+def test_debug_client_formats_speaker_lines_with_s_tags():
+    client = FrontendTranscriptDebugClient()
+
+    result = transcription_pb2.TranscriptionResult(
+        text="ignored because turns are present",
+        speaker_turns=[
+            transcription_pb2.SpeakerTurn(speaker_label="spk_7", text="first line"),
+            transcription_pb2.SpeakerTurn(speaker_label="spk_9", text="second line"),
+        ],
+    )
+    lines = client._format_debug_lines(result)
+
+    assert lines == ["S1: first line", "S2: second line"]
+
+    later = transcription_pb2.TranscriptionResult(
+        text="follow up line",
+        speaker_label="spk_9",
+    )
+    later_lines = client._format_debug_lines(later)
+    assert later_lines == ["S2: follow up line"]

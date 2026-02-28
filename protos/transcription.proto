@@ -48,4 +48,24 @@ message TranscriptionResult {
 
   // Stable identifier for all revisions of the same utterance
   string utterance_id = 6;
+
+  // Dominant diarized speaker label for this result (e.g. spk_0)
+  string speaker_label = 7;
+
+  // Speaker-attributed turns extracted from this result
+  repeated SpeakerTurn speaker_turns = 8;
+}
+
+message SpeakerTurn {
+  // Diarized speaker label from Amazon Transcribe (e.g. spk_0)
+  string speaker_label = 1;
+
+  // Transcript text attributed to this speaker for the turn
+  string text = 2;
+
+  // Start time as Unix epoch seconds (UTC)
+  double start_time = 3;
+
+  // End time as Unix epoch seconds (UTC)
+  double end_time = 4;
 }
