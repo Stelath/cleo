@@ -101,7 +101,9 @@ function App() {
   const [faceError, setFaceError] = useState<string | null>(null);
   const [faceLoading, setFaceLoading] = useState(true);
   const [faceSavingId, setFaceSavingId] = useState<number | null>(null);
+  const [faceDeletingId, setFaceDeletingId] = useState<number | null>(null);
   const [faceSaveError, setFaceSaveError] = useState<string | null>(null);
+  const [faceDeleteError, setFaceDeleteError] = useState<string | null>(null);
   const [faceClearing, setFaceClearing] = useState(false);
   const [faceClearError, setFaceClearError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
@@ -345,6 +347,7 @@ function App() {
     try {
       setFaceSavingId(faceId);
       setFaceSaveError(null);
+      setFaceDeleteError(null);
 
       const response = await fetch(`/api/faces/${faceId}/name`, {
         method: "POST",
@@ -392,6 +395,7 @@ function App() {
       setFaceClearing(true);
       setFaceClearError(null);
       setFaceSaveError(null);
+      setFaceDeleteError(null);
 
       const response = await fetch("/api/faces/clear", {
         method: "POST",
@@ -407,6 +411,36 @@ function App() {
       setFaceClearError(error instanceof Error ? error.message : "Unable to clear saved faces.");
     } finally {
       setFaceClearing(false);
+    }
+  }
+
+  async function deleteFace(faceId: number) {
+    if (faceDeletingId === faceId) {
+      return;
+    }
+    if (!window.confirm(`Delete Face #${faceId} and all of its sightings? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setFaceDeletingId(faceId);
+      setFaceDeleteError(null);
+      setFaceSaveError(null);
+      setFaceClearError(null);
+
+      const response = await fetch(`/api/faces/${faceId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+      }
+
+      setFaceEntries((current) => current.filter((entry) => entry.faceId !== faceId));
+    } catch (error) {
+      setFaceDeleteError(error instanceof Error ? error.message : "Unable to delete the face.");
+    } finally {
+      setFaceDeletingId((current) => (current === faceId ? null : current));
     }
   }
 
@@ -779,6 +813,11 @@ function App() {
                   <strong>Clear failed.</strong> {faceClearError}
                 </div>
               )}
+              {faceDeleteError && (
+                <div className="inline-alert">
+                  <strong>Delete failed.</strong> {faceDeleteError}
+                </div>
+              )}
               <div className="face-grid">
                 {faceLoading && (
                   <div className="empty-state face-empty-state">
@@ -855,14 +894,24 @@ function App() {
                           onChange={(event) => handleFaceNoteChange(entry.faceId, event.target.value)}
                         />
                       </label>
-                      <button
-                        className="solid-button"
-                        type="button"
-                        disabled={faceSavingId === entry.faceId}
-                        onClick={() => void saveFaceName(entry.faceId)}
-                      >
-                        {faceSavingId === entry.faceId ? "Saving..." : "Save"}
-                      </button>
+                      <div className="face-form-row">
+                        <button
+                          className="solid-button"
+                          type="button"
+                          disabled={faceSavingId === entry.faceId || faceDeletingId === entry.faceId}
+                          onClick={() => void saveFaceName(entry.faceId)}
+                        >
+                          {faceSavingId === entry.faceId ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          disabled={faceDeletingId === entry.faceId || faceSavingId === entry.faceId}
+                          onClick={() => void deleteFace(entry.faceId)}
+                        >
+                          {faceDeletingId === entry.faceId ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
                     </article>
                   ))}
               </div>

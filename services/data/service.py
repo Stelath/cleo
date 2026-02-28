@@ -907,6 +907,40 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             sightings_deleted=sightings_deleted,
         )
 
+    def DeleteFace(self, request, context):
+        with self._face_store_lock:
+            face = self._sqlite.get_face(request.face_id)
+            if face is None:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(f"Face {request.face_id} was not found.")
+                return data_pb2.DeleteFaceResponse()
+
+            id_map = self._faces_faiss.rebuild(
+                lambda _idx, meta: int(meta.get("face_id", -1)) != request.face_id,
+                persist=True,
+            )
+            deleted, sightings_deleted, image_paths = self._sqlite.delete_face(request.face_id)
+            if not deleted:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                context.set_details(f"Face {request.face_id} was not found.")
+                return data_pb2.DeleteFaceResponse()
+
+            for row in self._sqlite.list_all_faces():
+                current_faiss_id = row["faiss_id"]
+                new_faiss_id = id_map.get(current_faiss_id) if current_faiss_id is not None else None
+                self._sqlite.update_face_faiss_id(row["id"], new_faiss_id)
+
+        self._delete_face_images(image_paths)
+        log.info(
+            "data_service.face_deleted",
+            face_id=request.face_id,
+            sightings_deleted=sightings_deleted,
+        )
+        return data_pb2.DeleteFaceResponse(
+            deleted=True,
+            sightings_deleted=sightings_deleted,
+        )
+
     def _serialize_face_entry(self, row: dict) -> data_pb2.FaceEntry:
         # Limit the preview collage to four most recent sightings.
         sighting_count = len(self._sqlite.list_face_sightings(row["id"], limit=4))

@@ -69,6 +69,9 @@ service DataService {
   // Assign or clear a display name for a face group
   rpc SetFaceName(SetFaceNameRequest) returns (SetFaceNameResponse);
 
+  // Remove one stored face group, its sightings, and its indexed embeddings
+  rpc DeleteFace(DeleteFaceRequest) returns (DeleteFaceResponse);
+
   // Remove all stored face groups, sightings, and face index data
   rpc ClearFaces(ClearFacesRequest) returns (ClearFacesResponse);
 }
@@ -438,6 +441,15 @@ message SetFaceNameResponse {
   bool updated = 1;
   string name = 2;
   string note = 3;
+}
+
+message DeleteFaceRequest {
+  int64 face_id = 1;
+}
+
+message DeleteFaceResponse {
+  bool deleted = 1;
+  int32 sightings_deleted = 2;
 }
 
 message ClearFacesRequest {}

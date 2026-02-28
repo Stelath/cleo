@@ -184,6 +184,31 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/faces/"):
+                self._handle_delete_face(parsed.path)
+                return
+
+            self._write_json(
+                {"error": "not_found", "message": f"Unknown path: {parsed.path}"},
+                status=HTTPStatus.NOT_FOUND,
+            )
+        except _DataServiceUnavailableError as exc:
+            self._write_json(
+                {"error": "data_service_unavailable", "message": str(exc)},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        except grpc.RpcError as exc:
+            self._write_grpc_error(exc, path=parsed.path)
+        except Exception as exc:
+            log.exception("website_api.request_failed", path=parsed.path, error=str(exc))
+            self._write_json(
+                {"error": "internal_error", "message": "Unable to update website data."},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         log.debug("website_api.request", message=format % args)
 
@@ -401,6 +426,26 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         self._write_json(
             {
                 "facesDeleted": response.faces_deleted,
+                "sightingsDeleted": response.sightings_deleted,
+            }
+        )
+
+    def _handle_delete_face(self, path: str) -> None:
+        face_id = self._parse_face_id(path, suffix="")
+        if face_id is None:
+            self._write_json(
+                {"error": "invalid_face_id", "message": f"Invalid face path: {path}"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        response = self._get_data_stub().DeleteFace(
+            data_pb2.DeleteFaceRequest(face_id=face_id)
+        )
+        self._write_json(
+            {
+                "faceId": face_id,
+                "deleted": response.deleted,
                 "sightingsDeleted": response.sightings_deleted,
             }
         )

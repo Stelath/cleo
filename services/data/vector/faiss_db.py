@@ -3,6 +3,7 @@
 import json
 import threading
 from pathlib import Path
+from typing import Callable
 
 import faiss
 import numpy as np
@@ -82,12 +83,8 @@ class FaissDB:
         if not save_path:
             raise ValueError("No save path specified")
 
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
         with self._lock:
-            faiss.write_index(self._index, str(save_path))
-            meta_path = save_path.with_suffix(".meta.json")
-            self._write_metadata(meta_path, self._metadata)
+            self._persist_locked(save_path)
 
     def load(self, path: str):
         """Load a FAISS index and metadata sidecar from disk."""
@@ -117,10 +114,44 @@ class FaissDB:
             self._metadata = []
 
             if persist and self._index_path:
-                self._index_path.parent.mkdir(parents=True, exist_ok=True)
-                faiss.write_index(self._index, str(self._index_path))
-                meta_path = self._index_path.with_suffix(".meta.json")
-                self._write_metadata(meta_path, self._metadata)
+                self._persist_locked(self._index_path)
+
+    def rebuild(
+        self,
+        keep: Callable[[int, dict], bool],
+        *,
+        persist: bool = True,
+    ) -> dict[int, int]:
+        """Rebuild the index, retaining only entries where ``keep`` returns true.
+
+        Returns a mapping of old index IDs to new index IDs.
+        """
+        with self._lock:
+            new_index = faiss.IndexFlatIP(self._dimension)
+            new_metadata: list[dict] = []
+            id_map: dict[int, int] = {}
+
+            for old_idx in range(self._index.ntotal):
+                metadata = self._metadata[old_idx]
+                if not keep(old_idx, metadata):
+                    continue
+
+                vector = np.asarray(
+                    self._index.reconstruct(old_idx),
+                    dtype=np.float32,
+                ).reshape(1, -1)
+                new_idx = len(new_metadata)
+                new_index.add(vector)
+                new_metadata.append(metadata)
+                id_map[old_idx] = new_idx
+
+            self._index = new_index
+            self._metadata = new_metadata
+
+            if persist and self._index_path:
+                self._persist_locked(self._index_path)
+
+            return id_map
 
     def _load_metadata(self, meta_path: Path, default_metadata: list[dict]) -> list[dict]:
         if not meta_path.exists():
@@ -161,3 +192,9 @@ class FaissDB:
         temp_path = meta_path.with_suffix(f"{meta_path.suffix}.tmp")
         temp_path.write_text(json.dumps(metadata), encoding="utf-8")
         temp_path.replace(meta_path)
+
+    def _persist_locked(self, save_path: Path) -> None:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(self._index, str(save_path))
+        meta_path = save_path.with_suffix(".meta.json")
+        self._write_metadata(meta_path, self._metadata)

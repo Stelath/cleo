@@ -144,6 +144,11 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SetFaceNameRequest.SerializeToString,
                 response_deserializer=data__pb2.SetFaceNameResponse.FromString,
                 _registered_method=True)
+        self.DeleteFace = channel.unary_unary(
+                '/cleo.data.DataService/DeleteFace',
+                request_serializer=data__pb2.DeleteFaceRequest.SerializeToString,
+                response_deserializer=data__pb2.DeleteFaceResponse.FromString,
+                _registered_method=True)
         self.ClearFaces = channel.unary_unary(
                 '/cleo.data.DataService/ClearFaces',
                 request_serializer=data__pb2.ClearFacesRequest.SerializeToString,
@@ -308,6 +313,13 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def DeleteFace(self, request, context):
+        """Remove one stored face group, its sightings, and its indexed embeddings
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ClearFaces(self, request, context):
         """Remove all stored face groups, sightings, and face index data
         """
@@ -427,6 +439,11 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SetFaceName,
                     request_deserializer=data__pb2.SetFaceNameRequest.FromString,
                     response_serializer=data__pb2.SetFaceNameResponse.SerializeToString,
+            ),
+            'DeleteFace': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteFace,
+                    request_deserializer=data__pb2.DeleteFaceRequest.FromString,
+                    response_serializer=data__pb2.DeleteFaceResponse.SerializeToString,
             ),
             'ClearFaces': grpc.unary_unary_rpc_method_handler(
                     servicer.ClearFaces,
@@ -1028,6 +1045,33 @@ class DataService(object):
             '/cleo.data.DataService/SetFaceName',
             data__pb2.SetFaceNameRequest.SerializeToString,
             data__pb2.SetFaceNameResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteFace(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/DeleteFace',
+            data__pb2.DeleteFaceRequest.SerializeToString,
+            data__pb2.DeleteFaceResponse.FromString,
             options,
             channel_credentials,
             insecure,

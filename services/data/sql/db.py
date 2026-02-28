@@ -441,7 +441,7 @@ class CleoSQLite:
         self._conn.commit()
         return cur.lastrowid
 
-    def update_face_faiss_id(self, face_id: int, faiss_id: int) -> None:
+    def update_face_faiss_id(self, face_id: int, faiss_id: int | None) -> None:
         """Set the FAISS vector ID on an existing face row."""
         self._conn.execute(
             "UPDATE faces SET faiss_id = ? WHERE id = ?",
@@ -479,6 +479,13 @@ class CleoSQLite:
             (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total
+
+    def list_all_faces(self) -> list[dict]:
+        """Return all stored face rows."""
+        rows = self._conn.execute(
+            "SELECT * FROM faces ORDER BY id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def set_face_metadata(
         self,
@@ -553,6 +560,39 @@ class CleoSQLite:
         self._conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('faces', 'face_sightings')")
         self._conn.commit()
         return faces_deleted, sightings_deleted, sorted(image_paths)
+
+    def delete_face(self, face_id: int) -> tuple[bool, int, list[str]]:
+        """Delete one face row and its sightings, returning deletion status and file paths."""
+        face_row = self._conn.execute(
+            "SELECT thumbnail_path FROM faces WHERE id = ?",
+            (face_id,),
+        ).fetchone()
+        if face_row is None:
+            return False, 0, []
+
+        sighting_rows = self._conn.execute(
+            "SELECT image_path FROM face_sightings WHERE face_id = ?",
+            (face_id,),
+        ).fetchall()
+        image_paths: set[str] = set()
+        if face_row["thumbnail_path"]:
+            image_paths.add(str(face_row["thumbnail_path"]))
+        image_paths.update(
+            str(row["image_path"])
+            for row in sighting_rows
+            if row["image_path"]
+        )
+
+        sighting_cur = self._conn.execute(
+            "DELETE FROM face_sightings WHERE face_id = ?",
+            (face_id,),
+        )
+        face_cur = self._conn.execute(
+            "DELETE FROM faces WHERE id = ?",
+            (face_id,),
+        )
+        self._conn.commit()
+        return face_cur.rowcount > 0, sighting_cur.rowcount, sorted(image_paths)
 
     def close(self):
         self._conn.close()

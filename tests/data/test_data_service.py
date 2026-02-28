@@ -595,6 +595,24 @@ def test_clear_faces_removes_rows_and_returns_image_paths(sqlite_db):
     assert rows == []
 
 
+def test_delete_face_removes_one_face_and_returns_image_paths(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=98.0,
+        first_seen=1000.0,
+    )
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+
+    deleted, sightings_deleted, image_paths = sqlite_db.delete_face(face_id)
+
+    assert deleted is True
+    assert sightings_deleted == 2
+    assert image_paths == ["/tmp/face.jpg", "/tmp/face_1.jpg", "/tmp/face_2.jpg"]
+    assert sqlite_db.get_face(face_id) is None
+    assert sqlite_db.list_face_sightings(face_id, limit=4) == []
+
+
 # ── Face RPC tests ──
 
 
@@ -710,6 +728,55 @@ def test_search_faces_groups_multiple_exemplars_into_one_result(data_servicer):
         assert len(resp.results) == 1
         assert resp.results[0].face_id == first.face_id
         assert resp.results[0].score >= 1.0
+
+
+def test_delete_face_rpc_removes_one_identity_and_preserves_others(data_servicer):
+    from generated import data_pb2
+
+    vec_a = np.random.randn(512).astype(np.float32)
+    vec_a /= np.linalg.norm(vec_a)
+    vec_b = np.random.randn(512).astype(np.float32)
+    vec_b /= np.linalg.norm(vec_b)
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+    with patch(
+        "services.data.service.embed_face_image",
+        side_effect=[vec_a, vec_b],
+    ):
+        first = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1000.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+        second = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1010.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+
+    response = data_servicer.DeleteFace(
+        data_pb2.DeleteFaceRequest(face_id=first.face_id),
+        _mock_context(),
+    )
+
+    assert response.deleted is True
+    assert data_servicer._sqlite.get_face(first.face_id) is None
+    remaining = data_servicer._sqlite.get_face(second.face_id)
+    assert remaining is not None
+
+    with patch("services.data.service.embed_face_image", return_value=vec_b):
+        search = data_servicer.SearchFaces(
+            data_pb2.SearchFacesRequest(image_data=fake_face, top_k=5),
+            _mock_context(),
+        )
+    assert len(search.results) == 1
+    assert search.results[0].face_id == second.face_id
 
 
 def test_store_face_embedding_concurrent_identical_requests_share_identity(data_servicer):
