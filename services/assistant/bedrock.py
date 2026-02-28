@@ -48,6 +48,7 @@ class ToolUseResult:
     tool_use_id: str
     tool_name: str
     parameters: dict[str, Any]
+    response_text: str = ""
 
 
 @dataclass
@@ -106,6 +107,9 @@ class BedrockClient:
         for block in content_blocks:
             if "toolUse" in block:
                 tool_use = block["toolUse"]
+                # Collect any accompanying text blocks (LLM preamble)
+                text_parts = [b["text"] for b in content_blocks if "text" in b]
+                accompanying_text = "\n".join(text_parts).strip()
                 log.info(
                     "assistant.llm_response",
                     response_kind="tool_use",
@@ -113,11 +117,13 @@ class BedrockClient:
                     tool_name=tool_use.get("name", ""),
                     tool_use_id=tool_use.get("toolUseId", ""),
                     parameters=tool_use.get("input", {}),
+                    response_text=_truncate(accompanying_text) if accompanying_text else "",
                 )
                 return ToolUseResult(
                     tool_use_id=tool_use["toolUseId"],
                     tool_name=tool_use["name"],
                     parameters=tool_use.get("input", {}),
+                    response_text=accompanying_text,
                 )
 
         # Fall back to text

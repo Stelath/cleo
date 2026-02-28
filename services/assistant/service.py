@@ -190,6 +190,11 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
         )
         self._show_tool_debug_notification(result.tool_name)
 
+        # Speak LLM's accompanying text (if any) before tool execution.
+        # Only the LLM's own text is spoken — tool output is never read aloud.
+        if result.response_text:
+            self._speak_response_text(result.response_text)
+
         channel = grpc.insecure_channel(tool_def.grpc_address)
         try:
             stub = tool_pb2_grpc.ToolServiceStub(channel)
@@ -201,8 +206,6 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
             )
             response_text = tool_response.result_text.strip()
             responded = bool(response_text) and bool(tool_response.success)
-            if responded:
-                self._speak_response_text(response_text)
             return assistant_pb2.CommandResponse(
                 success=tool_response.success,
                 response_text=tool_response.result_text,

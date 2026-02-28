@@ -105,7 +105,8 @@ class TestBedrockClient:
             client.converse("hello", tool_config={"tools": []})
 
     def test_tool_use_prioritized_over_text(self, mock_boto3_client):
-        """When response contains both text and toolUse blocks, toolUse wins."""
+        """When response contains both text and toolUse blocks, toolUse wins
+        and accompanying text is captured in response_text."""
         mock_boto3_client.converse.return_value = {
             "stopReason": "tool_use",
             "output": {
@@ -130,6 +131,33 @@ class TestBedrockClient:
 
         assert isinstance(result, ToolUseResult)
         assert result.tool_name == "navigator"
+        assert result.response_text == "Let me help you with that."
+
+    def test_tool_use_without_text_has_empty_response_text(self, mock_boto3_client):
+        """ToolUseResult.response_text is empty when no text blocks accompany the tool call."""
+        mock_boto3_client.converse.return_value = {
+            "stopReason": "tool_use",
+            "output": {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "tu_only",
+                                "name": "weather",
+                                "input": {"location": "NYC"},
+                            }
+                        }
+                    ],
+                }
+            },
+        }
+
+        client = BedrockClient(client=mock_boto3_client)
+        result = client.converse("weather in NYC", tool_config={"tools": []})
+
+        assert isinstance(result, ToolUseResult)
+        assert result.response_text == ""
 
     def test_tool_use_missing_input_defaults_to_empty(self, mock_boto3_client):
         """toolUse block without 'input' key returns empty dict for parameters."""

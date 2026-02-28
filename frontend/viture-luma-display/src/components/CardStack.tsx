@@ -10,6 +10,7 @@ import {
   type HudCard,
 } from '../lib/hud/cards';
 import type { HudComponentHandle } from '../lib/hud/types';
+import WeatherCardContent from './WeatherCardContent';
 
 const CardStack = forwardRef<HudComponentHandle>((_props, ref) => {
   const [cards, setCards] = useState<HudCard[]>([]);
@@ -89,44 +90,48 @@ const CardStack = forwardRef<HudComponentHandle>((_props, ref) => {
       data-position={cardPosition}
       style={{ '--card-width': cardWidth } as React.CSSProperties}
     >
-      {cards.map((card) => (
-        <article key={card.id} className="card-item" data-testid="hud-card-item" data-card-id={card.id}>
-          {card.imageSrc && (
-            <img className="card-image" data-testid="hud-card-image" src={card.imageSrc} alt="" />
-          )}
+      {cards.map((card) =>
+        card.type === 'weather' ? (
+          <WeatherCardContent key={card.id} card={card} />
+        ) : (
+          <article key={card.id} className="card-item" data-testid="hud-card-item" data-card-id={card.id}>
+            {card.imageSrc && (
+              <img className="card-image" data-testid="hud-card-image" src={card.imageSrc} alt="" />
+            )}
 
-          {card.title && (
-            <h3 className="card-title" data-testid="hud-card-title">{card.title}</h3>
-          )}
+            {card.title && (
+              <h3 className="card-title" data-testid="hud-card-title">{card.title}</h3>
+            )}
 
-          {card.subtitle && (
-            <p className="card-subtitle" data-testid="hud-card-subtitle">{card.subtitle}</p>
-          )}
+            {card.subtitle && (
+              <p className="card-subtitle" data-testid="hud-card-subtitle">{card.subtitle}</p>
+            )}
 
-          {card.description && (
-            <p className="card-description" data-testid="hud-card-description">{card.description}</p>
-          )}
+            {card.description && (
+              <p className="card-description" data-testid="hud-card-description">{card.description}</p>
+            )}
 
-          {card.meta.length > 0 && (
-            <dl className="card-meta" data-testid="hud-card-meta">
-              {card.meta.map((row, i) => (
-                <div key={i} className="card-meta-row">
-                  <dt>{row.label}</dt>
-                  <dd>{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
+            {card.meta.length > 0 && (
+              <dl className="card-meta" data-testid="hud-card-meta">
+                {card.meta.map((row, i) => (
+                  <div key={i} className="card-meta-row">
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
 
-          {card.links.length > 0 && (
-            <div className="card-links" data-testid="hud-card-links">
-              {card.links.map((link, i) => (
-                <a key={i} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
+            {card.links.length > 0 && (
+              <div className="card-links" data-testid="hud-card-links">
+                {card.links.map((link, i) => (
+                  <a key={i} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
+                ))}
+              </div>
+            )}
+          </article>
+        )
+      )}
     </div>
   );
 });

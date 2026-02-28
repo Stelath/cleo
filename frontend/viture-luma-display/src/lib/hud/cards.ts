@@ -12,6 +12,7 @@ export type HudCardLink = {
 
 export type HudCard = {
   id: string;
+  type: string;
   title: string;
   subtitle: string;
   description: string;
@@ -103,13 +104,28 @@ function normalizeSingleCard(value: unknown, nextCardId: () => string): HudCard 
 
   const id = asTrimmedString(raw.id) || nextCardId();
 
+  // Card type can be set explicitly via raw.type, or via a __card_type
+  // convention in the meta array (used when the backend sends type info
+  // through the generic KeyValue meta field of the proto Card message).
+  let type = asTrimmedString(raw.type);
+  if (!type) {
+    const cardTypeMeta = meta.find((m) => m.label === '__card_type');
+    if (cardTypeMeta) {
+      type = cardTypeMeta.value;
+    }
+  }
+
+  // Filter __card_type out of the displayed meta rows
+  const displayMeta = meta.filter((m) => m.label !== '__card_type');
+
   return {
     id,
+    type,
     title,
     subtitle,
     description,
     imageSrc,
-    meta,
+    meta: displayMeta,
     links,
   };
 }

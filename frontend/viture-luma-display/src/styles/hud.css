@@ -243,27 +243,58 @@ html, body {
   }
 }
 
-/* ── HudThrobber ── */
+/* ── HudThrobber (marble) ── */
 .throbber {
   position: absolute;
-  border-radius: 50%;
-  border: 1px solid var(--hud-card-border);
-  background: var(--hud-card-bg);
-  box-shadow: var(--hud-shadow-md);
   overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--morph, 50) * 1%);
+  box-shadow: 0 0 calc(var(--glow-intensity, 0.5) * 20px)
+    rgba(var(--glow-r, 255), var(--glow-g, 255), var(--glow-b, 255), var(--glow-intensity, 0.5));
+  transform: translateY(calc(var(--bounce-y, 0) * 1px));
 }
 
-.throbber-fill {
+.throbber-core {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 100%;
-  height: 100%;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 38% 35%,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(var(--glow-r, 255), var(--glow-g, 255), var(--glow-b, 255), 0.5) 40%,
+    rgba(0, 0, 0, 0.3) 100%
+  );
+}
+
+.throbber-fog {
+  position: absolute;
+  width: 60%;
+  height: 60%;
   border-radius: 50%;
-  background: currentColor;
-  opacity: 0.45;
-  transform-origin: center;
-  transition: transform 90ms linear;
+  background: rgba(var(--glow-r, 255), var(--glow-g, 255), var(--glow-b, 255), 0.35);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.throbber-fog-1 {
+  top: var(--fog-y1, 50%);
+  left: var(--fog-x1, 50%);
+  transform: translate(-50%, -50%);
+}
+
+.throbber-fog-2 {
+  top: var(--fog-y2, 50%);
+  left: var(--fog-x2, 50%);
+  transform: translate(-50%, -50%);
+}
+
+.throbber-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(var(--glow-r, 255), var(--glow-g, 255), var(--glow-b, 255), calc(var(--glow-intensity, 0.5) * 0.4));
+  pointer-events: none;
 }
 
 /* ── HudCardStack ── */
@@ -465,4 +496,62 @@ html, body {
   background: var(--hud-accent);
   color: #fff;
   cursor: pointer;
+}
+
+/* ── Weather Card ── */
+.weather-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--weather-gradient, linear-gradient(135deg, #5a9fd4 0%, #8cb8d8 100%));
+  color: #fff;
+  box-shadow: var(--hud-shadow-md);
+}
+
+.weather-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weather-icon {
+  width: 48px;
+  height: 48px;
+  color: #fff;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.2));
+}
+
+.weather-temp-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.weather-feels-like {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.weather-condition {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.weather-card-details {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  opacity: 0.85;
+}
+
+.weather-location {
+  margin: 0;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  opacity: 0.7;
 }

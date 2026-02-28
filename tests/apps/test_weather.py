@@ -59,11 +59,25 @@ class TestWeatherServicer:
         assert response.success
         assert "Weather for San Francisco" in response.result_text
         assert "Light rain" in response.result_text
-        servicer._frontend.ShowNotification.assert_called_once()
+        servicer._frontend.ShowCard.assert_called_once()
 
-        notification = servicer._frontend.ShowNotification.call_args.args[0]
-        assert notification.title == "Weather"
-        assert notification.style == "info"
+        card_request = servicer._frontend.ShowCard.call_args.args[0]
+        assert len(card_request.cards) == 1
+        card = card_request.cards[0]
+        assert "San Francisco" in card.title
+        assert card_request.position == "right"
+        assert card_request.duration_ms == 8000
+
+        meta_keys = [kv.key for kv in card.meta]
+        assert "Temperature" in meta_keys
+        assert "Feels Like" in meta_keys
+        assert "Humidity" in meta_keys
+        assert "Wind" in meta_keys
+        assert "Condition" in meta_keys
+        assert "__card_type" in meta_keys
+
+        card_type_kv = next(kv for kv in card.meta if kv.key == "__card_type")
+        assert card_type_kv.value == "weather"
 
     def test_execute_extracts_location_from_query(self, mock_grpc_context, mocker):
         servicer = self._make_servicer(mocker)
@@ -88,4 +102,4 @@ class TestWeatherServicer:
 
         assert not response.success
         assert "Could not fetch weather right now" in response.result_text
-        servicer._frontend.ShowNotification.assert_not_called()
+        servicer._frontend.ShowCard.assert_not_called()
