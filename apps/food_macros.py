@@ -39,6 +39,11 @@ class FoodDetection:
 
     barcode: str | None = None
     product_name: str | None = None
+    is_composite_meal: bool = False
+    estimated_calories_kcal: float | None = None
+    estimated_protein_g: float | None = None
+    estimated_fat_g: float | None = None
+    estimated_carbs_g: float | None = None
 
 
 class FoodVisionBedrockClient:
@@ -58,9 +63,15 @@ class FoodVisionBedrockClient:
         prompt = (
             "Inspect this image of a food package. "
             "If you can read a barcode, return it. "
+            "If this is a composite meal with multiple visible items (for example a hamburger, fries, and a drink), "
+            "set is_composite_meal to true and estimate the total meal calories, protein, fat, and carbs directly "
+            "instead of naming a packaged product. "
             "Otherwise return the clearest product name you can infer from the packaging. "
             "Reply with JSON only using this schema: "
-            '{"barcode": "digits or null", "product_name": "string or null"}.'
+            '{"barcode": "digits or null", "product_name": "string or null", '
+            '"is_composite_meal": true|false, "estimated_calories_kcal": number or null, '
+            '"estimated_protein_g": number or null, "estimated_fat_g": number or null, '
+            '"estimated_carbs_g": number or null}.'
         )
         if user_query:
             prompt += f" User request context: {user_query}"
@@ -98,6 +109,27 @@ class FoodVisionBedrockClient:
         return FoodDetection(
             barcode=barcode,
             product_name=product_name or None,
+            is_composite_meal=bool(payload.get("is_composite_meal")) if payload else False,
+            estimated_calories_kcal=(
+                _coerce_number(payload.get("estimated_calories_kcal"))
+                if payload
+                else None
+            ),
+            estimated_protein_g=(
+                _coerce_number(payload.get("estimated_protein_g"))
+                if payload
+                else None
+            ),
+            estimated_fat_g=(
+                _coerce_number(payload.get("estimated_fat_g"))
+                if payload
+                else None
+            ),
+            estimated_carbs_g=(
+                _coerce_number(payload.get("estimated_carbs_g"))
+                if payload
+                else None
+            ),
         )
 
 
@@ -209,6 +241,61 @@ class FoodMacrosServicer(ToolServiceBase):
 
         image_bytes = _camera_frame_to_jpeg(frame)
         detection = self._vision.identify(image_bytes, user_query=query)
+
+        if detection.is_composite_meal:
+            missing_fields = []
+            if detection.estimated_calories_kcal is None:
+                missing_fields.append("calories")
+            if detection.estimated_protein_g is None:
+                missing_fields.append("protein")
+            if detection.estimated_fat_g is None:
+                missing_fields.append("fat")
+            if detection.estimated_carbs_g is None:
+                missing_fields.append("carbs")
+            if missing_fields:
+                return False, (
+                    "I recognized a composite meal, but could not estimate its "
+                    + ", ".join(missing_fields)
+                )
+
+            product_name = detection.product_name or "Composite meal"
+            macros = {
+                "basis": "estimated total meal",
+                "calories_kcal": detection.estimated_calories_kcal,
+                "fat_g": detection.estimated_fat_g,
+                "carbs_g": detection.estimated_carbs_g,
+                "protein_g": detection.estimated_protein_g,
+                "serving_size": None,
+                "serving_quantity": None,
+                "nutrition_data_per": None,
+            }
+            stored = self._data.StoreFoodMacros(
+                data_pb2.StoreFoodMacrosRequest(
+                    product_name=product_name,
+                    brand="",
+                    barcode="",
+                    basis=macros["basis"],
+                    calories_kcal=_proto_number(macros["calories_kcal"]),
+                    protein_g=_proto_number(macros["protein_g"]),
+                    fat_g=_proto_number(macros["fat_g"]),
+                    carbs_g=_proto_number(macros["carbs_g"]),
+                    serving_size="",
+                    serving_quantity=0.0,
+                    recorded_at=time.time(),
+                )
+            )
+            self._show_macro_card(
+                product_name=product_name,
+                brand="",
+                barcode="",
+                macros=macros,
+            )
+            log.info(
+                "food_macros.composite_meal_stored",
+                record_id=stored.id,
+                product_name=product_name,
+            )
+            return True, f"{product_name}: {_format_macro_summary(macros)} ({macros['basis']})"
 
         product = None
         lookup_label = ""
@@ -355,6 +442,10 @@ def _camera_frame_to_jpeg(frame: sensor_pb2.CameraFrame) -> bytes:
 
 def _pick_number(data: dict[str, Any], key: str) -> float | None:
     value = data.get(key)
+    return _coerce_number(value)
+
+
+def _coerce_number(value: Any) -> float | None:
     if value in (None, ""):
         return None
     try:

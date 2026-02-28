@@ -27,6 +27,52 @@ def test_extract_food_macros_prefers_serving_values():
 
 
 class TestFoodMacrosServicer:
+    def test_execute_uses_vlm_calorie_estimate_for_composite_meal(self, mock_grpc_context, mocker):
+        mocker.patch("apps.food_macros.grpc.insecure_channel")
+        vision = MagicMock()
+        vision.identify.return_value = FoodDetection(
+            barcode=None,
+            product_name="Burger and fries",
+            is_composite_meal=True,
+            estimated_calories_kcal=980.0,
+            estimated_protein_g=28.0,
+            estimated_fat_g=47.0,
+            estimated_carbs_g=102.0,
+        )
+        food = MagicMock()
+        servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
+        servicer._sensor = MagicMock()
+        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
+            data=b"\xff\x00\x00",
+            width=1,
+            height=1,
+        )
+        servicer._data = MagicMock()
+        servicer._data.StoreFoodMacros.return_value = MagicMock(id=11)
+        servicer._frontend = MagicMock()
+
+        request = tool_pb2.ToolRequest(
+            tool_name="food_macros",
+            parameters_json=json.dumps({"query": "How many calories are in this meal?"}),
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+
+        assert response.success
+        assert "980 kcal" in response.result_text
+        assert "28 g protein" in response.result_text
+        assert "47 g fat" in response.result_text
+        assert "102 g carbs" in response.result_text
+        food.get_product_by_barcode.assert_not_called()
+        food.search_products_by_name.assert_not_called()
+        servicer._data.StoreFoodMacros.assert_called_once()
+        store_request = servicer._data.StoreFoodMacros.call_args[0][0]
+        assert store_request.product_name == "Burger and fries"
+        assert store_request.basis == "estimated total meal"
+        assert store_request.calories_kcal == 980.0
+        assert store_request.protein_g == 28.0
+        assert store_request.fat_g == 47.0
+        assert store_request.carbs_g == 102.0
+
     def test_execute_uses_barcode_lookup(self, mock_grpc_context, mocker):
         mocker.patch("apps.food_macros.grpc.insecure_channel")
         vision = MagicMock()
@@ -126,3 +172,37 @@ class TestFoodMacrosServicer:
 
         assert not response.success
         assert "could not identify" in response.result_text
+
+    def test_execute_returns_failure_when_composite_meal_has_no_estimate(
+        self, mock_grpc_context, mocker
+    ):
+        mocker.patch("apps.food_macros.grpc.insecure_channel")
+        vision = MagicMock()
+        vision.identify.return_value = FoodDetection(
+            barcode=None,
+            product_name="Plate lunch",
+            is_composite_meal=True,
+            estimated_calories_kcal=None,
+            estimated_protein_g=20.0,
+            estimated_fat_g=15.0,
+            estimated_carbs_g=45.0,
+        )
+        food = MagicMock()
+        servicer = FoodMacrosServicer(vision_client=vision, food_client=food)
+        servicer._sensor = MagicMock()
+        servicer._sensor.CaptureFrame.return_value = sensor_pb2.CameraFrame(
+            data=b"\x00\x00\xff",
+            width=1,
+            height=1,
+        )
+
+        request = tool_pb2.ToolRequest(
+            tool_name="food_macros",
+            parameters_json=json.dumps({"query": "How many calories are in this plate?"}),
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+
+        assert not response.success
+        assert "calories" in response.result_text
+        food.get_product_by_barcode.assert_not_called()
+        food.search_products_by_name.assert_not_called()
