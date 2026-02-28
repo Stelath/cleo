@@ -32,37 +32,31 @@ _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
 _RECENT_FACES_BUFFER_SIZE = 50
 
 
-def _rgb_to_jpeg(frame_data: bytes, width: int, height: int, quality: int = 80) -> bytes:
-    """Convert raw RGB frame bytes to JPEG."""
-    frame_np = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 3)
-    bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
-    encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-    success, encoded = cv2.imencode(".jpg", bgr, encode_params)
-    if not success:
-        raise RuntimeError("Failed to encode frame as JPEG")
-    return encoded.tobytes()
+def _decode_jpeg(jpeg_data: bytes) -> np.ndarray:
+    """Decode JPEG bytes to a BGR numpy array."""
+    buf = np.frombuffer(jpeg_data, dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        raise RuntimeError("Failed to decode JPEG frame")
+    return img
 
 
 def _crop_face(
-    frame_data: bytes,
-    width: int,
-    height: int,
+    img_bgr: np.ndarray,
     bbox: dict,
     padding: float = 0.2,
 ) -> bytes:
-    """Crop a face from raw RGB frame data using Rekognition bounding box ratios.
+    """Crop a face from a BGR image using Rekognition bounding box ratios.
 
     Args:
-        frame_data: Raw RGB bytes.
-        width: Frame width in pixels.
-        height: Frame height in pixels.
+        img_bgr: BGR numpy array (decoded frame).
         bbox: Rekognition BoundingBox dict with Width, Height, Left, Top (ratios 0-1).
         padding: Fraction to expand the crop region.
 
     Returns:
         JPEG-encoded bytes of the cropped face.
     """
-    frame_np = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 3)
+    height, width = img_bgr.shape[:2]
 
     # Convert ratios to pixel coords
     box_left = bbox["Left"] * width
@@ -79,9 +73,8 @@ def _crop_face(
     x2 = int(min(width, box_left + box_w + pad_w))
     y2 = int(min(height, box_top + box_h + pad_h))
 
-    cropped = frame_np[y1:y2, x1:x2]
-    bgr = cv2.cvtColor(cropped, cv2.COLOR_RGB2BGR)
-    success, encoded = cv2.imencode(".jpg", bgr)
+    cropped = img_bgr[y1:y2, x1:x2]
+    success, encoded = cv2.imencode(".jpg", cropped)
     if not success:
         raise RuntimeError("Failed to encode cropped face as JPEG")
     return encoded.tobytes()
@@ -166,7 +159,8 @@ class FaceDetectionLoop(threading.Thread):
 
     def _process_frame(self, frame: Any) -> None:
         try:
-            jpeg_bytes = _rgb_to_jpeg(frame.data, frame.width, frame.height)
+            # frame.data is already JPEG-encoded from the sensor service
+            jpeg_bytes = bytes(frame.data)
 
             response = self._rekognition.detect_faces(
                 Image={"Bytes": jpeg_bytes}, Attributes=["DEFAULT"]
@@ -175,6 +169,9 @@ class FaceDetectionLoop(threading.Thread):
             face_details = response.get("FaceDetails", [])
             if not face_details:
                 return
+
+            # Decode JPEG once for cropping all faces
+            img_bgr = _decode_jpeg(jpeg_bytes)
 
             # Connect to DataService for storing faces
             data_channel = grpc.insecure_channel(self._data_address)
@@ -187,9 +184,7 @@ class FaceDetectionLoop(threading.Thread):
                         continue
 
                     bbox = face["BoundingBox"]
-                    cropped = _crop_face(
-                        frame.data, frame.width, frame.height, bbox, padding=0.2
-                    )
+                    cropped = _crop_face(img_bgr, bbox, padding=0.2)
 
                     timestamp = frame.timestamp or time.time()
                     resp = data_stub.StoreFaceEmbedding(
