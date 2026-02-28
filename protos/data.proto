@@ -80,6 +80,12 @@ service DataService {
 
   // Remove all stored face groups, sightings, and face index data
   rpc ClearFaces(ClearFacesRequest) returns (ClearFacesResponse);
+
+  // Store a recording metadata entry linking to an existing video clip
+  rpc StoreRecording(StoreRecordingRequest) returns (StoreRecordingResponse);
+
+  // Get paginated recording entries
+  rpc GetRecordings(GetRecordingsRequest) returns (GetRecordingsResponse);
 }
 
 // ── Store Transcription ──
@@ -493,4 +499,35 @@ message ClearFacesRequest {}
 message ClearFacesResponse {
   int32 faces_deleted = 1;
   int32 sightings_deleted = 2;
+}
+
+// ── Recordings ──
+
+message StoreRecordingRequest {
+  int64 clip_id = 1;
+  double started_at = 2;
+  double ended_at = 3;
+}
+
+message StoreRecordingResponse {
+  int64 id = 1;
+  int64 clip_id = 2;
+}
+
+message GetRecordingsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message RecordingEntry {
+  int64 id = 1;
+  int64 clip_id = 2;
+  double started_at = 3;
+  double ended_at = 4;
+  double created_at = 5;
+}
+
+message GetRecordingsResponse {
+  repeated RecordingEntry entries = 1;
+  int32 total_count = 2;
 }

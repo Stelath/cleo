@@ -11,7 +11,12 @@ import structlog
 
 from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
 from services.assistant.registry import ToolRegistry
-from services.config import ASSISTANT_PORT, DATA_ADDRESS, FRONTEND_ADDRESS, SENSOR_ADDRESS
+from services.config import (
+    ASSISTANT_PORT,
+    DATA_ADDRESS,
+    FRONTEND_ADDRESS,
+    SENSOR_ADDRESS,
+)
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import frontend_pb2, frontend_pb2_grpc
 from generated import sensor_pb2, sensor_pb2_grpc
@@ -78,6 +83,9 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
 
     def _show_tool_debug_notification(self, tool_name: str) -> None:
         """Best-effort HUD notification so the user can see which tool was invoked."""
+        if not self._debug_hud_enabled:
+            return
+
         channel = grpc.insecure_channel(FRONTEND_ADDRESS)
         try:
             stub = frontend_pb2_grpc.FrontendServiceStub(channel)
@@ -139,7 +147,8 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
         """Reset conversation if idle for too long."""
         if (
             self._conversation_history
-            and time.monotonic() - self._last_interaction_time > self._IDLE_TIMEOUT_SECONDS
+            and time.monotonic() - self._last_interaction_time
+            > self._IDLE_TIMEOUT_SECONDS
         ):
             log.info("assistant.history_expired")
             self._conversation_history = []
@@ -147,7 +156,9 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
     def _trim_history(self) -> None:
         """Cap conversation history at *_MAX_HISTORY_MESSAGES* messages."""
         if len(self._conversation_history) > self._MAX_HISTORY_MESSAGES:
-            self._conversation_history = self._conversation_history[-self._MAX_HISTORY_MESSAGES:]
+            self._conversation_history = self._conversation_history[
+                -self._MAX_HISTORY_MESSAGES :
+            ]
 
     def ProcessCommand(self, request, context):
         text = request.text.strip()
@@ -270,15 +281,19 @@ class AssistantServiceServicer(assistant_pb2_grpc.AssistantServiceServicer):
 
             # Append tool result to conversation history so the LLM
             # can reference it in follow-ups.
-            self._conversation_history.append({
-                "role": "user",
-                "content": [{
-                    "toolResult": {
-                        "toolUseId": result.tool_use_id,
-                        "content": [{"text": tool_response.result_text}],
-                    }
-                }],
-            })
+            self._conversation_history.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "toolResult": {
+                                "toolUseId": result.tool_use_id,
+                                "content": [{"text": tool_response.result_text}],
+                            }
+                        }
+                    ],
+                }
+            )
 
             response_text = tool_response.result_text.strip()
             responded = bool(response_text) and bool(tool_response.success)

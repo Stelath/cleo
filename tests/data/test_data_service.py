@@ -90,8 +90,12 @@ def test_query_transcriptions_in_range(sqlite_db):
 
 
 def test_query_video_clips_in_range(sqlite_db):
-    sqlite_db.insert_video_clip(clip_path="/tmp/a.mp4", start_timestamp=10.0, end_timestamp=11.0)
-    sqlite_db.insert_video_clip(clip_path="/tmp/b.mp4", start_timestamp=20.0, end_timestamp=21.0)
+    sqlite_db.insert_video_clip(
+        clip_path="/tmp/a.mp4", start_timestamp=10.0, end_timestamp=11.0
+    )
+    sqlite_db.insert_video_clip(
+        clip_path="/tmp/b.mp4", start_timestamp=20.0, end_timestamp=21.0
+    )
 
     rows = sqlite_db.query_video_clips_in_range(19.5, 21.5)
     assert len(rows) == 1
@@ -171,17 +175,40 @@ def test_insert_tracked_item_returns_existing(sqlite_db):
     assert second_id == first_id
 
 
+def test_insert_and_query_recordings(sqlite_db):
+    clip_id = sqlite_db.insert_video_clip(
+        clip_path="/tmp/recording-source.mp4",
+        start_timestamp=200.0,
+        end_timestamp=212.0,
+        num_frames=360,
+    )
+    recording_id = sqlite_db.insert_recording(
+        clip_id=clip_id,
+        started_at=201.0,
+        ended_at=210.0,
+    )
+
+    assert recording_id >= 1
+
+    rows, total = sqlite_db.query_recordings(limit=10, offset=0)
+    assert total == 1
+    assert rows[0]["clip_id"] == clip_id
+    assert rows[0]["started_at"] == pytest.approx(201.0)
+    assert rows[0]["ended_at"] == pytest.approx(210.0)
+
+
 # ── DataService gRPC servicer tests ──
 
 
 @pytest.fixture
 def data_servicer(tmp_path):
     """Create a DataServiceServicer with temp paths and mocked embeddings."""
-    with patch("services.data.service.embed_video") as mock_embed_video, \
-         patch("services.data.service.embed_text") as mock_embed_text, \
-         patch("services.data.service.embed_image") as mock_embed_image, \
-         patch("services.data.service.embed_face_image") as mock_embed_face_image:
-
+    with (
+        patch("services.data.service.embed_video") as mock_embed_video,
+        patch("services.data.service.embed_text") as mock_embed_text,
+        patch("services.data.service.embed_image") as mock_embed_image,
+        patch("services.data.service.embed_face_image") as mock_embed_face_image,
+    ):
         # Generic embeddings are 1024-d; face embeddings are 512-d.
         def _fake_embed(*args, **kwargs):
             v = np.random.randn(1024).astype(np.float32)
@@ -220,7 +247,9 @@ def _mock_context():
 
 def _iter_media_chunks(data: bytes, media_id: str, chunk_size: int = 64):
     if not data:
-        yield data_pb2.MediaChunk(data=b"", media_id=media_id, chunk_index=0, is_last=True)
+        yield data_pb2.MediaChunk(
+            data=b"", media_id=media_id, chunk_index=0, is_last=True
+        )
         return
 
     chunk_index = 0
@@ -509,6 +538,39 @@ def test_store_and_get_note_summaries_rpc(data_servicer):
     assert resp.entries[0].summary_text == "meeting summary"
 
 
+def test_store_and_get_recordings_rpc(data_servicer):
+    clip_resp = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="recording-store-1",
+            mp4_data=b"\x11" * 200,
+            start_timestamp=300.0,
+            end_timestamp=306.0,
+            num_frames=180,
+        ),
+        _mock_context(),
+    )
+
+    store_resp = data_servicer.StoreRecording(
+        data_pb2.StoreRecordingRequest(
+            clip_id=clip_resp.clip_id,
+            started_at=301.0,
+            ended_at=305.0,
+        ),
+        _mock_context(),
+    )
+    assert store_resp.id >= 1
+    assert store_resp.clip_id == clip_resp.clip_id
+
+    list_resp = data_servicer.GetRecordings(
+        data_pb2.GetRecordingsRequest(limit=10, offset=0),
+        _mock_context(),
+    )
+    assert list_resp.total_count == 1
+    assert list_resp.entries[0].clip_id == clip_resp.clip_id
+    assert list_resp.entries[0].started_at == pytest.approx(301.0)
+    assert list_resp.entries[0].ended_at == pytest.approx(305.0)
+
+
 def test_get_nonexistent_clip_rpc(data_servicer):
     from generated import data_pb2
 
@@ -700,7 +762,9 @@ def test_find_latest_tracked_item_occurrence_skips_registration_clip(data_servic
     assert resp.latest_result.clip_id == clip_outside.clip_id
 
 
-def test_find_latest_tracked_item_occurrence_falls_back_to_registration_clip(data_servicer):
+def test_find_latest_tracked_item_occurrence_falls_back_to_registration_clip(
+    data_servicer,
+):
     now = time.time()
     clip_registration = data_servicer.StoreVideoClip(
         _store_clip_request_iter(
@@ -897,12 +961,22 @@ def test_set_face_name_and_list_faces(sqlite_db):
     assert rows[0]["display_name"] == "Ada"
     assert rows[0]["display_note"] == "Met at the office"
 
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0
+    )
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0
+    )
 
     sightings = sqlite_db.list_face_sightings(face_id=face_id, limit=4)
-    assert [row["image_path"] for row in sightings] == ["/tmp/face_2.jpg", "/tmp/face_1.jpg"]
-    assert sqlite_db.get_face_sighting_by_index(face_id, 1)["image_path"] == "/tmp/face_1.jpg"
+    assert [row["image_path"] for row in sightings] == [
+        "/tmp/face_2.jpg",
+        "/tmp/face_1.jpg",
+    ]
+    assert (
+        sqlite_db.get_face_sighting_by_index(face_id, 1)["image_path"]
+        == "/tmp/face_1.jpg"
+    )
 
 
 def test_existing_faces_are_backfilled_into_face_sightings(tmp_path):
@@ -928,8 +1002,12 @@ def test_clear_faces_removes_rows_and_returns_image_paths(sqlite_db):
         confidence=98.0,
         first_seen=1000.0,
     )
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0
+    )
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0
+    )
 
     faces_deleted, sightings_deleted, image_paths = sqlite_db.clear_faces()
 
@@ -947,8 +1025,12 @@ def test_delete_face_removes_one_face_and_returns_image_paths(sqlite_db):
         confidence=98.0,
         first_seen=1000.0,
     )
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
-    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0
+    )
+    sqlite_db.insert_face_sighting(
+        face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0
+    )
 
     deleted, sightings_deleted, image_paths = sqlite_db.delete_face(face_id)
 
@@ -1125,7 +1207,9 @@ def test_delete_face_rpc_removes_one_identity_and_preserves_others(data_servicer
     assert search.results[0].face_id == second.face_id
 
 
-def test_store_face_embedding_concurrent_identical_requests_share_identity(data_servicer):
+def test_store_face_embedding_concurrent_identical_requests_share_identity(
+    data_servicer,
+):
     from generated import data_pb2
 
     fixed_vec = np.random.randn(512).astype(np.float32)
@@ -1158,8 +1242,9 @@ def test_store_face_embedding_concurrent_identical_requests_share_identity(data_
         except Exception as exc:  # pragma: no cover - test failure path
             errors.append(exc)
 
-    with patch("services.data.service.embed_face_image", return_value=fixed_vec), patch.object(
-        data_servicer, "_select_face_match", side_effect=delayed_select
+    with (
+        patch("services.data.service.embed_face_image", return_value=fixed_vec),
+        patch.object(data_servicer, "_select_face_match", side_effect=delayed_select),
     ):
         threads = [
             threading.Thread(target=worker, args=(1000.0,)),

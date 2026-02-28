@@ -120,6 +120,9 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/notes":
                 self._handle_list_notes(parsed.query)
                 return
+            if parsed.path == "/api/recordings":
+                self._handle_list_recordings(parsed.query)
+                return
             if parsed.path == "/api/search":
                 self._handle_search(parsed.query)
                 return
@@ -254,6 +257,22 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         self._write_json(
             {
                 "entries": [self._serialize_note_summary(entry) for entry in response.entries],
+                "totalCount": response.total_count,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+
+    def _handle_list_recordings(self, query_string: str) -> None:
+        params = parse_qs(query_string)
+        limit = self._coerce_int(params.get("limit", ["50"])[0], default=50, minimum=1, maximum=200)
+        offset = self._coerce_int(params.get("offset", ["0"])[0], default=0, minimum=0)
+        response = self._get_data_stub().GetRecordings(
+            data_pb2.GetRecordingsRequest(limit=limit, offset=offset)
+        )
+        self._write_json(
+            {
+                "entries": [self._serialize_recording(entry) for entry in response.entries],
                 "totalCount": response.total_count,
                 "limit": limit,
                 "offset": offset,
@@ -619,6 +638,17 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
             "endTimestamp": clip.end_timestamp,
             "numFrames": clip.num_frames,
             "videoUrl": f"/api/videos/{clip.clip_id}",
+        }
+
+    @staticmethod
+    def _serialize_recording(entry: data_pb2.RecordingEntry) -> dict[str, object]:
+        return {
+            "id": entry.id,
+            "clipId": entry.clip_id,
+            "startedAt": entry.started_at,
+            "endedAt": entry.ended_at,
+            "createdAt": entry.created_at,
+            "videoUrl": f"/api/videos/{entry.clip_id}",
         }
 
     @staticmethod

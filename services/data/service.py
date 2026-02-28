@@ -921,6 +921,47 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             total_count=total,
         )
 
+    # ── StoreRecording ──
+
+    def StoreRecording(self, request, context):
+        clip = self._sqlite.get_clip_metadata(request.clip_id)
+        if clip is None:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Clip {request.clip_id} not found")
+            return data_pb2.StoreRecordingResponse()
+
+        row_id = self._sqlite.insert_recording(
+            clip_id=request.clip_id,
+            started_at=request.started_at,
+            ended_at=request.ended_at,
+        )
+        log.info(
+            "data_service.recording_stored",
+            id=row_id,
+            clip_id=request.clip_id,
+        )
+        return data_pb2.StoreRecordingResponse(id=row_id, clip_id=request.clip_id)
+
+    # ── GetRecordings ──
+
+    def GetRecordings(self, request, context):
+        limit = request.limit if request.limit > 0 else 50
+        offset = request.offset if request.offset > 0 else 0
+        rows, total = self._sqlite.query_recordings(limit=limit, offset=offset)
+        return data_pb2.GetRecordingsResponse(
+            entries=[
+                data_pb2.RecordingEntry(
+                    id=r["id"],
+                    clip_id=r["clip_id"],
+                    started_at=r["started_at"],
+                    ended_at=r["ended_at"],
+                    created_at=r["created_at"],
+                )
+                for r in rows
+            ],
+            total_count=total,
+        )
+
     # ── StoreFaceEmbedding ──
 
     def StoreFaceEmbedding(self, request, context):

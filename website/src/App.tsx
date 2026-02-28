@@ -3,6 +3,7 @@ import { startTransition, useEffect, useState, type FormEvent } from "react";
 type Section =
   | "Dashboard"
   | "Memory"
+  | "Recordings"
   | "Faces"
   | "Notes"
   | "Nutrition"
@@ -52,6 +53,15 @@ type FaceEntry = {
   collageImageUrls: string[];
 };
 
+type RecordingEntry = {
+  id: number;
+  clipId: number;
+  startedAt: number;
+  endedAt: number;
+  createdAt: number;
+  videoUrl: string;
+};
+
 type Preferences = {
   colorBlindness: string;
   contrast: "Balanced" | "High";
@@ -64,6 +74,7 @@ type Preferences = {
 const sections: Section[] = [
   "Dashboard",
   "Memory",
+  "Recordings",
   "Faces",
   "Notes",
   "Nutrition",
@@ -106,6 +117,10 @@ function App() {
   const [faceDeleteError, setFaceDeleteError] = useState<string | null>(null);
   const [faceClearing, setFaceClearing] = useState(false);
   const [faceClearError, setFaceClearError] = useState<string | null>(null);
+  const [recordingEntries, setRecordingEntries] = useState<RecordingEntry[]>([]);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordingLoading, setRecordingLoading] = useState(true);
+  const [selectedRecordingId, setSelectedRecordingId] = useState<number | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
 
   const densityClass = preferences.density === "Dense" ? "density-dense" : "density-relaxed";
@@ -117,9 +132,9 @@ function App() {
         ? "scale-large"
         : "scale-comfortable";
   const websiteApiState =
-    foodLoading || noteLoading || faceLoading
+    foodLoading || noteLoading || faceLoading || recordingLoading
       ? "Checking"
-      : foodError || noteError || faceError
+      : foodError || noteError || faceError || recordingError
         ? "Unavailable"
         : "Ready";
   const memorySummary =
@@ -147,6 +162,14 @@ function App() {
     : memoryHasSearched
       ? `Latest search returned ${memoryResults.length} clip${memoryResults.length === 1 ? "" : "s"}`
       : "Vector search is connected";
+  const recordingsSummary =
+    recordingLoading
+      ? "Refreshing"
+      : recordingError
+        ? "Unavailable"
+        : String(recordingEntries.length);
+  const selectedRecording =
+    recordingEntries.find((entry) => entry.id === selectedRecordingId) ?? recordingEntries[0] ?? null;
   const selectedNote = noteEntries.find((entry) => entry.id === selectedNoteId) ?? noteEntries[0] ?? null;
   const selectedMemoryClip =
     memoryResults.find((entry) => entry.clipId === selectedMemoryClipId) ?? memoryResults[0] ?? null;
@@ -237,6 +260,54 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     void loadFaces(controller.signal);
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadRecordings() {
+      try {
+        setRecordingLoading(true);
+        setRecordingError(null);
+
+        const response = await fetch("/api/recordings?limit=100", {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as {
+          entries?: RecordingEntry[];
+        };
+        const entries = payload.entries ?? [];
+        setRecordingEntries(entries);
+        setSelectedRecordingId((current) => {
+          if (entries.length === 0) {
+            return null;
+          }
+          if (current !== null && entries.some((entry) => entry.id === current)) {
+            return current;
+          }
+          return entries[0].id;
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setRecordingError(error instanceof Error ? error.message : "Unable to load recordings.");
+        setRecordingEntries([]);
+        setSelectedRecordingId(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setRecordingLoading(false);
+        }
+      }
+    }
+
+    void loadRecordings();
 
     return () => controller.abort();
   }, []);
@@ -572,6 +643,7 @@ function App() {
               <StatCard label="Nutrition entries" value={nutritionSummary} meta="Live count from local database" />
               <StatCard label="Memory" value={memorySummary} meta={memorySummaryMeta} />
               <StatCard label="Notes" value={notesSummary} meta={noteError ?? "Live count from local database"} />
+              <StatCard label="Recordings" value={recordingsSummary} meta={recordingError ?? "Saved clips from voice recordings"} />
               <StatCard label="Faces" value={facesSummary} meta={faceError ?? "Named face groups from the local database"} />
             </div>
 
@@ -774,6 +846,101 @@ function App() {
                     controls
                     preload="metadata"
                     src={selectedMemoryClip.videoUrl}
+                  >
+                    Your browser does not support MP4 playback.
+                  </video>
+                </div>
+              )}
+            </aside>
+          </section>
+        )}
+
+        {section === "Recordings" && (
+          <section className="memory-grid">
+            <section className="surface-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Saved Recordings</p>
+                  <h3>Voice-initiated video captures</h3>
+                </div>
+                <span className="pill success">{recordingEntries.length} saved</span>
+              </div>
+              <div className="table-shell">
+                <div className="table-head memory-head">
+                  <span>ID</span>
+                  <span>Started</span>
+                  <span>Duration</span>
+                </div>
+                {recordingLoading && (
+                  <div className="empty-state">
+                    <h4>Loading recordings</h4>
+                    <p>Reading saved recordings from the local database.</p>
+                  </div>
+                )}
+                {!recordingLoading && recordingError && (
+                  <div className="empty-state">
+                    <h4>Recordings unavailable</h4>
+                    <p>{recordingError}</p>
+                  </div>
+                )}
+                {!recordingLoading && !recordingError && recordingEntries.length === 0 && (
+                  <div className="empty-state">
+                    <h4>No recordings saved yet</h4>
+                    <p>Say "hey cleo, start recording" to capture video and it will appear here.</p>
+                  </div>
+                )}
+                {!recordingLoading &&
+                  !recordingError &&
+                  recordingEntries.map((entry) => (
+                    <button
+                      key={entry.id}
+                      className={entry.id === selectedRecording?.id ? "table-row memory-row active" : "table-row memory-row"}
+                      type="button"
+                      onClick={() => setSelectedRecordingId(entry.id)}
+                    >
+                      <span>Recording #{entry.id}</span>
+                      <span>{formatUnixTimestamp(entry.startedAt)}</span>
+                      <span>{formatDuration(entry.startedAt, entry.endedAt)}</span>
+                    </button>
+                  ))}
+              </div>
+            </section>
+
+            <aside className="surface-panel detail-panel">
+              <p className="eyebrow">Recording Preview</p>
+              {!selectedRecording && (
+                <div className="empty-state">
+                  <h4>No recording selected</h4>
+                  <p>Select a recording to play it here.</p>
+                </div>
+              )}
+              {selectedRecording && (
+                <div className="clip-preview">
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Recording</span>
+                      <strong>#{selectedRecording.id}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Clip</span>
+                      <strong>#{selectedRecording.clipId}</strong>
+                    </div>
+                  </div>
+                  <div className="meta-grid">
+                    <div>
+                      <span className="meta-label">Started</span>
+                      <strong>{formatUnixTimestamp(selectedRecording.startedAt)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Duration</span>
+                      <strong>{formatDuration(selectedRecording.startedAt, selectedRecording.endedAt)}</strong>
+                    </div>
+                  </div>
+                  <video
+                    className="clip-player"
+                    controls
+                    preload="metadata"
+                    src={selectedRecording.videoUrl}
                   >
                     Your browser does not support MP4 playback.
                   </video>
@@ -1277,6 +1444,8 @@ function sectionHint(section: Section) {
       return "Recent activity";
     case "Memory":
       return "Search + clips";
+    case "Recordings":
+      return "Saved clips";
     case "Faces":
       return "Identity review";
     case "Notes":

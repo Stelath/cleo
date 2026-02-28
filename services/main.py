@@ -25,6 +25,8 @@ from services.config import (
     NAVIGATOR_PORT,
     NOTETAKING_ADDRESS,
     NOTETAKING_PORT,
+    RECORDING_ADDRESS,
+    RECORDING_PORT,
     SAVE_VIDEO_ADDRESS,
     SAVE_VIDEO_PORT,
     SENSOR_ADDRESS,
@@ -115,6 +117,12 @@ def _run_save_video_service() -> None:
     from apps.save_video import serve
 
     serve(port=SAVE_VIDEO_PORT)
+
+
+def _run_recording_service() -> None:
+    from apps.recording import serve
+
+    serve(port=RECORDING_PORT)
 
 
 def _run_weather_service() -> None:
@@ -284,6 +292,11 @@ def main() -> None:
             _run_save_video_service,
             "save-video-tool",
             SAVE_VIDEO_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_recording_service,
+            "recording-tool",
+            RECORDING_ADDRESS,
         )
         _start_optional_grpc_service(
             _run_weather_service,

@@ -118,6 +118,15 @@ class CleoSQLite:
                 created_at REAL NOT NULL,
                 FOREIGN KEY (face_id) REFERENCES faces(id)
             );
+
+            CREATE TABLE IF NOT EXISTS recordings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                clip_id INTEGER NOT NULL,
+                started_at REAL NOT NULL,
+                ended_at REAL NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (clip_id) REFERENCES video_clips(id)
+            );
             """
         )
         face_columns = {
@@ -490,6 +499,36 @@ class CleoSQLite:
             (key, value, time.time()),
         )
         self._conn.commit()
+
+    # ── Recordings ──
+
+    def insert_recording(
+        self,
+        clip_id: int,
+        started_at: float,
+        ended_at: float,
+    ) -> int:
+        """Insert a recording metadata row. Returns the new row ID."""
+        cur = self._conn.execute(
+            "INSERT INTO recordings (clip_id, started_at, ended_at, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (clip_id, started_at, ended_at, time.time()),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def query_recordings(
+        self, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Return paginated recording rows and total count."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM recordings"
+        ).fetchone()[0]
+        rows = self._conn.execute(
+            "SELECT * FROM recordings ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows], total
 
     # ── Faces ──
 

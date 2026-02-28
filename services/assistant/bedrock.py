@@ -27,6 +27,10 @@ _SYSTEM_PROMPT = (
     "For weather, temperature, forecast, rain, or outside conditions questions, call the weather tool. "
     "For registering a visible object to track later, call track_item_register with the item title. "
     "For requests like finding where an item was left last (for example phone, keys, wallet), call track_item_locate with the item title. "
+    "For explicit recording-session commands like 'start recording' or 'stop recording', "
+    "call the recording tool with action='start' to begin or action='stop' to stop and save. "
+    "For one-shot clipping requests like 'clip that', 'save what happened', or 'save the last minute', "
+    "call the save_video tool instead of recording. "
     "If no tool fits, respond with a short helpful text answer."
 )
 _FOLLOW_UP_CLASSIFIER_PROMPT = (
@@ -66,7 +70,12 @@ class TextResult:
 class BedrockClient:
     """Thin wrapper around AWS Bedrock Converse API for tool-use routing."""
 
-    def __init__(self, client: Any = None, model_id: str = _MODEL_ID, region: str = _BEDROCK_REGION):
+    def __init__(
+        self,
+        client: Any = None,
+        model_id: str = _MODEL_ID,
+        region: str = _BEDROCK_REGION,
+    ):
         self._model_id = model_id
         if client is not None:
             self._client = client
@@ -106,12 +115,14 @@ class BedrockClient:
         # Build user content blocks
         user_content: list[dict[str, Any]] = [{"text": user_text}]
         if image_bytes is not None:
-            user_content.append({
-                "image": {
-                    "format": "jpeg",
-                    "source": {"bytes": image_bytes},
+            user_content.append(
+                {
+                    "image": {
+                        "format": "jpeg",
+                        "source": {"bytes": image_bytes},
+                    }
                 }
-            })
+            )
 
         # Start from existing history or empty
         history = list(messages) if messages else []
@@ -120,8 +131,7 @@ class BedrockClient:
         for msg in history:
             if msg.get("role") == "user":
                 msg["content"] = [
-                    block for block in msg.get("content", [])
-                    if "image" not in block
+                    block for block in msg.get("content", []) if "image" not in block
                 ]
 
         history.append({"role": "user", "content": user_content})
@@ -166,7 +176,9 @@ class BedrockClient:
                     tool_name=tool_use.get("name", ""),
                     tool_use_id=tool_use.get("toolUseId", ""),
                     parameters=tool_use.get("input", {}),
-                    response_text=_truncate(accompanying_text) if accompanying_text else "",
+                    response_text=_truncate(accompanying_text)
+                    if accompanying_text
+                    else "",
                 )
                 return (
                     ToolUseResult(
@@ -204,7 +216,9 @@ class BedrockClient:
             },
         )
 
-        content_blocks = response.get("output", {}).get("message", {}).get("content", [])
+        content_blocks = (
+            response.get("output", {}).get("message", {}).get("content", [])
+        )
         text_parts: list[str] = []
         for block in content_blocks:
             if "text" in block:
