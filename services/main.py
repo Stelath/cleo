@@ -15,6 +15,8 @@ from services.config import (
     COLOR_BLIND_PORT,
     DATA_ADDRESS,
     DATA_PORT,
+    FACE_DETECTION_ADDRESS,
+    FACE_DETECTION_PORT,
     FOOD_MACROS_ADDRESS,
     FOOD_MACROS_PORT,
     FRONTEND_ADDRESS,
@@ -93,6 +95,12 @@ def _run_navigator_service() -> None:
     from apps.navigator import serve
 
     serve(port=NAVIGATOR_PORT)
+
+
+def _run_face_detection_service() -> None:
+    from apps.face_detection import serve
+
+    serve(port=FACE_DETECTION_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
@@ -199,6 +207,10 @@ def main() -> None:
 
         _start_process(_run_navigator_service, "navigator-tool")
         _wait_for_grpc(NAVIGATOR_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_face_detection_service, "face-detection-tool")
+        _wait_for_grpc(FACE_DETECTION_ADDRESS)
         _abort_if_shutdown_requested()
 
         log.info("runtime.services_ready")

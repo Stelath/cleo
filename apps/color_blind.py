@@ -165,6 +165,7 @@ class ColorBlindnessServicer(ToolServiceBase):
                 encoded_img.tobytes(),
                 mime_type="image/jpeg",
                 position="center",
+                duration_ms=8000,
             )
 
             return True, f"Applied {correction_type} correction to frame and saved to {output_file}"
@@ -185,7 +186,7 @@ class ColorBlindnessServicer(ToolServiceBase):
                 return frame
         return None
 
-    def _stream_image_to_frontend(self, image_data: bytes, *, mime_type: str, position: str) -> None:
+    def _stream_image_to_frontend(self, image_data: bytes, *, mime_type: str, position: str, duration_ms: int = 0) -> None:
         image_id = f"color_blind_{int(time.time() * 1000)}"
 
         def _iter_chunks():
@@ -197,6 +198,7 @@ class ColorBlindnessServicer(ToolServiceBase):
                     is_last=True,
                     mime_type=mime_type,
                     position=position,
+                    duration_ms=duration_ms,
                 )
                 return
 
@@ -211,6 +213,7 @@ class ColorBlindnessServicer(ToolServiceBase):
                     is_last=end >= total,
                     mime_type=mime_type,
                     position=position,
+                    duration_ms=duration_ms,
                 )
                 chunk_index += 1
 

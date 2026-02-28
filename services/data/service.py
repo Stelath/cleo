@@ -9,7 +9,13 @@ from pathlib import Path
 import grpc
 import structlog
 
-from services.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR
+from services.config import (
+    DATA_PORT,
+    EMBEDDING_DIMENSION,
+    FACE_SIMILARITY_THRESHOLD,
+    FACE_STORAGE_DIR,
+    VIDEO_STORAGE_DIR,
+)
 from services.data.vector.embedding import embed_image, embed_text, embed_video
 from services.data.sql.db import CleoSQLite
 from services.data.vector.faiss_db import FaissDB
@@ -29,11 +35,16 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         index_path: str = "data/vector/clips.index",
         video_dir: str = VIDEO_STORAGE_DIR,
         embedding_dim: int = EMBEDDING_DIMENSION,
+        faces_index_path: str = "data/vector/faces.index",
+        face_dir: str = FACE_STORAGE_DIR,
     ):
         self._sqlite = CleoSQLite(db_path=db_path)
         self._faiss = FaissDB(dimension=embedding_dim, index_path=index_path)
+        self._faces_faiss = FaissDB(dimension=embedding_dim, index_path=faces_index_path)
         self._video_dir = Path(video_dir)
         self._video_dir.mkdir(parents=True, exist_ok=True)
+        self._face_dir = Path(face_dir)
+        self._face_dir.mkdir(parents=True, exist_ok=True)
         self._embedding_dim = embedding_dim
         log.info(
             "data_service.init",
@@ -41,11 +52,13 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             index_path=index_path,
             video_dir=video_dir,
             faiss_size=self._faiss.size,
+            faces_faiss_size=self._faces_faiss.size,
         )
 
     def shutdown(self):
         """Persist state and close connections."""
         self._faiss.save()
+        self._faces_faiss.save()
         self._sqlite.close()
         log.info("data_service.shutdown")
 
@@ -476,6 +489,97 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             barcode=request.barcode or None,
         )
         return data_pb2.StoreFoodMacrosResponse(id=row_id)
+
+    # ── StoreFaceEmbedding ──
+
+    def StoreFaceEmbedding(self, request, context):
+        try:
+            embedding = embed_image(request.image_data, dimension=self._embedding_dim)
+        except Exception as e:
+            log.error("data_service.face_embed_error", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Face embedding failed: {e}")
+            return data_pb2.StoreFaceEmbeddingResponse()
+
+        # Check for existing match (dedup)
+        matches = self._faces_faiss.search(embedding, k=1)
+        if matches and matches[0][1] > FACE_SIMILARITY_THRESHOLD:
+            matched_faiss_id, score, meta = matches[0]
+            matched_face = self._sqlite.get_face_by_faiss_id(matched_faiss_id)
+            if matched_face:
+                matched_face_id = matched_face["id"]
+                self._sqlite.update_face_seen(matched_face_id, request.timestamp)
+                log.info(
+                    "data_service.face_dedup",
+                    face_id=matched_face_id,
+                    score=score,
+                )
+                return data_pb2.StoreFaceEmbeddingResponse(
+                    face_id=matched_face_id,
+                    faiss_id=matched_faiss_id,
+                    is_new=False,
+                    matched_face_id=matched_face_id,
+                )
+
+        # New face — save thumbnail, insert SQLite, add to FAISS
+        thumbnail_name = f"face_{request.timestamp:.6f}.jpg"
+        thumbnail_path = self._face_dir / thumbnail_name
+        thumbnail_path.write_bytes(request.image_data)
+
+        face_id = self._sqlite.insert_face(
+            thumbnail_path=str(thumbnail_path),
+            confidence=request.confidence,
+            first_seen=request.timestamp,
+        )
+
+        faiss_id = self._faces_faiss.add(
+            embedding, {"face_id": face_id, "timestamp": request.timestamp}
+        )
+        self._sqlite.update_face_faiss_id(face_id, faiss_id)
+
+        log.info(
+            "data_service.face_stored",
+            face_id=face_id,
+            faiss_id=faiss_id,
+            thumbnail=str(thumbnail_path),
+        )
+        return data_pb2.StoreFaceEmbeddingResponse(
+            face_id=face_id, faiss_id=faiss_id, is_new=True
+        )
+
+    # ── SearchFaces ──
+
+    def SearchFaces(self, request, context):
+        top_k = request.top_k if request.top_k > 0 else 5
+
+        try:
+            query_vec = embed_image(request.image_data, dimension=self._embedding_dim)
+        except Exception as e:
+            log.error("data_service.face_search_embed_error", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Face query embedding failed: {e}")
+            return data_pb2.SearchFacesResponse()
+
+        faiss_results = self._faces_faiss.search(query_vec, k=top_k)
+
+        results = []
+        for faiss_id, score, meta in faiss_results:
+            face = self._sqlite.get_face_by_faiss_id(faiss_id)
+            if face is None:
+                continue
+            results.append(
+                data_pb2.FaceSearchResult(
+                    face_id=face["id"],
+                    score=score,
+                    first_seen=face["first_seen"],
+                    last_seen=face["last_seen"],
+                    seen_count=face["seen_count"],
+                    thumbnail_path=face["thumbnail_path"],
+                )
+            )
+
+        log.info("data_service.face_search", num_results=len(results))
+        return data_pb2.SearchFacesResponse(results=results)
 
 
 def serve(port: int = DATA_PORT):

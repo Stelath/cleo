@@ -85,6 +85,17 @@ class CleoSQLite:
                 recorded_at REAL NOT NULL,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS faces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                faiss_id INTEGER,
+                thumbnail_path TEXT NOT NULL,
+                confidence REAL,
+                first_seen REAL NOT NULL,
+                last_seen REAL NOT NULL,
+                seen_count INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -375,6 +386,48 @@ class CleoSQLite:
             (key, value, time.time()),
         )
         self._conn.commit()
+
+    # ── Faces ──
+
+    def insert_face(
+        self,
+        thumbnail_path: str,
+        confidence: float | None = None,
+        first_seen: float | None = None,
+    ) -> int:
+        """Insert a face row. Returns the new row ID."""
+        now = time.time()
+        first_seen = first_seen or now
+        cur = self._conn.execute(
+            "INSERT INTO faces (thumbnail_path, confidence, first_seen, last_seen, seen_count, created_at) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (thumbnail_path, confidence, first_seen, first_seen, now),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def update_face_faiss_id(self, face_id: int, faiss_id: int) -> None:
+        """Set the FAISS vector ID on an existing face row."""
+        self._conn.execute(
+            "UPDATE faces SET faiss_id = ? WHERE id = ?",
+            (faiss_id, face_id),
+        )
+        self._conn.commit()
+
+    def update_face_seen(self, face_id: int, last_seen: float) -> None:
+        """Increment seen_count and update last_seen timestamp."""
+        self._conn.execute(
+            "UPDATE faces SET last_seen = ?, seen_count = seen_count + 1 WHERE id = ?",
+            (last_seen, face_id),
+        )
+        self._conn.commit()
+
+    def get_face_by_faiss_id(self, faiss_id: int) -> dict | None:
+        """Look up face metadata by its FAISS vector ID."""
+        row = self._conn.execute(
+            "SELECT * FROM faces WHERE faiss_id = ?", (faiss_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def close(self):
         self._conn.close()
