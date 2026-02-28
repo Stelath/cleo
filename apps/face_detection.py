@@ -39,6 +39,7 @@ _MIN_CONFIDENCE = 90.0
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
 _RECENT_FACES_BUFFER_SIZE = 50
 _FACE_SAVE_COOLDOWN_SECONDS = 120.0
+_MATCH_CARD_DURATION_MS = 8000
 _NO_FACE_DETECTED_DETAIL = "InsightFace could not detect a face in the provided image"
 
 
@@ -105,12 +106,15 @@ class FaceDetectionLoop(threading.Thread):
         sensor_address: str = SENSOR_ADDRESS,
         rekognition_client: Any = None,
         data_address: str = DATA_ADDRESS,
+        frontend_address: str = FRONTEND_ADDRESS,
         frame_interval: float = _FRAME_INTERVAL_SECONDS,
         stop_event: threading.Event | None = None,
     ):
         super().__init__(daemon=True, name="FaceDetectionLoop")
         self._sensor_address = sensor_address
         self._data_address = data_address
+        self._frontend_channel = grpc.insecure_channel(frontend_address)
+        self._frontend = frontend_pb2_grpc.FrontendServiceStub(self._frontend_channel)
         self._frame_interval = frame_interval
         self._stop_event = stop_event or threading.Event()
         self._recent_faces: collections.deque[tuple[float, int]] = collections.deque(
@@ -134,22 +138,25 @@ class FaceDetectionLoop(threading.Thread):
 
     def run(self) -> None:
         backoff = 1.0
-        while not self._stop_event.is_set():
-            try:
-                log.info("face_detection.connecting", sensor=self._sensor_address)
-                self._stream_loop()
-            except grpc.RpcError as exc:
-                if self._stop_event.is_set():
-                    break
-                log.warning("face_detection.sensor_error", error=str(exc))
-            except Exception as exc:
-                if self._stop_event.is_set():
-                    break
-                log.warning("face_detection.loop_error", error=str(exc))
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    log.info("face_detection.connecting", sensor=self._sensor_address)
+                    self._stream_loop()
+                except grpc.RpcError as exc:
+                    if self._stop_event.is_set():
+                        break
+                    log.warning("face_detection.sensor_error", error=str(exc))
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        break
+                    log.warning("face_detection.loop_error", error=str(exc))
 
-            if not self._stop_event.is_set():
-                self._stop_event.wait(timeout=backoff)
-                backoff = min(backoff * 2, 30.0)
+                if not self._stop_event.is_set():
+                    self._stop_event.wait(timeout=backoff)
+                    backoff = min(backoff * 2, 30.0)
+        finally:
+            self._frontend_channel.close()
 
     def _stream_loop(self) -> None:
         channel = grpc.insecure_channel(
@@ -214,7 +221,7 @@ class FaceDetectionLoop(threading.Thread):
                     bbox = face["BoundingBox"]
                     cropped = _crop_face(img_bgr, bbox, padding=0.2)
                     try:
-                        matched_face_id = self._find_matching_face_id(data_stub, cropped)
+                        matched_face = self._find_matching_face(data_stub, cropped)
                     except grpc.RpcError as exc:
                         if self._is_ignorable_face_rpc_error(exc):
                             log.debug(
@@ -223,12 +230,14 @@ class FaceDetectionLoop(threading.Thread):
                             )
                             continue
                         raise
+                    matched_face_id = int(matched_face.face_id) if matched_face is not None else None
                     if matched_face_id is not None:
                         last_saved = self._last_saved_by_face_id.get(matched_face_id)
                         if (
                             last_saved is not None
                             and timestamp - last_saved < _FACE_SAVE_COOLDOWN_SECONDS
                         ):
+                            self._show_match_card(matched_face)
                             log.info(
                                 "face_detection.face_save_skipped",
                                 face_id=matched_face_id,
@@ -262,17 +271,19 @@ class FaceDetectionLoop(threading.Thread):
                         is_new=resp.is_new,
                         confidence=confidence,
                     )
+                    if matched_face is not None:
+                        self._show_match_card(matched_face)
             finally:
                 data_channel.close()
 
         except Exception as exc:
             log.error("face_detection.process_error", error=str(exc))
 
-    def _find_matching_face_id(
+    def _find_matching_face(
         self,
         data_stub: data_pb2_grpc.DataServiceStub,
         image_data: bytes,
-    ) -> int | None:
+    ) -> data_pb2.FaceSearchResult | None:
         response = data_stub.SearchFaces(
             data_pb2.SearchFacesRequest(image_data=image_data, top_k=1),
             timeout=10,
@@ -282,7 +293,31 @@ class FaceDetectionLoop(threading.Thread):
         top_match = response.results[0]
         if top_match.score < FACE_SIMILARITY_THRESHOLD:
             return None
-        return int(top_match.face_id)
+        return top_match
+
+    def _show_match_card(self, matched_face: data_pb2.FaceSearchResult) -> None:
+        name = matched_face.name.strip() or f"Person {matched_face.face_id}"
+        note = matched_face.note.strip() or "No note saved."
+        card = frontend_pb2.Card(
+            title=name,
+            subtitle="Recognized face",
+            description=note,
+        )
+        try:
+            self._frontend.ShowCard(
+                frontend_pb2.CardRequest(
+                    cards=[card],
+                    position="right",
+                    duration_ms=_MATCH_CARD_DURATION_MS,
+                ),
+                timeout=2,
+            )
+        except grpc.RpcError as exc:
+            log.warning(
+                "face_detection.match_card_failed",
+                face_id=matched_face.face_id,
+                error=str(exc),
+            )
 
     @staticmethod
     def _is_ignorable_face_rpc_error(exc: grpc.RpcError) -> bool:
@@ -334,6 +369,7 @@ class FaceDetectionServicer(ToolServiceBase):
         self._sensor_address = sensor_address
         self._rekognition = rekognition_client
         self._data_address = data_address
+        self._frontend_address = frontend_address
         self._lock = threading.Lock()
 
         # Frontend indicator stub
@@ -345,6 +381,7 @@ class FaceDetectionServicer(ToolServiceBase):
             sensor_address=self._sensor_address,
             rekognition_client=self._rekognition,
             data_address=self._data_address,
+            frontend_address=self._frontend_address,
         )
         self._loop.start()
         log.info("face_detection.auto_started")
@@ -387,6 +424,7 @@ class FaceDetectionServicer(ToolServiceBase):
                 sensor_address=self._sensor_address,
                 rekognition_client=self._rekognition,
                 data_address=self._data_address,
+                frontend_address=self._frontend_address,
             )
             self._loop.start()
 
