@@ -33,8 +33,11 @@ class TestToolServiceBase:
         assert not response.success
         assert "Invalid parameters" in response.result_text
 
-    def test_empty_params_json_is_ok(self, mock_grpc_context):
+    def test_empty_params_json_is_ok(self, mock_grpc_context, mock_camera_frame):
         servicer = ColorBlindnessServicer()
+        # Mock sensor capture to prevent real gRPC calls
+        servicer._capture_frame = MagicMock(return_value=mock_camera_frame)
+        
         request = tool_pb2.ToolRequest(
             tool_name="color_blindness_assist",
             parameters_json="",
@@ -78,8 +81,11 @@ class TestToolServiceBase:
 
 
 class TestColorBlindnessServicer:
-    def test_execute_returns_success(self, mock_grpc_context):
+    def test_execute_returns_success(self, mock_grpc_context, mock_camera_frame):
         servicer = ColorBlindnessServicer()
+        # Mock sensor capture to prevent real gRPC calls
+        servicer._capture_frame = MagicMock(return_value=mock_camera_frame)
+        
         request = tool_pb2.ToolRequest(
             tool_name="color_blindness_assist",
             parameters_json=json.dumps({"query": "what color is this?"}),

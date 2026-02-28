@@ -4,6 +4,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+from services.config import DB_PATH
+
 
 class CleoSQLite:
     """Thread-safe SQLite wrapper for transcription and video clip storage.
@@ -12,7 +14,7 @@ class CleoSQLite:
     connection can be shared across gRPC handler threads.
     """
 
-    def __init__(self, db_path: str = "data/cleo.db"):
+    def __init__(self, db_path: str = DB_PATH):
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -42,6 +44,12 @@ class CleoSQLite:
                 num_frames INTEGER,
                 embedding_dimension INTEGER,
                 created_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL NOT NULL
             );
             """
         )
@@ -115,6 +123,25 @@ class CleoSQLite:
             (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total
+
+    def set_preference(self, key: str, value: str) -> None:
+        """Upsert a user preference key-value pair."""
+        self._conn.execute(
+            """
+            INSERT INTO user_preferences (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, value, time.time()),
+        )
+        self._conn.commit()
+
+    def get_preference(self, key: str) -> str | None:
+        """Retrieve a user preference value by key, or None if not found."""
+        row = self._conn.execute(
+            "SELECT value FROM user_preferences WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
 
     def close(self):
         self._conn.close()

@@ -202,3 +202,31 @@ def test_get_nonexistent_clip_rpc(data_servicer):
     req = data_pb2.GetVideoClipRequest(clip_id=9999)
     data_servicer.GetVideoClip(req, ctx)
     ctx.set_code.assert_called()
+
+def test_set_and_get_user_preference(data_servicer):
+    from generated import data_pb2
+
+    ctx = _mock_context()
+    
+    # Set a preference
+    set_req = data_pb2.SetUserPreferenceRequest(key="color_blindness_type", value="protanopia")
+    set_resp = data_servicer.SetUserPreference(set_req, ctx)
+    assert set_resp.success is True
+
+    # Get the preference back
+    get_req = data_pb2.GetUserPreferenceRequest(key="color_blindness_type")
+    get_resp = data_servicer.GetUserPreference(get_req, ctx)
+    assert get_resp.found is True
+    assert get_resp.value == "protanopia"
+
+def test_get_missing_user_preference_returns_empty(data_servicer):
+    from generated import data_pb2
+
+    ctx = _mock_context()
+    
+    # Get a preference that hasn't been set
+    get_req = data_pb2.GetUserPreferenceRequest(key="missing_key")
+    get_resp = data_servicer.GetUserPreference(get_req, ctx)
+    
+    assert get_resp.found is False
+    assert get_resp.value == ""

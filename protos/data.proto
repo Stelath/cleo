@@ -17,6 +17,32 @@ service DataService {
 
   // Retrieve a video clip by ID
   rpc GetVideoClip(GetVideoClipRequest) returns (VideoClipResponse);
+
+  // Set a user preference key-value pair
+  rpc SetUserPreference(SetUserPreferenceRequest) returns (SetUserPreferenceResponse);
+
+  // Get a user preference by key
+  rpc GetUserPreference(GetUserPreferenceRequest) returns (GetUserPreferenceResponse);
+}
+
+// ── User Preferences ──
+
+message SetUserPreferenceRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message SetUserPreferenceResponse {
+  bool success = 1;
+}
+
+message GetUserPreferenceRequest {
+  string key = 1;
+}
+
+message GetUserPreferenceResponse {
+  bool found = 1;
+  string value = 2;
 }
 
 // ── Store Transcription ──

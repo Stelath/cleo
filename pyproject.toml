@@ -31,7 +31,7 @@ test = ["pytest>=8.0", "pytest-mock>=3.12"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "generated"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["services", "apps", "generated"]

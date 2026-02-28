@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package cleo.apps.color_blind;
+
+import "sensor.proto";
+
+service ColorBlindService {
+    // Process a single frame with color correction
+    rpc CorrectFrame(CorrectionRequest) returns (cleo.sensor.CameraFrame);
+}
+
+message CorrectionRequest {
+    cleo.sensor.CameraFrame frame = 1;
+    ColorBlindType type = 2;
+}
+
+enum ColorBlindType {
+    NONE = 0;
+    PROTANOPIA = 1;
+    DEUTERANOPIA = 2;
+    TRITANOPIA = 3;
+}

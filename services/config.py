@@ -30,4 +30,6 @@ EMBEDDING_DIMENSION = 1024
 BEDROCK_MODEL_ID = "amazon.nova-2-multimodal-embeddings-v1:0"
 BEDROCK_REGION = "us-east-1"
 
-VIDEO_STORAGE_DIR = "data/videos"
+VIDEO_STORAGE_DIR = "services/data/videos"
+DB_PATH = "services/data/sql/cleo.db"
+FAISS_INDEX_PATH = "services/data/vector/clips.index"

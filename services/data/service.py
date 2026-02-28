@@ -8,7 +8,7 @@ from pathlib import Path
 import grpc
 import structlog
 
-from services.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR
+from services.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR, DB_PATH, FAISS_INDEX_PATH
 from services.data.embedding import embed_image, embed_text, embed_video
 from services.data.sql.db import CleoSQLite
 from services.data.vector.faiss_db import FaissDB
@@ -22,8 +22,8 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
     def __init__(
         self,
-        db_path: str = "data/cleo.db",
-        index_path: str = "data/vector/clips.index",
+        db_path: str = DB_PATH,
+        index_path: str = FAISS_INDEX_PATH,
         video_dir: str = VIDEO_STORAGE_DIR,
         embedding_dim: int = EMBEDDING_DIMENSION,
     ):
@@ -192,6 +192,32 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             end_timestamp=clip["end_timestamp"] or 0.0,
             num_frames=clip["num_frames"] or 0,
         )
+
+    # ── User Preferences ──
+
+    def SetUserPreference(self, request, context):
+        try:
+            self._sqlite.set_preference(request.key, request.value)
+            log.info("data_service.preference_set", key=request.key, value=request.value)
+            return data_pb2.SetUserPreferenceResponse(success=True)
+        except Exception as e:
+            log.error("data_service.preference_set_error", key=request.key, error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Failed to set preference: {e}")
+            return data_pb2.SetUserPreferenceResponse(success=False)
+
+    def GetUserPreference(self, request, context):
+        try:
+            val = self._sqlite.get_preference(request.key)
+            if val is not None:
+                return data_pb2.GetUserPreferenceResponse(found=True, value=val)
+            else:
+                return data_pb2.GetUserPreferenceResponse(found=False, value="")
+        except Exception as e:
+            log.error("data_service.preference_get_error", key=request.key, error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Failed to get preference: {e}")
+            return data_pb2.GetUserPreferenceResponse(found=False, value="")
 
 
 def serve(port: int = DATA_PORT):
