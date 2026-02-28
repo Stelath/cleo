@@ -3,10 +3,9 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
+from core.config import OBJECT_RECOGNITION_PORT
 
 log = structlog.get_logger()
-
-_DEFAULT_PORT = 50061
 
 
 class ObjectRecognitionServicer(ToolServiceBase):
@@ -23,7 +22,7 @@ class ObjectRecognitionServicer(ToolServiceBase):
         return True, f"Object recognition for: {query} (placeholder — vision integration pending)"
 
 
-def serve(port: int = _DEFAULT_PORT):
+def serve(port: int = OBJECT_RECOGNITION_PORT):
     serve_tool(ObjectRecognitionServicer(), port)
 
 

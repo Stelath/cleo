@@ -3,10 +3,9 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
+from core.config import NAVIGATION_ASSIST_PORT
 
 log = structlog.get_logger()
-
-_DEFAULT_PORT = 50062
 
 
 class NavigationAssistServicer(ToolServiceBase):
@@ -23,7 +22,7 @@ class NavigationAssistServicer(ToolServiceBase):
         return True, f"Navigation for: {query} (placeholder — location integration pending)"
 
 
-def serve(port: int = _DEFAULT_PORT):
+def serve(port: int = NAVIGATION_ASSIST_PORT):
     serve_tool(NavigationAssistServicer(), port)
 
 

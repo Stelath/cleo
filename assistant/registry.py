@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from core.ports import COLOR_BLIND_PORT, NAVIGATION_ASSIST_PORT, OBJECT_RECOGNITION_PORT
+from core.config import COLOR_BLIND_PORT, NAVIGATION_ASSIST_PORT, OBJECT_RECOGNITION_PORT
 
 
 @dataclass(frozen=True)

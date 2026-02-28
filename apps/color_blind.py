@@ -3,10 +3,9 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
+from core.config import COLOR_BLIND_PORT
 
 log = structlog.get_logger()
-
-_DEFAULT_PORT = 50060
 
 
 class ColorBlindnessServicer(ToolServiceBase):
@@ -23,7 +22,7 @@ class ColorBlindnessServicer(ToolServiceBase):
         return True, f"Color assistance for: {query} (placeholder — camera integration pending)"
 
 
-def serve(port: int = _DEFAULT_PORT):
+def serve(port: int = COLOR_BLIND_PORT):
     serve_tool(ColorBlindnessServicer(), port)
 
 
