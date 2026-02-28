@@ -61,3 +61,11 @@ def test_speak_text_synthesis_failure():
 
     assert resp.ok is False
     ctx.set_code.assert_called_once_with(grpc.StatusCode.INTERNAL)
+
+
+def test_set_app_indicator_publishes_update():
+    servicer = FrontendServiceServicer()
+    ctx = _make_context()
+    request = frontend_pb2.AppIndicatorRequest(app_name="face_detection", is_active=True)
+    resp = servicer.SetAppIndicator(request, ctx)
+    assert resp.ok is True

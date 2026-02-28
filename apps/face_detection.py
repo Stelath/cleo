@@ -16,7 +16,7 @@ import numpy as np
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from generated import data_pb2, data_pb2_grpc, sensor_pb2, sensor_pb2_grpc
+from generated import data_pb2, data_pb2_grpc, frontend_pb2, frontend_pb2_grpc, sensor_pb2, sensor_pb2_grpc
 from services.media.camera_transport import (
     AssembledCameraFrame,
     CameraFrameAssembler,
@@ -27,6 +27,7 @@ from services.config import (
     DATA_ADDRESS,
     FACE_DETECTION_PORT,
     FACE_SIMILARITY_THRESHOLD,
+    FRONTEND_ADDRESS,
     SENSOR_ADDRESS,
 )
 
@@ -328,11 +329,16 @@ class FaceDetectionServicer(ToolServiceBase):
         sensor_address: str = SENSOR_ADDRESS,
         rekognition_client: Any = None,
         data_address: str = DATA_ADDRESS,
+        frontend_address: str = FRONTEND_ADDRESS,
     ):
         self._sensor_address = sensor_address
         self._rekognition = rekognition_client
         self._data_address = data_address
         self._lock = threading.Lock()
+
+        # Frontend indicator stub
+        self._frontend_channel = grpc.insecure_channel(frontend_address)
+        self._frontend = frontend_pb2_grpc.FrontendServiceStub(self._frontend_channel)
 
         # Auto-start on boot
         self._loop = FaceDetectionLoop(
@@ -342,6 +348,15 @@ class FaceDetectionServicer(ToolServiceBase):
         )
         self._loop.start()
         log.info("face_detection.auto_started")
+        self._set_indicator(True)
+
+    def _set_indicator(self, active: bool) -> None:
+        try:
+            self._frontend.SetAppIndicator(
+                frontend_pb2.AppIndicatorRequest(app_name="face_detection", is_active=active)
+            )
+        except grpc.RpcError as exc:
+            log.warning("face_detection.indicator_error", error=str(exc))
 
     def execute(self, params: dict) -> tuple[bool, str]:
         action = self._resolve_action(params)
@@ -376,6 +391,7 @@ class FaceDetectionServicer(ToolServiceBase):
             self._loop.start()
 
         log.info("face_detection.started")
+        self._set_indicator(True)
         return True, "Face detection started"
 
     def _stop(self) -> tuple[bool, str]:
@@ -390,6 +406,7 @@ class FaceDetectionServicer(ToolServiceBase):
         loop.join(timeout=10.0)
 
         recent = loop.recent_faces
+        self._set_indicator(False)
         log.info("face_detection.stopped", faces_detected=len(recent))
         return True, f"Face detection stopped. {len(recent)} face(s) detected during session."
 

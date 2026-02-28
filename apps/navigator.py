@@ -18,8 +18,8 @@ import numpy as np
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from generated import sensor_pb2, sensor_pb2_grpc
-from services.config import NAVIGATOR_PORT, SENSOR_ADDRESS
+from generated import frontend_pb2, frontend_pb2_grpc, sensor_pb2, sensor_pb2_grpc
+from services.config import FRONTEND_ADDRESS, NAVIGATOR_PORT, SENSOR_ADDRESS
 from services.media.camera_transport import (
     AssembledCameraFrame,
     CameraFrameAssembler,
@@ -204,6 +204,18 @@ class NavigatorLoop(threading.Thread):
             if frame is not None:
                 yield frame
 
+    def _speak_guidance(self, guidance: str) -> None:
+        """Send guidance text to FrontendService for TTS. Errors are logged and swallowed."""
+        try:
+            channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+            try:
+                stub = frontend_pb2_grpc.FrontendServiceStub(channel)
+                stub.SpeakText(frontend_pb2.SpeakTextRequest(text=guidance))
+            finally:
+                channel.close()
+        except Exception as exc:
+            log.warning("navigator.speak_error", error=str(exc))
+
     def _process_frame(
         self,
         frame: AssembledCameraFrame | Any,
@@ -247,6 +259,7 @@ class NavigatorLoop(threading.Thread):
             frame_ts = assembled.timestamp or time.time()
             self._guidance_buffer.append((frame_ts, guidance))
             log.info("navigator.guidance", guidance=guidance[:100])
+            self._speak_guidance(guidance)
 
             if self._guidance_callback:
                 self._guidance_callback(guidance)
@@ -299,11 +312,24 @@ class NavigatorServicer(ToolServiceBase):
         self,
         sensor_address: str = SENSOR_ADDRESS,
         bedrock_client: NavigatorBedrockClient | None = None,
+        frontend_address: str = FRONTEND_ADDRESS,
     ):
         self._sensor_address = sensor_address
         self._bedrock = bedrock_client
         self._lock = threading.Lock()
         self._loop: NavigatorLoop | None = None
+
+        # Frontend indicator stub
+        self._frontend_channel = grpc.insecure_channel(frontend_address)
+        self._frontend = frontend_pb2_grpc.FrontendServiceStub(self._frontend_channel)
+
+    def _set_indicator(self, active: bool) -> None:
+        try:
+            self._frontend.SetAppIndicator(
+                frontend_pb2.AppIndicatorRequest(app_name="navigator", is_active=active)
+            )
+        except grpc.RpcError as exc:
+            log.warning("navigator.indicator_error", error=str(exc))
 
     def execute(self, params: dict) -> tuple[bool, str]:
         action = self._resolve_action(params)
@@ -340,6 +366,7 @@ class NavigatorServicer(ToolServiceBase):
             self._loop = loop
 
         log.info("navigator.started", context=context)
+        self._set_indicator(True)
         return True, f"Navigator started: {context}"
 
     def _stop_navigation(self) -> tuple[bool, str]:
@@ -355,6 +382,7 @@ class NavigatorServicer(ToolServiceBase):
 
         recent = loop.recent_guidance
         last_guidance = recent[-1][1] if recent else "No guidance was generated."
+        self._set_indicator(False)
         log.info("navigator.stopped", guidance_count=len(recent))
         return True, f"Navigator stopped. Last observation: {last_guidance}"
 

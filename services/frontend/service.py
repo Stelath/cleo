@@ -123,6 +123,10 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
         log.info("frontend_service.show_throbber", visible=request.visible)
         return self._publish_update(throbber=request)
 
+    def SetAppIndicator(self, request, context):
+        log.info("frontend_service.set_app_indicator", app=request.app_name, active=request.is_active)
+        return self._publish_update(app_indicator=request)
+
     # ── Streaming (Tauri subscribes here) ──
 
     def StreamUpdates(self, request, context):

@@ -555,3 +555,38 @@ html, body {
   font-size: 0.8rem;
   opacity: 0.7;
 }
+
+/* ── App Indicators ── */
+.indicators-layer { z-index: 55; }
+
+.app-indicators {
+  position: absolute;
+  top: 6%;
+  left: 4%;
+  display: flex;
+  gap: 8px;
+}
+
+.app-indicator-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--hud-card-bg);
+  border: 1px solid var(--hud-card-border);
+  box-shadow: var(--hud-shadow-sm);
+  animation: indicator-fade-in 200ms ease-out both;
+}
+
+.app-indicator-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--hud-text-primary);
+}
+
+@keyframes indicator-fade-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}

@@ -17,6 +17,7 @@ service FrontendService {
   rpc SpeakText(SpeakTextRequest) returns (FrontendResponse);
   rpc RenderHtml(RenderHtmlRequest) returns (FrontendResponse);
   rpc ShowThrobber(ThrobberRequest) returns (FrontendResponse);
+  rpc SetAppIndicator(AppIndicatorRequest) returns (FrontendResponse);
 
   // Tauri gRPC client subscribes here to receive all updates
   rpc StreamUpdates(StreamRequest) returns (stream DisplayUpdate);
@@ -123,6 +124,11 @@ message ThrobberRequest {
   uint32 size_px = 5;
 }
 
+message AppIndicatorRequest {
+  string app_name = 1;
+  bool is_active = 2;
+}
+
 // ── Display update stream (server → Tauri client) ──
 
 message DisplayUpdate {
@@ -137,6 +143,7 @@ message DisplayUpdate {
     PlayAudioFileRequest play_audio_file = 8;
     RenderHtmlRequest render_html = 9;
     ThrobberRequest throbber = 10;
+    AppIndicatorRequest app_indicator = 11;
   }
 }
 
