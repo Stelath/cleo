@@ -4,12 +4,14 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import cv2
+import grpc
 import numpy as np
 import pytest
 
 from apps.face_detection import (
     FaceDetectionLoop,
     FaceDetectionServicer,
+    _NO_FACE_DETECTED_DETAIL,
     _crop_face,
 )
 from generated import sensor_pb2
@@ -49,6 +51,19 @@ def _mock_rekognition_response(n_faces=1, confidence=99.5):
             for _ in range(n_faces)
         ]
     }
+
+
+class _FakeRpcError(grpc.RpcError):
+    def __init__(self, code, details):
+        super().__init__()
+        self._code = code
+        self._details = details
+
+    def code(self):
+        return self._code
+
+    def details(self):
+        return self._details
 
 
 # ── _crop_face ──
@@ -205,6 +220,9 @@ class TestFaceDetectionLoop:
         mock_channel = MagicMock()
         mock_grpc_mod.insecure_channel.return_value = mock_channel
         mock_stub_instance = MagicMock()
+        mock_search_resp = MagicMock()
+        mock_search_resp.results = []
+        mock_stub_instance.SearchFaces.return_value = mock_search_resp
         mock_store_resp = MagicMock()
         mock_store_resp.face_id = 1
         mock_store_resp.is_new = True
@@ -221,6 +239,101 @@ class TestFaceDetectionLoop:
             loop._process_frame(frame)
 
             mock_stub_instance.StoreFaceEmbedding.assert_called_once()
+
+    @patch("apps.face_detection.grpc")
+    def test_process_frame_skips_recent_matching_face(self, mock_grpc_mod):
+        mock_rek = MagicMock()
+        mock_rek.detect_faces.return_value = _mock_rekognition_response(1)
+
+        mock_channel = MagicMock()
+        mock_grpc_mod.insecure_channel.return_value = mock_channel
+        mock_stub_instance = MagicMock()
+        mock_search_result = MagicMock()
+        mock_search_result.face_id = 1
+        mock_search_result.score = 0.99
+        mock_search_resp = MagicMock()
+        mock_search_resp.results = [mock_search_result]
+        mock_stub_instance.SearchFaces.return_value = mock_search_resp
+
+        with patch(
+            "apps.face_detection.data_pb2_grpc.DataServiceStub",
+            return_value=mock_stub_instance,
+        ):
+            loop = FaceDetectionLoop(
+                sensor_address="localhost:99999",
+                rekognition_client=mock_rek,
+                data_address="localhost:99998",
+            )
+            loop._last_saved_by_face_id[1] = 950.0
+
+            frame = _make_fake_frame()
+            loop._process_frame(frame)
+
+            mock_stub_instance.StoreFaceEmbedding.assert_not_called()
+
+    @patch("apps.face_detection.grpc")
+    def test_process_frame_does_not_skip_low_similarity_match(self, mock_grpc_mod):
+        mock_rek = MagicMock()
+        mock_rek.detect_faces.return_value = _mock_rekognition_response(1)
+
+        mock_channel = MagicMock()
+        mock_grpc_mod.insecure_channel.return_value = mock_channel
+        mock_stub_instance = MagicMock()
+        mock_search_result = MagicMock()
+        mock_search_result.face_id = 1
+        mock_search_result.score = 0.40
+        mock_search_resp = MagicMock()
+        mock_search_resp.results = [mock_search_result]
+        mock_stub_instance.SearchFaces.return_value = mock_search_resp
+        mock_store_resp = MagicMock()
+        mock_store_resp.face_id = 2
+        mock_store_resp.is_new = True
+        mock_stub_instance.StoreFaceEmbedding.return_value = mock_store_resp
+
+        with patch(
+            "apps.face_detection.data_pb2_grpc.DataServiceStub",
+            return_value=mock_stub_instance,
+        ):
+            loop = FaceDetectionLoop(
+                sensor_address="localhost:99999",
+                rekognition_client=mock_rek,
+                data_address="localhost:99998",
+            )
+            loop._last_saved_by_face_id[1] = 950.0
+
+            frame = _make_fake_frame()
+            loop._process_frame(frame)
+
+            mock_stub_instance.StoreFaceEmbedding.assert_called_once()
+
+    @patch("apps.face_detection.grpc")
+    def test_process_frame_ignores_no_face_detected_rpc_error(self, mock_grpc_mod):
+        mock_rek = MagicMock()
+        mock_rek.detect_faces.return_value = _mock_rekognition_response(1)
+
+        mock_channel = MagicMock()
+        mock_grpc_mod.insecure_channel.return_value = mock_channel
+        mock_stub_instance = MagicMock()
+        mock_stub_instance.SearchFaces.side_effect = _FakeRpcError(
+            grpc.StatusCode.INTERNAL,
+            f"Face query embedding failed: {_NO_FACE_DETECTED_DETAIL}",
+        )
+
+        with patch(
+            "apps.face_detection.data_pb2_grpc.DataServiceStub",
+            return_value=mock_stub_instance,
+        ):
+            loop = FaceDetectionLoop(
+                sensor_address="localhost:99999",
+                rekognition_client=mock_rek,
+                data_address="localhost:99998",
+            )
+
+            frame = _make_fake_frame()
+            loop._process_frame(frame)
+
+            mock_stub_instance.StoreFaceEmbedding.assert_not_called()
+            assert len(loop.recent_faces) == 0
 
     def test_low_confidence_faces_skipped(self):
         mock_rek = MagicMock()
@@ -246,6 +359,9 @@ class TestFaceDetectionLoop:
         mock_channel = MagicMock()
         mock_grpc_mod.insecure_channel.return_value = mock_channel
         mock_stub_instance = MagicMock()
+        mock_search_resp = MagicMock()
+        mock_search_resp.results = []
+        mock_stub_instance.SearchFaces.return_value = mock_search_resp
         mock_store_resp = MagicMock()
         mock_store_resp.face_id = 1
         mock_store_resp.is_new = True

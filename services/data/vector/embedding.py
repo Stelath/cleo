@@ -1,16 +1,18 @@
-"""Amazon Nova Multimodal Embeddings via AWS Bedrock.
-
-Provides embed_video, embed_image, and embed_text functions that all map
-into the same 1024-dimensional vector space, enabling cross-modal search.
-"""
+"""Embedding helpers for generic multimodal search and local face recognition."""
 
 import base64
 import json
 
 import boto3
+import cv2
 import numpy as np
 
-from services.config import BEDROCK_MODEL_ID, BEDROCK_REGION, EMBEDDING_DIMENSION
+from services.config import (
+    BEDROCK_MODEL_ID,
+    BEDROCK_REGION,
+    EMBEDDING_DIMENSION,
+    FACE_EMBEDDING_MODEL,
+)
 
 _MODEL_ID = BEDROCK_MODEL_ID
 _REGION = BEDROCK_REGION
@@ -19,6 +21,7 @@ _INDEX_PURPOSE = "GENERIC_INDEX"
 
 # Module-level client — created once, reused across calls.
 _client = None
+_face_app = None
 
 
 def _get_client():
@@ -26,6 +29,19 @@ def _get_client():
     if _client is None:
         _client = boto3.client("bedrock-runtime", region_name=_REGION)
     return _client
+
+
+def _get_face_analyzer():
+    global _face_app
+    if _face_app is None:
+        from insightface.app import FaceAnalysis
+
+        _face_app = FaceAnalysis(
+            name=FACE_EMBEDDING_MODEL,
+            providers=["CPUExecutionProvider"],
+        )
+        _face_app.prepare(ctx_id=-1, det_size=(320, 320))
+    return _face_app
 
 
 def _invoke(body: dict) -> np.ndarray:
@@ -103,6 +119,13 @@ def _detect_image_format(image_bytes: bytes) -> str:
     return "jpeg"
 
 
+def _decode_image(image_bytes: bytes) -> np.ndarray:
+    img = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Failed to decode image bytes")
+    return img
+
+
 def embed_video(
     mp4_bytes: bytes,
     dimension: int = _DEFAULT_DIMENSION,
@@ -165,3 +188,31 @@ def embed_text(
         },
     }
     return _invoke(body)
+
+
+def embed_face_image(image_bytes: bytes) -> np.ndarray:
+    """Embed a face image using a local InsightFace model."""
+    img = _decode_image(image_bytes)
+    analyzer = _get_face_analyzer()
+    faces = analyzer.get(img)
+    if not faces:
+        raise ValueError("InsightFace could not detect a face in the provided image")
+
+    best_face = max(
+        faces,
+        key=lambda face: (
+            float(getattr(face, "det_score", 0.0)),
+            float((face.bbox[2] - face.bbox[0]) * (face.bbox[3] - face.bbox[1])),
+        ),
+    )
+    embedding = getattr(best_face, "normed_embedding", None)
+    if embedding is None:
+        embedding = getattr(best_face, "embedding", None)
+    if embedding is None:
+        raise ValueError("InsightFace result did not contain an embedding")
+
+    vec = np.asarray(embedding, dtype=np.float32)
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+    return vec

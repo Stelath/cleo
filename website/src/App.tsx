@@ -102,6 +102,8 @@ function App() {
   const [faceLoading, setFaceLoading] = useState(true);
   const [faceSavingId, setFaceSavingId] = useState<number | null>(null);
   const [faceSaveError, setFaceSaveError] = useState<string | null>(null);
+  const [faceClearing, setFaceClearing] = useState(false);
+  const [faceClearError, setFaceClearError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<Preferences>(defaultPrefs);
 
   const densityClass = preferences.density === "Dense" ? "density-dense" : "density-relaxed";
@@ -151,6 +153,35 @@ function App() {
     (current, entry) => (current === null || entry.seenCount > current.seenCount ? entry : current),
     null,
   );
+
+  async function loadFaces(signal?: AbortSignal) {
+    try {
+      setFaceLoading(true);
+      setFaceError(null);
+
+      const response = await fetch("/api/faces?limit=200", {
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as {
+        entries?: FaceEntry[];
+      };
+      setFaceEntries(payload.entries ?? []);
+    } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
+      setFaceError(error instanceof Error ? error.message : "Unable to load face groups.");
+      setFaceEntries([]);
+    } finally {
+      if (!signal?.aborted) {
+        setFaceLoading(false);
+      }
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -203,37 +234,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-
-    async function loadFaces() {
-      try {
-        setFaceLoading(true);
-        setFaceError(null);
-
-        const response = await fetch("/api/faces?limit=200", {
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as {
-          entries?: FaceEntry[];
-        };
-        setFaceEntries(payload.entries ?? []);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setFaceError(error instanceof Error ? error.message : "Unable to load face groups.");
-        setFaceEntries([]);
-      } finally {
-        if (!controller.signal.aborted) {
-          setFaceLoading(false);
-        }
-      }
-    }
-
-    void loadFaces();
+    void loadFaces(controller.signal);
 
     return () => controller.abort();
   }, []);
@@ -376,6 +377,36 @@ function App() {
       setFaceSaveError(error instanceof Error ? error.message : "Unable to save the face details.");
     } finally {
       setFaceSavingId((current) => (current === faceId ? null : current));
+    }
+  }
+
+  async function clearFaces() {
+    if (faceClearing) {
+      return;
+    }
+    if (!window.confirm("Clear all saved face groups and sightings? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      setFaceClearing(true);
+      setFaceClearError(null);
+      setFaceSaveError(null);
+
+      const response = await fetch("/api/faces/clear", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+      }
+
+      setFaceEntries([]);
+      await loadFaces();
+    } catch (error) {
+      setFaceClearError(error instanceof Error ? error.message : "Unable to clear saved faces.");
+    } finally {
+      setFaceClearing(false);
     }
   }
 
@@ -726,11 +757,26 @@ function App() {
                   <p className="eyebrow">Face Groups</p>
                   <h3>Review tracked identities</h3>
                 </div>
-                <span className="pill success">{faceEntries.length} saved</span>
+                <div className="top-actions">
+                  <span className="pill success">{faceEntries.length} saved</span>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    disabled={faceClearing || faceLoading}
+                    onClick={() => void clearFaces()}
+                  >
+                    {faceClearing ? "Clearing..." : "Clear all faces"}
+                  </button>
+                </div>
               </div>
               {faceSaveError && (
                 <div className="inline-alert">
                   <strong>Save failed.</strong> {faceSaveError}
+                </div>
+              )}
+              {faceClearError && (
+                <div className="inline-alert">
+                  <strong>Clear failed.</strong> {faceClearError}
                 </div>
               )}
               <div className="face-grid">

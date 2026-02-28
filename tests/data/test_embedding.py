@@ -14,8 +14,10 @@ import services.data.vector.embedding as emb
 def _reset_client():
     """Reset the module-level Bedrock client between tests."""
     emb._client = None
+    emb._face_app = None
     yield
     emb._client = None
+    emb._face_app = None
 
 
 def _make_mock_response(dimension=1024, embedding_type="TEXT"):
@@ -134,3 +136,25 @@ def test_client_reused(mock_boto3):
 
     # boto3.client should only be called once (lazy singleton)
     mock_boto3.client.assert_called_once_with("bedrock-runtime", region_name="us-east-1")
+
+
+@patch("services.data.vector.embedding._decode_image")
+@patch("services.data.vector.embedding._get_face_analyzer")
+def test_embed_face_image(mock_get_face_analyzer, mock_decode_image):
+    mock_analyzer = MagicMock()
+    mock_get_face_analyzer.return_value = mock_analyzer
+    mock_decode_image.return_value = np.zeros((16, 16, 3), dtype=np.uint8)
+
+    mock_face = MagicMock()
+    mock_face.det_score = 0.98
+    mock_face.bbox = np.array([0.0, 0.0, 10.0, 12.0], dtype=np.float32)
+    raw_vec = np.random.randn(512).astype(np.float32)
+    mock_face.normed_embedding = raw_vec
+    mock_analyzer.get.return_value = [mock_face]
+
+    fake_image = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    result = emb.embed_face_image(fake_image)
+
+    assert result.shape == (512,)
+    assert result.dtype == np.float32
+    assert abs(np.linalg.norm(result) - 1.0) < 1e-5

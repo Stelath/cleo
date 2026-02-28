@@ -1,5 +1,7 @@
 """Tests for data.vector.faiss_db.FaissDB."""
 
+import json
+
 import numpy as np
 
 from services.data.vector.faiss_db import FaissDB
@@ -38,3 +40,19 @@ def test_metadata_roundtrip(faiss_db, random_embedding):
 def test_cosine_similarity(faiss_db):
     """An identical (normalized) vector returns a similarity score of ~1.0."""
     pass
+
+
+def test_load_resets_index_when_dimension_changes(tmp_path):
+    index_path = tmp_path / "faces.index"
+
+    original = FaissDB(dimension=1024, index_path=str(index_path))
+    vec = np.random.randn(1024).astype(np.float32)
+    vec /= np.linalg.norm(vec)
+    original.add(vec, {"face_id": 1})
+    original.save()
+
+    reloaded = FaissDB(dimension=512, index_path=str(index_path))
+
+    assert reloaded.size == 0
+    metadata = json.loads(index_path.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert metadata == []

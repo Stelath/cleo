@@ -68,6 +68,9 @@ service DataService {
 
   // Assign or clear a display name for a face group
   rpc SetFaceName(SetFaceNameRequest) returns (SetFaceNameResponse);
+
+  // Remove all stored face groups, sightings, and face index data
+  rpc ClearFaces(ClearFacesRequest) returns (ClearFacesResponse);
 }
 
 // ── Store Transcription ──
@@ -435,4 +438,11 @@ message SetFaceNameResponse {
   bool updated = 1;
   string name = 2;
   string note = 3;
+}
+
+message ClearFacesRequest {}
+
+message ClearFacesResponse {
+  int32 faces_deleted = 1;
+  int32 sightings_deleted = 2;
 }

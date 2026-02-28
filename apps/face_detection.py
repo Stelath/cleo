@@ -26,6 +26,7 @@ from services.media.camera_transport import (
 from services.config import (
     DATA_ADDRESS,
     FACE_DETECTION_PORT,
+    FACE_SIMILARITY_THRESHOLD,
     SENSOR_ADDRESS,
 )
 
@@ -36,6 +37,8 @@ _STREAM_FPS = 1.0
 _MIN_CONFIDENCE = 90.0
 _MAX_GRPC_MESSAGE_BYTES = 32 * 1024 * 1024
 _RECENT_FACES_BUFFER_SIZE = 50
+_FACE_SAVE_COOLDOWN_SECONDS = 120.0
+_NO_FACE_DETECTED_DETAIL = "InsightFace could not detect a face in the provided image"
 
 
 def _decode_jpeg(jpeg_data: bytes) -> np.ndarray:
@@ -112,6 +115,7 @@ class FaceDetectionLoop(threading.Thread):
         self._recent_faces: collections.deque[tuple[float, int]] = collections.deque(
             maxlen=_RECENT_FACES_BUFFER_SIZE
         )
+        self._last_saved_by_face_id: dict[int, float] = {}
 
         if rekognition_client is not None:
             self._rekognition = rekognition_client
@@ -208,16 +212,48 @@ class FaceDetectionLoop(threading.Thread):
 
                     bbox = face["BoundingBox"]
                     cropped = _crop_face(img_bgr, bbox, padding=0.2)
+                    try:
+                        matched_face_id = self._find_matching_face_id(data_stub, cropped)
+                    except grpc.RpcError as exc:
+                        if self._is_ignorable_face_rpc_error(exc):
+                            log.debug(
+                                "face_detection.face_search_skipped",
+                                error=exc.details(),
+                            )
+                            continue
+                        raise
+                    if matched_face_id is not None:
+                        last_saved = self._last_saved_by_face_id.get(matched_face_id)
+                        if (
+                            last_saved is not None
+                            and timestamp - last_saved < _FACE_SAVE_COOLDOWN_SECONDS
+                        ):
+                            log.info(
+                                "face_detection.face_save_skipped",
+                                face_id=matched_face_id,
+                                seconds_since_last=timestamp - last_saved,
+                            )
+                            continue
 
-                    resp = data_stub.StoreFaceEmbedding(
-                        data_pb2.StoreFaceEmbeddingRequest(
-                            image_data=cropped,
-                            timestamp=timestamp,
-                            confidence=confidence,
-                        ),
-                        timeout=10,
-                    )
+                    try:
+                        resp = data_stub.StoreFaceEmbedding(
+                            data_pb2.StoreFaceEmbeddingRequest(
+                                image_data=cropped,
+                                timestamp=timestamp,
+                                confidence=confidence,
+                            ),
+                            timeout=10,
+                        )
+                    except grpc.RpcError as exc:
+                        if self._is_ignorable_face_rpc_error(exc):
+                            log.debug(
+                                "face_detection.face_store_skipped",
+                                error=exc.details(),
+                            )
+                            continue
+                        raise
 
+                    self._last_saved_by_face_id[resp.face_id] = timestamp
                     self._recent_faces.append((timestamp, resp.face_id))
                     log.info(
                         "face_detection.face_stored",
@@ -230,6 +266,30 @@ class FaceDetectionLoop(threading.Thread):
 
         except Exception as exc:
             log.error("face_detection.process_error", error=str(exc))
+
+    def _find_matching_face_id(
+        self,
+        data_stub: data_pb2_grpc.DataServiceStub,
+        image_data: bytes,
+    ) -> int | None:
+        response = data_stub.SearchFaces(
+            data_pb2.SearchFacesRequest(image_data=image_data, top_k=1),
+            timeout=10,
+        )
+        if not response.results:
+            return None
+        top_match = response.results[0]
+        if top_match.score < FACE_SIMILARITY_THRESHOLD:
+            return None
+        return int(top_match.face_id)
+
+    @staticmethod
+    def _is_ignorable_face_rpc_error(exc: grpc.RpcError) -> bool:
+        details = exc.details() or ""
+        return (
+            exc.code() == grpc.StatusCode.INTERNAL
+            and _NO_FACE_DETECTED_DETAIL in details
+        )
 
 
 class FaceDetectionServicer(ToolServiceBase):

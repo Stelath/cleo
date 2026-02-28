@@ -13,11 +13,17 @@ import structlog
 from services.config import (
     DATA_PORT,
     EMBEDDING_DIMENSION,
+    FACE_EMBEDDING_DIMENSION,
     FACE_SIMILARITY_THRESHOLD,
     FACE_STORAGE_DIR,
     VIDEO_STORAGE_DIR,
 )
-from services.data.vector.embedding import embed_image, embed_text, embed_video
+from services.data.vector.embedding import (
+    embed_face_image,
+    embed_image,
+    embed_text,
+    embed_video,
+)
 from services.data.sql.db import CleoSQLite
 from services.data.vector.faiss_db import FaissDB
 from generated import data_pb2, data_pb2_grpc
@@ -36,17 +42,22 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         index_path: str = "data/vector/clips.index",
         video_dir: str = VIDEO_STORAGE_DIR,
         embedding_dim: int = EMBEDDING_DIMENSION,
+        face_embedding_dim: int = FACE_EMBEDDING_DIMENSION,
         faces_index_path: str = "data/vector/faces.index",
         face_dir: str = FACE_STORAGE_DIR,
     ):
         self._sqlite = CleoSQLite(db_path=db_path)
         self._faiss = FaissDB(dimension=embedding_dim, index_path=index_path)
-        self._faces_faiss = FaissDB(dimension=embedding_dim, index_path=faces_index_path)
+        self._faces_faiss = FaissDB(
+            dimension=face_embedding_dim,
+            index_path=faces_index_path,
+        )
         self._video_dir = Path(video_dir)
         self._video_dir.mkdir(parents=True, exist_ok=True)
         self._face_dir = Path(face_dir)
         self._face_dir.mkdir(parents=True, exist_ok=True)
         self._embedding_dim = embedding_dim
+        self._face_embedding_dim = face_embedding_dim
         log.info(
             "data_service.init",
             db_path=db_path,
@@ -54,6 +65,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             video_dir=video_dir,
             faiss_size=self._faiss.size,
             faces_faiss_size=self._faces_faiss.size,
+            face_embedding_dim=face_embedding_dim,
         )
 
     def shutdown(self):
@@ -589,7 +601,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
 
     def StoreFaceEmbedding(self, request, context):
         try:
-            embedding = embed_image(request.image_data, dimension=self._embedding_dim)
+            embedding = embed_face_image(request.image_data)
         except Exception as e:
             log.error("data_service.face_embed_error", error=str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -597,7 +609,13 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             return data_pb2.StoreFaceEmbeddingResponse()
 
         # Check for existing match (dedup)
-        matches = self._faces_faiss.search(embedding, k=1)
+        try:
+            matches = self._faces_faiss.search(embedding, k=1)
+        except Exception as e:
+            log.error("data_service.face_match_error", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Face match failed: {e}")
+            return data_pb2.StoreFaceEmbeddingResponse()
         if matches and matches[0][1] > FACE_SIMILARITY_THRESHOLD:
             matched_faiss_id, score, meta = matches[0]
             matched_face = self._sqlite.get_face_by_faiss_id(matched_faiss_id)
@@ -632,9 +650,15 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             first_seen=request.timestamp,
         )
 
-        faiss_id = self._faces_faiss.add(
-            embedding, {"face_id": face_id, "timestamp": request.timestamp}
-        )
+        try:
+            faiss_id = self._faces_faiss.add(
+                embedding, {"face_id": face_id, "timestamp": request.timestamp}
+            )
+        except Exception as e:
+            log.error("data_service.face_store_index_error", error=str(e), face_id=face_id)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Face index update failed: {e}")
+            return data_pb2.StoreFaceEmbeddingResponse()
         self._sqlite.update_face_faiss_id(face_id, faiss_id)
         self._sqlite.insert_face_sighting(
             face_id=face_id,
@@ -658,14 +682,20 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         top_k = request.top_k if request.top_k > 0 else 5
 
         try:
-            query_vec = embed_image(request.image_data, dimension=self._embedding_dim)
+            query_vec = embed_face_image(request.image_data)
         except Exception as e:
             log.error("data_service.face_search_embed_error", error=str(e))
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Face query embedding failed: {e}")
             return data_pb2.SearchFacesResponse()
 
-        faiss_results = self._faces_faiss.search(query_vec, k=top_k)
+        try:
+            faiss_results = self._faces_faiss.search(query_vec, k=top_k)
+        except Exception as e:
+            log.error("data_service.face_search_match_error", error=str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Face search failed: {e}")
+            return data_pb2.SearchFacesResponse()
 
         results = []
         for faiss_id, score, meta in faiss_results:
@@ -753,6 +783,20 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             note=display_note,
         )
 
+    def ClearFaces(self, request, context):
+        faces_deleted, sightings_deleted, image_paths = self._sqlite.clear_faces()
+        self._faces_faiss.clear(persist=True)
+        self._delete_face_images(image_paths)
+        log.info(
+            "data_service.faces_cleared",
+            faces_deleted=faces_deleted,
+            sightings_deleted=sightings_deleted,
+        )
+        return data_pb2.ClearFacesResponse(
+            faces_deleted=faces_deleted,
+            sightings_deleted=sightings_deleted,
+        )
+
     def _serialize_face_entry(self, row: dict) -> data_pb2.FaceEntry:
         # Limit the preview collage to four most recent sightings.
         sighting_count = len(self._sqlite.list_face_sightings(row["id"], limit=4))
@@ -784,6 +828,18 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             image_path=str(image_path),
             seen_at=timestamp,
         )
+
+    def _delete_face_images(self, image_paths: list[str]) -> None:
+        for raw_path in image_paths:
+            image_path = Path(raw_path)
+            try:
+                image_path.unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning(
+                    "data_service.face_image_delete_failed",
+                    path=str(image_path),
+                    error=str(exc),
+                )
 
 
 def serve(port: int = DATA_PORT):

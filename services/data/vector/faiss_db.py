@@ -95,10 +95,32 @@ class FaissDB:
         meta_path = load_path.with_suffix(".meta.json")
 
         with self._lock:
-            self._index = faiss.read_index(str(load_path))
+            loaded_index = faiss.read_index(str(load_path))
+            loaded_dimension = int(getattr(loaded_index, "d", self._dimension))
+            if loaded_dimension != self._dimension:
+                self._index = faiss.IndexFlatIP(self._dimension)
+                self._metadata = []
+                self._index_path = load_path
+                faiss.write_index(self._index, str(load_path))
+                self._write_metadata(meta_path, self._metadata)
+                return
+
+            self._index = loaded_index
             default_metadata = [{} for _ in range(self._index.ntotal)]
             self._metadata = self._load_metadata(meta_path, default_metadata)
             self._index_path = load_path
+
+    def clear(self, persist: bool = True) -> None:
+        """Reset the in-memory index and optionally persist the empty state."""
+        with self._lock:
+            self._index = faiss.IndexFlatIP(self._dimension)
+            self._metadata = []
+
+            if persist and self._index_path:
+                self._index_path.parent.mkdir(parents=True, exist_ok=True)
+                faiss.write_index(self._index, str(self._index_path))
+                meta_path = self._index_path.with_suffix(".meta.json")
+                self._write_metadata(meta_path, self._metadata)
 
     def _load_metadata(self, meta_path: Path, default_metadata: list[dict]) -> list[dict]:
         if not meta_path.exists():

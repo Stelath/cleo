@@ -154,6 +154,9 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/faces/clear":
+                self._handle_clear_faces()
+                return
             if parsed.path.startswith("/api/faces/") and parsed.path.endswith("/name"):
                 self._handle_set_face_name(parsed.path)
                 return
@@ -390,6 +393,15 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
                 "updated": response.updated,
                 "name": response.name,
                 "note": response.note,
+            }
+        )
+
+    def _handle_clear_faces(self) -> None:
+        response = self._get_data_stub().ClearFaces(data_pb2.ClearFacesRequest())
+        self._write_json(
+            {
+                "facesDeleted": response.faces_deleted,
+                "sightingsDeleted": response.sightings_deleted,
             }
         )
 

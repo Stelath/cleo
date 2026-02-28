@@ -527,5 +527,32 @@ class CleoSQLite:
         ).fetchone()
         return dict(row) if row else None
 
+    def clear_faces(self) -> tuple[int, int, list[str]]:
+        """Delete all face rows and sightings, returning counts and file paths."""
+        face_rows = self._conn.execute(
+            "SELECT thumbnail_path FROM faces"
+        ).fetchall()
+        sighting_rows = self._conn.execute(
+            "SELECT image_path FROM face_sightings"
+        ).fetchall()
+        image_paths = {
+            str(row["thumbnail_path"])
+            for row in face_rows
+            if row["thumbnail_path"]
+        }
+        image_paths.update(
+            str(row["image_path"])
+            for row in sighting_rows
+            if row["image_path"]
+        )
+
+        sighting_cur = self._conn.execute("DELETE FROM face_sightings")
+        face_cur = self._conn.execute("DELETE FROM faces")
+        sightings_deleted = sighting_cur.rowcount
+        faces_deleted = face_cur.rowcount
+        self._conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('faces', 'face_sightings')")
+        self._conn.commit()
+        return faces_deleted, sightings_deleted, sorted(image_paths)
+
     def close(self):
         self._conn.close()

@@ -140,17 +140,24 @@ def data_servicer(tmp_path):
     """Create a DataServiceServicer with temp paths and mocked embeddings."""
     with patch("services.data.service.embed_video") as mock_embed_video, \
          patch("services.data.service.embed_text") as mock_embed_text, \
-         patch("services.data.service.embed_image") as mock_embed_image:
+         patch("services.data.service.embed_image") as mock_embed_image, \
+         patch("services.data.service.embed_face_image") as mock_embed_face_image:
 
-        # All embedding functions return a random normalized 1024-d vector
+        # Generic embeddings are 1024-d; face embeddings are 512-d.
         def _fake_embed(*args, **kwargs):
             v = np.random.randn(1024).astype(np.float32)
+            v /= np.linalg.norm(v)
+            return v
+
+        def _fake_face_embed(*args, **kwargs):
+            v = np.random.randn(512).astype(np.float32)
             v /= np.linalg.norm(v)
             return v
 
         mock_embed_video.side_effect = _fake_embed
         mock_embed_text.side_effect = _fake_embed
         mock_embed_image.side_effect = _fake_embed
+        mock_embed_face_image.side_effect = _fake_face_embed
 
         from services.data.service import DataServiceServicer
 
@@ -568,6 +575,25 @@ def test_existing_faces_are_backfilled_into_face_sightings(tmp_path):
     migrated.close()
 
 
+def test_clear_faces_removes_rows_and_returns_image_paths(sqlite_db):
+    face_id = sqlite_db.insert_face(
+        thumbnail_path="/tmp/face.jpg",
+        confidence=98.0,
+        first_seen=1000.0,
+    )
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_1.jpg", seen_at=1000.0)
+    sqlite_db.insert_face_sighting(face_id=face_id, image_path="/tmp/face_2.jpg", seen_at=2000.0)
+
+    faces_deleted, sightings_deleted, image_paths = sqlite_db.clear_faces()
+
+    assert faces_deleted == 1
+    assert sightings_deleted == 2
+    assert image_paths == ["/tmp/face.jpg", "/tmp/face_1.jpg", "/tmp/face_2.jpg"]
+    rows, total = sqlite_db.list_faces(limit=10, offset=0)
+    assert total == 0
+    assert rows == []
+
+
 # ── Face RPC tests ──
 
 
@@ -590,10 +616,10 @@ def test_store_face_embedding_dedup_rpc(data_servicer, tmp_path):
     from generated import data_pb2
 
     # Use a fixed embedding vector so both calls produce the same vector
-    fixed_vec = np.random.randn(1024).astype(np.float32)
+    fixed_vec = np.random.randn(512).astype(np.float32)
     fixed_vec /= np.linalg.norm(fixed_vec)
 
-    with patch("services.data.service.embed_image", return_value=fixed_vec):
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec):
         fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
 
         # First store — new face
@@ -625,10 +651,10 @@ def test_store_face_embedding_dedup_rpc(data_servicer, tmp_path):
 def test_search_faces_rpc(data_servicer, tmp_path):
     from generated import data_pb2
 
-    fixed_vec = np.random.randn(1024).astype(np.float32)
+    fixed_vec = np.random.randn(512).astype(np.float32)
     fixed_vec /= np.linalg.norm(fixed_vec)
 
-    with patch("services.data.service.embed_image", return_value=fixed_vec):
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec):
         fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
 
         # Store a face
@@ -711,8 +737,8 @@ def test_get_face_sighting_image_rpc(data_servicer):
     from generated import data_pb2
 
     with patch(
-        "services.data.service.embed_image",
-        return_value=np.ones(1024, dtype=np.float32) / np.sqrt(1024),
+        "services.data.service.embed_face_image",
+        return_value=np.ones(512, dtype=np.float32) / np.sqrt(512),
     ):
         first_face = b"\xff\xd8\xff\xe0" + b"\x01" * 100
         second_face = b"\xff\xd8\xff\xe0" + b"\x02" * 100
@@ -745,3 +771,46 @@ def test_get_face_sighting_image_rpc(data_servicer):
 
     assert latest.image_data == second_face
     assert older.image_data == first_face
+
+
+def test_clear_faces_rpc(data_servicer, tmp_path):
+    from generated import data_pb2
+
+    first_image = tmp_path / "faces" / "face_a.jpg"
+    second_image = tmp_path / "faces" / "face_b.jpg"
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+
+    store_resp = data_servicer.StoreFaceEmbedding(
+        data_pb2.StoreFaceEmbeddingRequest(
+            image_data=fake_face,
+            timestamp=1000.0,
+            confidence=99.0,
+        ),
+        _mock_context(),
+    )
+    data_servicer._store_face_sighting_image(
+        face_id=store_resp.face_id,
+        image_data=fake_face,
+        timestamp=2000.0,
+    )
+    first_image.write_bytes(fake_face)
+    second_image.write_bytes(fake_face)
+    data_servicer._sqlite.insert_face_sighting(
+        face_id=store_resp.face_id,
+        image_path=str(first_image),
+        seen_at=3000.0,
+    )
+    data_servicer._sqlite.insert_face_sighting(
+        face_id=store_resp.face_id,
+        image_path=str(second_image),
+        seen_at=4000.0,
+    )
+
+    resp = data_servicer.ClearFaces(data_pb2.ClearFacesRequest(), _mock_context())
+
+    assert resp.faces_deleted == 1
+    assert resp.sightings_deleted == 4
+    assert data_servicer._faces_faiss.size == 0
+    assert data_servicer._sqlite.list_faces(limit=10, offset=0) == ([], 0)
+    assert not first_image.exists()
+    assert not second_image.exists()
