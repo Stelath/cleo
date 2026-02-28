@@ -254,6 +254,38 @@ class FoodMacrosServicer(ToolServiceBase):
                     "type": "string",
                     "description": "The user's food macro or calorie question.",
                 },
+                "barcode": {
+                    "type": "string",
+                    "description": "Optional barcode digits already identified by the VLM.",
+                },
+                "has_visible_barcode": {
+                    "type": "boolean",
+                    "description": "Whether the VLM detected a visible barcode in the frame.",
+                },
+                "product_name": {
+                    "type": "string",
+                    "description": "Best-effort product or meal name inferred by the VLM.",
+                },
+                "is_composite_meal": {
+                    "type": "boolean",
+                    "description": "Whether the VLM identified a composite meal instead of a packaged product.",
+                },
+                "estimated_calories_kcal": {
+                    "type": "number",
+                    "description": "VLM-estimated total calories for a composite meal.",
+                },
+                "estimated_protein_g": {
+                    "type": "number",
+                    "description": "VLM-estimated total protein grams for a composite meal.",
+                },
+                "estimated_fat_g": {
+                    "type": "number",
+                    "description": "VLM-estimated total fat grams for a composite meal.",
+                },
+                "estimated_carbs_g": {
+                    "type": "number",
+                    "description": "VLM-estimated total carbohydrate grams for a composite meal.",
+                },
             },
         }
 
@@ -290,7 +322,16 @@ class FoodMacrosServicer(ToolServiceBase):
             return False, "Failed to capture a camera frame for food lookup"
 
         image_bytes = _captured_frame_to_jpeg(captured_frame)
-        detection = self._vision.identify(image_bytes, user_query=query)
+        detection = _food_detection_from_params(params)
+        if detection is None:
+            detection = self._vision.identify(image_bytes, user_query=query)
+        else:
+            log.info(
+                "food_macros.using_assistant_vlm_params",
+                has_visible_barcode=detection.has_visible_barcode,
+                product_name=detection.product_name,
+                is_composite_meal=detection.is_composite_meal,
+            )
 
         if detection.is_composite_meal:
             missing_fields = []
@@ -533,6 +574,39 @@ def _coerce_bool(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return False
+
+
+def _food_detection_from_params(params: dict[str, Any]) -> FoodDetection | None:
+    product_name_value = params.get("product_name")
+    product_name = (
+        str(product_name_value).strip()
+        if product_name_value not in (None, "")
+        else None
+    )
+    detection = FoodDetection(
+        barcode=_normalize_barcode(params.get("barcode")),
+        has_visible_barcode=_coerce_bool(params.get("has_visible_barcode")),
+        product_name=product_name or None,
+        is_composite_meal=_coerce_bool(params.get("is_composite_meal")),
+        estimated_calories_kcal=_coerce_number(params.get("estimated_calories_kcal")),
+        estimated_protein_g=_coerce_number(params.get("estimated_protein_g")),
+        estimated_fat_g=_coerce_number(params.get("estimated_fat_g")),
+        estimated_carbs_g=_coerce_number(params.get("estimated_carbs_g")),
+    )
+    detection.has_visible_barcode = detection.has_visible_barcode or bool(detection.barcode)
+
+    if not (
+        detection.barcode
+        or detection.has_visible_barcode
+        or detection.product_name
+        or detection.is_composite_meal
+        or detection.estimated_calories_kcal is not None
+        or detection.estimated_protein_g is not None
+        or detection.estimated_fat_g is not None
+        or detection.estimated_carbs_g is not None
+    ):
+        return None
+    return detection
 
 
 def _normalize_barcode(value: Any) -> str | None:

@@ -58,6 +58,56 @@ def test_extract_food_macros_prefers_serving_values():
 
 
 class TestFoodMacrosServicer:
+    def test_execute_uses_assistant_vlm_params_without_second_vision_call(
+        self, mock_grpc_context, mocker
+    ):
+        mocker.patch("apps.food_macros.grpc.insecure_channel")
+        vision = MagicMock()
+        food = MagicMock()
+        food.get_product_by_barcode.return_value = {
+            "code": "1234567890123",
+            "product_name": "Protein Bar",
+            "brands": "Cleo",
+            "serving_size": "1 bar",
+            "serving_quantity": 50,
+            "nutriments": {
+                "energy-kcal_serving": 220,
+                "fat_serving": 7,
+                "carbohydrates_serving": 20,
+                "proteins_serving": 21,
+            },
+        }
+        barcode_scanner = MagicMock(spec=BarcodeScanner)
+        barcode_scanner.scan.return_value = "1234567890123"
+        servicer = FoodMacrosServicer(
+            vision_client=vision,
+            food_client=food,
+            barcode_scanner=barcode_scanner,
+        )
+        servicer._sensor = MagicMock()
+        servicer._sensor.CaptureFrame.return_value = _capture_stream_from_rgb((255, 0, 0))
+        servicer._data = MagicMock()
+        servicer._data.StoreFoodMacros.return_value = MagicMock(id=7)
+        servicer._frontend = MagicMock()
+
+        request = tool_pb2.ToolRequest(
+            tool_name="food_macros",
+            parameters_json=json.dumps(
+                {
+                    "query": "How many calories is this?",
+                    "product_name": "Protein Bar",
+                    "has_visible_barcode": True,
+                }
+            ),
+        )
+        response = servicer.Execute(request, mock_grpc_context)
+
+        assert response.success
+        assert "Protein Bar" in response.result_text
+        vision.identify.assert_not_called()
+        barcode_scanner.scan.assert_called_once()
+        food.get_product_by_barcode.assert_called_once_with("1234567890123")
+
     def test_execute_uses_vlm_calorie_estimate_for_composite_meal(self, mock_grpc_context, mocker):
         mocker.patch("apps.food_macros.grpc.insecure_channel")
         vision = MagicMock()
