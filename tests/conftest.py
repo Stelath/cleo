@@ -1,7 +1,12 @@
 """Shared pytest fixtures for Cleo tests."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
+
+from assistant.registry import ToolDefinition, ToolRegistry
+from data.vector.faiss_db import FaissDB
 
 
 @pytest.fixture
@@ -25,3 +30,23 @@ def random_embedding():
         return vec
 
     return _make
+
+
+@pytest.fixture
+def tool_registry():
+    """Registry with a single test tool."""
+    tool = ToolDefinition(
+        name="test_tool",
+        description="A test tool",
+        input_schema={"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+        grpc_address="localhost:50099",
+    )
+    return ToolRegistry(tools=[tool])
+
+
+@pytest.fixture
+def mock_grpc_context():
+    """Mock gRPC servicer context."""
+    ctx = MagicMock()
+    ctx.is_active.return_value = True
+    return ctx

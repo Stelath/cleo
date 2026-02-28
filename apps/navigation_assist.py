@@ -1,0 +1,31 @@
+"""Navigation assistance tool service."""
+
+import structlog
+
+from apps.tool_base import ToolServiceBase, serve_tool
+
+log = structlog.get_logger()
+
+_DEFAULT_PORT = 50062
+
+
+class NavigationAssistServicer(ToolServiceBase):
+    """Helps the user navigate and find directions."""
+
+    @property
+    def tool_name(self) -> str:
+        return "navigation_assist"
+
+    def execute(self, params: dict) -> tuple[bool, str]:
+        query = params.get("query", "")
+        log.info("navigation_assist.execute", query=query)
+        # Placeholder — will integrate with location services
+        return True, f"Navigation for: {query} (placeholder — location integration pending)"
+
+
+def serve(port: int = _DEFAULT_PORT):
+    serve_tool(NavigationAssistServicer(), port)
+
+
+if __name__ == "__main__":
+    serve()
