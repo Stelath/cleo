@@ -159,7 +159,7 @@ print('  generated.sensor_pb2: OK')
 from generated import transcription_pb2, transcription_pb2_grpc
 print('  generated.transcription_pb2: OK')
 
-from data.vector.faiss_db import FaissDB
+from services.data.vector.faiss_db import FaissDB
 db = FaissDB(dimension=128)
 db.add(numpy.random.randn(128).astype('float32'), {'test': True})
 assert db.size == 1
@@ -173,4 +173,4 @@ if [[ -f ".venv/bin/activate" ]]; then
 else
     echo "Activate the environment with: source .venv/Scripts/activate"
 fi
-echo "Start the platform with:       python -m core.main"
+echo "Start the platform with:       uv run python -m services.main"

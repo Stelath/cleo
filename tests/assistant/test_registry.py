@@ -2,7 +2,7 @@
 
 import pytest
 
-from assistant.registry import ToolDefinition, ToolRegistry
+from services.assistant.registry import ToolDefinition, ToolRegistry
 
 
 @pytest.fixture

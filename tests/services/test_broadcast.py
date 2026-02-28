@@ -1,9 +1,9 @@
-"""Tests for core.broadcast.BroadcastHub."""
+"""Tests for services.broadcast.BroadcastHub."""
 
 import queue
 import threading
 
-from core.broadcast import BroadcastHub
+from services.broadcast import BroadcastHub
 
 
 def test_single_subscriber_receives_all():

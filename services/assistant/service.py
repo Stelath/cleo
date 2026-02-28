@@ -7,9 +7,9 @@ from concurrent import futures
 import grpc
 import structlog
 
-from assistant.bedrock import BedrockClient, TextResult, ToolUseResult
-from assistant.registry import ToolRegistry
-from core.config import ASSISTANT_PORT
+from services.assistant.bedrock import BedrockClient, TextResult, ToolUseResult
+from services.assistant.registry import ToolRegistry
+from services.config import ASSISTANT_PORT
 from generated import assistant_pb2, assistant_pb2_grpc
 from generated import tool_pb2, tool_pb2_grpc
 

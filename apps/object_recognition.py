@@ -3,7 +3,7 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from core.config import OBJECT_RECOGNITION_PORT
+from services.config import OBJECT_RECOGNITION_PORT
 
 log = structlog.get_logger()
 

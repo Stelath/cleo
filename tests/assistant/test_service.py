@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from assistant.bedrock import TextResult, ToolUseResult
-from assistant.registry import ToolDefinition, ToolRegistry
-from assistant.service import AssistantServiceServicer
+from services.assistant.bedrock import TextResult, ToolUseResult
+from services.assistant.registry import ToolDefinition, ToolRegistry
+from services.assistant.service import AssistantServiceServicer
 from generated import assistant_pb2, tool_pb2
 
 
@@ -50,8 +50,8 @@ class TestAssistantService:
         assert response.response_text == "Hello from Cleo!"
         assert response.tool_name == ""
 
-    @patch("assistant.service.grpc.insecure_channel")
-    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_use_flow(
         self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
     ):
@@ -98,8 +98,8 @@ class TestAssistantService:
         assert not response.success
         assert "Assistant error" in response.response_text
 
-    @patch("assistant.service.grpc.insecure_channel")
-    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_grpc_error_handled(
         self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
     ):
@@ -127,8 +127,8 @@ class TestAssistantService:
         assert not response.success
         assert response.response_text == "Empty command"
 
-    @patch("assistant.service.grpc.insecure_channel")
-    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_tool_failure_passed_through(
         self, mock_stub_cls, mock_channel, servicer, mock_bedrock, mock_grpc_context
     ):
@@ -152,8 +152,8 @@ class TestAssistantService:
         assert response.response_text == "Camera unavailable"
         assert response.tool_name == "color_blindness_assist"
 
-    @patch("assistant.service.grpc.insecure_channel")
-    @patch("assistant.service.tool_pb2_grpc.ToolServiceStub")
+    @patch("services.assistant.service.grpc.insecure_channel")
+    @patch("services.assistant.service.tool_pb2_grpc.ToolServiceStub")
     def test_channel_closed_on_grpc_error(
         self, mock_stub_cls, mock_channel_cls, servicer, mock_bedrock, mock_grpc_context
     ):

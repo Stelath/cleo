@@ -28,21 +28,21 @@ uv run bash protos/generate.sh
 cd packages/viture-luma-interop-layer/viture-sensors && uv run maturin develop --release && cd -
 
 # Start the platform
-uv run python -m core.main
+uv run python -m services.main
 ```
 
 **Important:** Always use `uv run` to execute commands — it ensures the correct Python (3.10–3.12) and project dependencies are used.
 
 ## Architecture
 
-Cleo is an AI-powered AR glasses platform for VITURE Luma Ultra glasses. The runtime is a multi-process + multi-thread orchestrator (`core/main.py`):
+Cleo is an AI-powered AR glasses platform for VITURE Luma Ultra glasses. The runtime is a multi-process service graph (`services/main.py`):
 
-- **Sensor Service** (subprocess, port 50051) — wraps VITURE hardware (USB camera + mic) behind gRPC RPCs: `CaptureFrame`, `RecordAudio`, `StreamCamera`, `StreamAudio`, `StreamIMU`
-- **Transcription Service** (subprocess, port 50052) — NVIDIA Parakeet ASR model via NeMo, exposes `TranscribeStream` and `Transcribe` RPCs
-- **FrameProcessor** (daemon thread) — streams camera frames from SensorService, buffers for 10s, embeds the middle frame, stores in FAISS
-- **AudioTranscriptionBridge** (daemon thread) — pipes audio from SensorService to TranscriptionService
+- **Sensor Service** (subprocess, port 50051) — owns camera/mic capture, maintains in-memory buffers, and exposes `CaptureFrame`, `RecordAudio`, `StreamCamera`, `StreamAudio`, `StreamIMU`
+- **Transcription Service** (subprocess, port 50052) — runs Parakeet ASR and persistently subscribes to sensor audio; writes final transcripts to DataService and triggers AssistantService on wake phrase
+- **Data Service** (subprocess, port 50053) — owns SQLite + FAISS + video storage/search RPCs
+- **Assistant Service** (subprocess, port 50054) — routes transcribed commands to tools via Bedrock tool-use
 
-Key data layer: `data/vector/faiss_db.py` is a thread-safe FAISS IndexFlatIP wrapper (cosine similarity on normalized vectors).
+Key data layer: `services/data/vector/faiss_db.py` is a thread-safe FAISS IndexFlatIP wrapper (cosine similarity on normalized vectors).
 
 ## Proto / gRPC
 

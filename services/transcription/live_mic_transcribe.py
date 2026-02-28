@@ -9,12 +9,13 @@ import struct
 import sys
 import threading
 from concurrent import futures
+from pathlib import Path
 
 import grpc
 import pyaudio
 
 from generated import transcription_pb2, transcription_pb2_grpc
-from transcription import parakeet
+from services.transcription import service as transcription_service
 
 _MAX_GRPC_MESSAGE_BYTES = 16 * 1024 * 1024
 _SILENCE_THRESHOLD_RMS = 0.01
@@ -96,7 +97,7 @@ def _start_server(host: str, port: int) -> tuple[grpc.Server, str]:
         ],
     )
     transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(
-        parakeet.TranscriptionServiceServicer(),
+        transcription_service.TranscriptionServiceServicer(),
         server,
     )
     bound_port = server.add_insecure_port(f"{host}:{port}")
@@ -199,7 +200,8 @@ def _run_client(
                 f"rev={response.revision} stable={response.stability:.2f}] {text}"
             )
             # Write to a file as well
-            with open("transcription_output.txt", "a", encoding="utf-8") as f:
+            output_path = Path("transcription_output.txt")
+            with output_path.open("a", encoding="utf-8") as f:
                 f.write(
                     f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
                     f"rev={response.revision} stable={response.stability:.2f}] {text}\n"

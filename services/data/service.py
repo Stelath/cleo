@@ -8,10 +8,10 @@ from pathlib import Path
 import grpc
 import structlog
 
-from core.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR
-from data.embedding import embed_image, embed_text, embed_video
-from data.sql.db import CleoSQLite
-from data.vector.faiss_db import FaissDB
+from services.config import DATA_PORT, EMBEDDING_DIMENSION, VIDEO_STORAGE_DIR
+from services.data.embedding import embed_image, embed_text, embed_video
+from services.data.sql.db import CleoSQLite
+from services.data.vector.faiss_db import FaissDB
 from generated import data_pb2, data_pb2_grpc
 
 log = structlog.get_logger()

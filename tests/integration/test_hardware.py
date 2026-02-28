@@ -3,12 +3,8 @@
 All tests require VITURE_HARDWARE=1 to run; skipped otherwise.
 """
 
-import hashlib
-import time
-
 import grpc
 import numpy as np
-import pytest
 
 from generated import sensor_pb2, sensor_pb2_grpc
 
@@ -137,74 +133,3 @@ def test_grpc_stream_camera_frames(sensor_server):
         assert timestamps[i] > timestamps[i - 1], "Timestamps are not monotonically increasing"
 
     channel.close()
-
-
-# ---------------------------------------------------------------------------
-# Frame processor → FAISS pipeline (real camera frames → FAISS)
-# ---------------------------------------------------------------------------
-
-
-@requires_hardware
-def test_frame_processor_buffers_real_frames(sensor_server, tmp_path):
-    """FrameProcessor with default (stub) embed_frame stores nothing in FAISS."""
-    from core.frame_processor import FrameProcessor
-    from data.vector.faiss_db import FaissDB
-
-    server, port = sensor_server
-    db = FaissDB(dimension=512, index_path=str(tmp_path / "test.index"))
-    fp = FrameProcessor(
-        sensor_address=f"localhost:{port}",
-        faiss_db=db,
-    )
-
-    fp.start()
-    time.sleep(3)
-    fp.stop()
-    fp.join(timeout=5)
-
-    # embed_frame returns None by default, so nothing should be stored
-    assert db.size == 0
-
-
-@requires_hardware
-def test_frame_processor_with_patched_embed(sensor_server, tmp_path, monkeypatch):
-    """FrameProcessor with a patched embed_frame stores entries in FAISS."""
-    import core.frame_processor as fp_module
-    from core.frame_processor import FrameProcessor
-    from data.vector.faiss_db import FaissDB
-
-    def _fake_embed(frame: np.ndarray) -> np.ndarray:
-        """Deterministic 512-dim embedding derived from frame content."""
-        h = hashlib.sha256(frame.tobytes()).digest()
-        rng = np.random.RandomState(int.from_bytes(h[:4], "little"))
-        vec = rng.randn(512).astype(np.float32)
-        vec /= np.linalg.norm(vec)
-        return vec
-
-    monkeypatch.setattr(fp_module, "embed_frame", _fake_embed)
-
-    server, port = sensor_server
-    db = FaissDB(dimension=512, index_path=str(tmp_path / "test.index"))
-    fp = FrameProcessor(
-        sensor_address=f"localhost:{port}",
-        faiss_db=db,
-    )
-
-    fp.start()
-    # Run longer than _BUFFER_SECONDS (10s) so at least one chunk is processed
-    time.sleep(12)
-    fp.stop()
-    fp.join(timeout=5)
-
-    assert db.size >= 1
-
-    # Verify stored metadata
-    query = np.random.randn(512).astype(np.float32)
-    query /= np.linalg.norm(query)
-    results = db.search(query, k=1)
-    assert len(results) >= 1
-
-    _id, _score, meta = results[0]
-    assert "timestamp" in meta
-    assert "chunk_frames" in meta
-    assert meta["chunk_frames"] > 0

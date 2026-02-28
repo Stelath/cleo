@@ -3,7 +3,7 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from core.config import COLOR_BLIND_PORT
+from services.config import COLOR_BLIND_PORT
 
 log = structlog.get_logger()
 

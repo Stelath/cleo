@@ -3,7 +3,7 @@
 import structlog
 
 from apps.tool_base import ToolServiceBase, serve_tool
-from core.config import NAVIGATION_ASSIST_PORT
+from services.config import NAVIGATION_ASSIST_PORT
 
 log = structlog.get_logger()
 
