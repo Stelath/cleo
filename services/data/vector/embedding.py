@@ -38,6 +38,7 @@ def _get_face_analyzer():
 
         _face_app = FaceAnalysis(
             name=FACE_EMBEDDING_MODEL,
+            allowed_modules=["detection", "recognition"],
             providers=["CPUExecutionProvider"],
         )
         _face_app.prepare(ctx_id=-1, det_size=(320, 320))
