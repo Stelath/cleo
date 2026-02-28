@@ -414,6 +414,20 @@ async fn handle_display_update(
                 )?;
             }
         }
+        DisplayVariant::AppIndicator(req) => {
+            let action = if req.is_active { "activate" } else { "deactivate" };
+            let mut params = serde_json::Map::new();
+            params.insert("app_name".to_string(), serde_json::Value::String(req.app_name));
+            app.emit_to(
+                "hud",
+                "hud:command",
+                serde_json::json!({
+                    "component": "app_indicators",
+                    "action": action,
+                    "params": params
+                }),
+            )?;
+        }
     }
 
     Ok(())

@@ -89,6 +89,11 @@ class FrontendServiceStub(object):
                 request_serializer=frontend__pb2.ThrobberRequest.SerializeToString,
                 response_deserializer=frontend__pb2.FrontendResponse.FromString,
                 _registered_method=True)
+        self.SetAppIndicator = channel.unary_unary(
+                '/cleo.frontend.FrontendService/SetAppIndicator',
+                request_serializer=frontend__pb2.AppIndicatorRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
         self.StreamUpdates = channel.unary_stream(
                 '/cleo.frontend.FrontendService/StreamUpdates',
                 request_serializer=frontend__pb2.StreamRequest.SerializeToString,
@@ -177,6 +182,12 @@ class FrontendServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetAppIndicator(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StreamUpdates(self, request, context):
         """Tauri gRPC client subscribes here to receive all updates
         """
@@ -254,6 +265,11 @@ def add_FrontendServiceServicer_to_server(servicer, server):
             'ShowThrobber': grpc.unary_unary_rpc_method_handler(
                     servicer.ShowThrobber,
                     request_deserializer=frontend__pb2.ThrobberRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'SetAppIndicator': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetAppIndicator,
+                    request_deserializer=frontend__pb2.AppIndicatorRequest.FromString,
                     response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
             ),
             'StreamUpdates': grpc.unary_stream_rpc_method_handler(
@@ -568,6 +584,33 @@ class FrontendService(object):
             target,
             '/cleo.frontend.FrontendService/ShowThrobber',
             frontend__pb2.ThrobberRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetAppIndicator(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/SetAppIndicator',
+            frontend__pb2.AppIndicatorRequest.SerializeToString,
             frontend__pb2.FrontendResponse.FromString,
             options,
             channel_credentials,

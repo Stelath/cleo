@@ -10,6 +10,7 @@ import Progress from '../components/Progress';
 import Toast from '../components/Toast';
 import StatusBar from '../components/StatusBar';
 import CardStack from '../components/CardStack';
+import AppIndicators from '../components/AppIndicators';
 import type { HudComponentHandle } from '../lib/hud/types';
 
 type HudTestWindow = Window & {
@@ -35,6 +36,7 @@ export default function HudPage() {
   const toastRef = useRef<HudComponentHandle>(null);
   const statusBarRef = useRef<HudComponentHandle>(null);
   const cardRef = useRef<HudComponentHandle>(null);
+  const appIndicatorsRef = useRef<HudComponentHandle>(null);
 
   const clearHud = () => {
     toastRef.current?.reset();
@@ -46,6 +48,7 @@ export default function HudPage() {
     htmlRef.current?.reset();
     statusBarRef.current?.reset();
     cardRef.current?.reset();
+    appIndicatorsRef.current?.reset();
   };
 
   const dispatchCommand = (payload: Record<string, any>) => {
@@ -87,6 +90,10 @@ export default function HudPage() {
     }
     if (component === 'html') {
       htmlRef.current?.handle(action, params);
+      return;
+    }
+    if (component === 'app_indicators') {
+      appIndicatorsRef.current?.handle(action, params);
       return;
     }
   };
@@ -162,6 +169,10 @@ export default function HudPage() {
 
         <div className="layer status-layer">
           <StatusBar ref={statusBarRef} />
+        </div>
+
+        <div className="layer indicators-layer">
+          <AppIndicators ref={appIndicatorsRef} />
         </div>
       </div>
     </>
