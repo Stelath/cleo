@@ -31,6 +31,8 @@ from services.config import (
     SENSOR_PORT,
     TRANSCRIPTION_ADDRESS,
     TRANSCRIPTION_PORT,
+    WEATHER_ADDRESS,
+    WEATHER_PORT,
 )
 
 log = structlog.get_logger()
@@ -70,7 +72,7 @@ def _run_color_blind_service() -> None:
 
 
 def _run_frontend_service() -> None:
-    from services.frontend_service import serve
+    from services.frontend.service import serve
 
     serve(port=FRONTEND_PORT)
 
@@ -103,10 +105,18 @@ def _run_face_detection_service() -> None:
     from apps.face_detection import serve
 
     serve(port=FACE_DETECTION_PORT)
+
+
 def _run_save_video_service() -> None:
     from apps.save_video import serve
 
     serve(port=SAVE_VIDEO_PORT)
+
+
+def _run_weather_service() -> None:
+    from apps.weather import serve
+
+    serve(port=WEATHER_PORT)
 
 
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
@@ -220,6 +230,10 @@ def main() -> None:
         
         _start_process(_run_save_video_service, "save-video-tool")
         _wait_for_grpc(SAVE_VIDEO_ADDRESS)
+        _abort_if_shutdown_requested()
+
+        _start_process(_run_weather_service, "weather-tool")
+        _wait_for_grpc(WEATHER_ADDRESS)
         _abort_if_shutdown_requested()
 
         log.info("runtime.services_ready")

@@ -11,6 +11,7 @@ import structlog
 from generated import frontend_pb2, frontend_pb2_grpc
 from services.media.broadcast import BroadcastHub
 from services.config import FRONTEND_PORT
+from services.frontend.voice import ElevenLabsVoice
 
 log = structlog.get_logger()
 
@@ -23,6 +24,7 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
     def __init__(self):
         self._hub = BroadcastHub(maxsize=256)
         self._stop_event = threading.Event()
+        self._voice = ElevenLabsVoice()
         log.info("frontend_service.init")
 
     def _publish_update(self, **kwargs) -> frontend_pb2.FrontendResponse:
@@ -90,6 +92,28 @@ class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
     def PlayAudioFile(self, request, context):
         log.info("frontend_service.play_audio_file", path=request.path)
         return self._publish_update(play_audio_file=request)
+
+    def SpeakText(self, request, context):
+        text = request.text
+        if not text or not text.strip():
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("SpeakText requires non-empty text")
+            return frontend_pb2.FrontendResponse(ok=False)
+
+        try:
+            data_base64, sample_rate = self._voice.synthesize(text)
+        except Exception as exc:
+            log.error("frontend_service.speak_text_failed", error=str(exc))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"TTS synthesis failed: {exc}")
+            return frontend_pb2.FrontendResponse(ok=False)
+
+        log.info("frontend_service.speak_text", text_len=len(text))
+        play_req = frontend_pb2.PlayAudioRequest(
+            data_base64=data_base64,
+            sample_rate=sample_rate,
+        )
+        return self._publish_update(play_audio=play_req)
 
     def RenderHtml(self, request, context):
         log.info("frontend_service.render_html")

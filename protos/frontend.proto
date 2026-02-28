@@ -14,6 +14,7 @@ service FrontendService {
   // Audio commands
   rpc PlayAudio(PlayAudioRequest) returns (FrontendResponse);
   rpc PlayAudioFile(PlayAudioFileRequest) returns (FrontendResponse);
+  rpc SpeakText(SpeakTextRequest) returns (FrontendResponse);
   rpc RenderHtml(RenderHtmlRequest) returns (FrontendResponse);
 
   // Tauri gRPC client subscribes here to receive all updates
@@ -103,6 +104,10 @@ message PlayAudioRequest {
 
 message PlayAudioFileRequest {
   string path = 1;
+}
+
+message SpeakTextRequest {
+  string text = 1;
 }
 
 message RenderHtmlRequest {

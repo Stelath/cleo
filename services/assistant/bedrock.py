@@ -21,6 +21,7 @@ _SYSTEM_PROMPT = (
     "For nutrition, calories, macros, protein, fat, carbs, food, barcode, or meal questions, "
     "call the food_macros tool. "
     "For color blindness correction or color assist requests, call the color_blindness_assist tool. "
+    "For weather, temperature, forecast, rain, or outside conditions questions, call the weather tool. "
     "If no tool fits, respond with a short helpful text answer."
 )
 _LOG_TEXT_MAX_CHARS = 400

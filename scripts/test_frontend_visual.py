@@ -25,7 +25,7 @@ import structlog
 
 from generated import frontend_pb2, frontend_pb2_grpc
 from services.config import FRONTEND_PORT
-from services.frontend_service import FrontendServiceServicer
+from services.frontend.service import FrontendServiceServicer
 
 log = structlog.get_logger()
 
