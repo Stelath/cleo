@@ -30,7 +30,7 @@ def _run_navigation_assist():
 
 
 def _run_assistant():
-    from assistant.service import serve
+    from services.assistant.service import serve
     serve()
 
 
@@ -48,7 +48,7 @@ def main():
         procs.append(p)
 
     print("Waiting for services...")
-    from core.config import (
+    from services.config import (
         ASSISTANT_PORT,
         COLOR_BLIND_PORT,
         NAVIGATION_ASSIST_PORT,
