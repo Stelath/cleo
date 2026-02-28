@@ -15,6 +15,7 @@ import structlog
 from generated import sensor_pb2, sensor_pb2_grpc
 from services.media.broadcast import BroadcastHub
 from services.config import (
+    SENSOR_CAMERA_BUFFER_SECONDS,
     SENSOR_CAMERA_CHUNK_BYTES,
     SENSOR_AUDIO_BUFFER_SECONDS,
     SENSOR_DEFAULT_CHUNK_MS,
@@ -37,6 +38,7 @@ log = structlog.get_logger()
 _AUDIO_BUFFER_CHUNKS = max(
     4, int(SENSOR_AUDIO_BUFFER_SECONDS * 1000 / SENSOR_DEFAULT_CHUNK_MS)
 )
+_CAMERA_BUFFER_FRAMES = max(4, int(SENSOR_CAMERA_BUFFER_SECONDS * SENSOR_DEFAULT_FPS))
 
 @dataclass(frozen=True)
 class _CameraPacket:
@@ -75,6 +77,9 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
         self._audio_buffer: deque[sensor_pb2.AudioChunk] = deque(
             maxlen=_AUDIO_BUFFER_CHUNKS
         )
+        self._camera_buffer: deque[_CameraPacket] = deque(
+            maxlen=_CAMERA_BUFFER_FRAMES
+        )
 
         self._camera_thread = threading.Thread(
             target=self._camera_capture_loop,
@@ -111,6 +116,7 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
                 )
                 with self._state_lock:
                     self._latest_frame = msg
+                    self._camera_buffer.append(msg)
                 self._camera_hub.publish(msg)
             except RuntimeError as exc:
                 log.error("sensor_service.camera_loop_error", error=str(exc))
@@ -358,6 +364,44 @@ class SensorServiceServicer(sensor_pb2_grpc.SensorServiceServicer):
             num_samples=len(audio),
             timestamp=time.time(),
         )
+
+    def GetBufferedFrames(self, request, context):
+        """Stream buffered camera frames back to the caller."""
+        max_duration = (
+            request.max_duration_seconds
+            if request.max_duration_seconds > 0
+            else float("inf")
+        )
+
+        with self._state_lock:
+            frames = list(self._camera_buffer)
+
+        if not frames:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details("No buffered camera frames available yet")
+            return
+
+        # Trim to requested duration from the end of the buffer
+        latest_ts = frames[-1].timestamp
+        cutoff = latest_ts - max_duration
+        frames = [f for f in frames if f.timestamp >= cutoff]
+
+        log.info(
+            "sensor_service.get_buffered_frames",
+            frame_count=len(frames),
+            max_duration=max_duration,
+        )
+
+        for pkt in frames:
+            yield from self._iter_frame_chunks(
+                frame_id=pkt.frame_id,
+                data=pkt.h264_data,
+                width=pkt.width,
+                height=pkt.height,
+                timestamp=pkt.timestamp,
+                encoding=sensor_pb2.FRAME_ENCODING_H264,
+                key_frame=True,
+            )
 
 
 def serve(port: int = SENSOR_PORT) -> None:
