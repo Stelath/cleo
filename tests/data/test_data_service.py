@@ -280,6 +280,42 @@ def test_search_video_clips_by_text_rpc(data_servicer):
     assert resp.results[0].clip_id >= 1
 
 
+def test_search_video_clips_by_text_rpc_filters_by_time_range(data_servicer):
+    data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="store-video-filter-a",
+            mp4_data=b"\x02" * 100,
+            start_timestamp=100.0,
+            end_timestamp=105.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+    data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="store-video-filter-b",
+            mp4_data=b"\x03" * 100,
+            start_timestamp=200.0,
+            end_timestamp=205.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.SearchVideoClipsByText(
+        data_pb2.SearchVideoClipsByTextRequest(
+            query_text="only the later clip",
+            top_k=5,
+            start_timestamp=190.0,
+            end_timestamp=210.0,
+        ),
+        _mock_context(),
+    )
+    assert len(resp.results) >= 1
+    assert all(result.start_timestamp >= 190.0 for result in resp.results)
+    assert all(result.end_timestamp <= 210.0 for result in resp.results)
+
+
 def test_get_transcription_log_rpc(data_servicer):
     from generated import data_pb2
 

@@ -142,6 +142,8 @@ message SearchResponse {
 message SearchVideoClipsByTextRequest {
   string query_text = 1;
   int32 top_k = 2;
+  optional double start_timestamp = 3;
+  optional double end_timestamp = 4;
 }
 
 // ── Transcription Log ──

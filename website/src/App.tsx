@@ -78,6 +78,8 @@ function App() {
   const [noteLoading, setNoteLoading] = useState(true);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
   const [memoryQuery, setMemoryQuery] = useState("");
+  const [memoryStartTime, setMemoryStartTime] = useState("");
+  const [memoryEndTime, setMemoryEndTime] = useState("");
   const [memoryResults, setMemoryResults] = useState<MemoryClipEntry[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
@@ -170,8 +172,20 @@ function App() {
   async function searchMemory(queryOverride?: string) {
     const query = (queryOverride ?? memoryQuery).trim();
     setMemoryHasSearched(true);
-    if (!query) {
-      setMemoryError("Enter a text prompt to search saved video clips.");
+    const startTimestamp = parseLocalDateTimeToUnix(memoryStartTime);
+    const endTimestamp = parseLocalDateTimeToUnix(memoryEndTime);
+    if (!query && (startTimestamp === null || endTimestamp === null)) {
+      setMemoryError("Leave the text blank only when both start and end times are set.");
+      setMemoryResults([]);
+      setSelectedMemoryClipId(null);
+      return;
+    }
+    if (
+      startTimestamp !== null &&
+      endTimestamp !== null &&
+      startTimestamp > endTimestamp
+    ) {
+      setMemoryError("Start time must be before end time.");
       setMemoryResults([]);
       setSelectedMemoryClipId(null);
       return;
@@ -181,7 +195,18 @@ function App() {
       setMemoryLoading(true);
       setMemoryError(null);
 
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=8`);
+      const searchParams = new URLSearchParams({
+        q: query,
+        limit: "8",
+      });
+      if (startTimestamp !== null) {
+        searchParams.set("startTimestamp", String(startTimestamp));
+      }
+      if (endTimestamp !== null) {
+        searchParams.set("endTimestamp", String(endTimestamp));
+      }
+
+      const response = await fetch(`/api/search?${searchParams.toString()}`);
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
@@ -400,6 +425,22 @@ function App() {
                     onChange={(event) => setMemoryQuery(event.target.value)}
                   />
                 </label>
+                <label className="field small-field">
+                  <span>Start time</span>
+                  <input
+                    type="datetime-local"
+                    value={memoryStartTime}
+                    onChange={(event) => setMemoryStartTime(event.target.value)}
+                  />
+                </label>
+                <label className="field small-field">
+                  <span>End time</span>
+                  <input
+                    type="datetime-local"
+                    value={memoryEndTime}
+                    onChange={(event) => setMemoryEndTime(event.target.value)}
+                  />
+                </label>
                 <button className="solid-button" type="submit" disabled={memoryLoading}>
                   {memoryLoading ? "Searching..." : "Search clips"}
                 </button>
@@ -414,7 +455,7 @@ function App() {
                 {!memoryHasSearched && (
                   <div className="empty-state">
                     <h4>Search your saved clips</h4>
-                    <p>Enter a description and the website will query the video vector index through DataService.</p>
+                    <p>Enter a description for vector search, or leave it blank and supply both timestamps to browse clips in that window.</p>
                   </div>
                 )}
                 {memoryHasSearched && memoryLoading && (
@@ -796,6 +837,17 @@ function formatUnixTimestamp(value: number) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value * 1000));
+}
+
+function parseLocalDateTimeToUnix(value: string) {
+  if (!value) {
+    return null;
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    return null;
+  }
+  return Math.floor(timestampMs / 1000);
 }
 
 function formatNumber(value: number | null) {

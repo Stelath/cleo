@@ -241,6 +241,17 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             context.set_details("SearchVideoClipsByText query_text is required")
             return data_pb2.SearchResponse()
 
+        start_timestamp = request.start_timestamp if request.HasField("start_timestamp") else None
+        end_timestamp = request.end_timestamp if request.HasField("end_timestamp") else None
+        if (
+            start_timestamp is not None
+            and end_timestamp is not None
+            and start_timestamp > end_timestamp
+        ):
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("SearchVideoClipsByText start_timestamp must be <= end_timestamp")
+            return data_pb2.SearchResponse()
+
         top_k = request.top_k if request.top_k > 0 else 5
         try:
             query_vec = embed_text(
@@ -254,26 +265,51 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             context.set_details(f"Query embedding failed: {e}")
             return data_pb2.SearchResponse()
 
-        return self._search_video_clips(query_vec, top_k=top_k, query_type="text")
+        return self._search_video_clips(
+            query_vec,
+            top_k=top_k,
+            query_type="text",
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+        )
 
-    def _search_video_clips(self, query_vec, *, top_k: int, query_type: str):
-        faiss_results = self._faiss.search(query_vec, k=top_k)
+    def _search_video_clips(
+        self,
+        query_vec,
+        *,
+        top_k: int,
+        query_type: str,
+        start_timestamp: float | None = None,
+        end_timestamp: float | None = None,
+    ):
+        # Over-fetch a bit when filtering so we still have a reasonable chance of
+        # returning up to top_k results after applying the time window.
+        search_k = max(top_k, top_k * 4) if start_timestamp is not None or end_timestamp is not None else top_k
+        faiss_results = self._faiss.search(query_vec, k=search_k)
 
         results = []
         for faiss_id, score, meta in faiss_results:
             clip = self._sqlite.get_clip_by_faiss_id(faiss_id)
             if clip is None:
                 continue
+            clip_start = clip["start_timestamp"] or 0.0
+            clip_end = clip["end_timestamp"] or 0.0
+            if start_timestamp is not None and clip_end < start_timestamp:
+                continue
+            if end_timestamp is not None and clip_start > end_timestamp:
+                continue
             results.append(
                 data_pb2.SearchResult(
                     clip_id=clip["id"],
                     score=score,
-                    start_timestamp=clip["start_timestamp"] or 0.0,
-                    end_timestamp=clip["end_timestamp"] or 0.0,
+                    start_timestamp=clip_start,
+                    end_timestamp=clip_end,
                     clip_path=clip["clip_path"],
                     num_frames=clip["num_frames"] or 0,
                 )
             )
+            if len(results) >= top_k:
+                break
 
         log.info("data_service.search", query_type=query_type, num_results=len(results))
         return data_pb2.SearchResponse(results=results)

@@ -180,25 +180,64 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
     def _handle_search(self, query_string: str) -> None:
         params = parse_qs(query_string)
         query = ((params.get("q") or params.get("query") or [""])[0]).strip()
-        if not query:
+        limit = self._coerce_int(params.get("limit", ["5"])[0], default=5, minimum=1, maximum=20)
+        start_timestamp = self._coerce_float(
+            params.get("startTimestamp", [None])[0],
+            minimum=0.0,
+        )
+        end_timestamp = self._coerce_float(
+            params.get("endTimestamp", [None])[0],
+            minimum=0.0,
+        )
+        if (
+            start_timestamp is not None
+            and end_timestamp is not None
+            and start_timestamp > end_timestamp
+        ):
             self._write_json(
                 {
-                    "error": "invalid_query",
-                    "message": "Provide a non-empty q or query parameter.",
+                    "error": "invalid_time_range",
+                    "message": "startTimestamp must be less than or equal to endTimestamp.",
                 },
                 status=HTTPStatus.BAD_REQUEST,
             )
             return
 
-        limit = self._coerce_int(params.get("limit", ["5"])[0], default=5, minimum=1, maximum=20)
-        response = self._get_data_stub().SearchVideoClipsByText(
-            data_pb2.SearchVideoClipsByTextRequest(query_text=query, top_k=limit)
-        )
+        if not query:
+            if start_timestamp is None or end_timestamp is None:
+                self._write_json(
+                    {
+                        "error": "invalid_query",
+                        "message": "Provide a text query or both startTimestamp and endTimestamp.",
+                    },
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+
+            range_response = self._get_data_stub().GetVideoClipsInRange(
+                data_pb2.TimeRangeRequest(
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                )
+            )
+            entries = [self._serialize_video_clip_metadata(clip) for clip in range_response.clips]
+        else:
+            request = data_pb2.SearchVideoClipsByTextRequest(query_text=query, top_k=limit)
+            if start_timestamp is not None:
+                request.start_timestamp = start_timestamp
+            if end_timestamp is not None:
+                request.end_timestamp = end_timestamp
+
+            response = self._get_data_stub().SearchVideoClipsByText(request)
+            entries = [self._serialize_search_result(result) for result in response.results]
+
         self._write_json(
             {
                 "query": query,
-                "entries": [self._serialize_search_result(result) for result in response.results],
+                "entries": entries,
                 "limit": limit,
+                "startTimestamp": start_timestamp,
+                "endTimestamp": end_timestamp,
             }
         )
 
@@ -290,6 +329,26 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
         return value
 
     @staticmethod
+    def _coerce_float(
+        raw_value: str | None,
+        *,
+        minimum: float | None = None,
+        maximum: float | None = None,
+    ) -> float | None:
+        if raw_value in (None, ""):
+            return None
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+        if minimum is not None and value < minimum:
+            return minimum
+        if maximum is not None and value > maximum:
+            return maximum
+        return value
+
+    @staticmethod
     def _parse_clip_id(path: str) -> int | None:
         clip_id_text = path.removeprefix("/api/videos/").strip("/")
         if not clip_id_text.isdigit():
@@ -333,6 +392,17 @@ class _WebsiteApiHandler(BaseHTTPRequestHandler):
             "endTimestamp": result.end_timestamp,
             "numFrames": result.num_frames,
             "videoUrl": f"/api/videos/{result.clip_id}",
+        }
+
+    @staticmethod
+    def _serialize_video_clip_metadata(clip: data_pb2.VideoClipMetadata) -> dict[str, object]:
+        return {
+            "clipId": clip.clip_id,
+            "score": 0.0,
+            "startTimestamp": clip.start_timestamp,
+            "endTimestamp": clip.end_timestamp,
+            "numFrames": clip.num_frames,
+            "videoUrl": f"/api/videos/{clip.clip_id}",
         }
 
 
