@@ -48,12 +48,37 @@ class TestAssistantService:
 
     def test_text_response_flow(self, servicer, mock_bedrock, mock_grpc_context):
         mock_bedrock.converse.return_value = TextResult(text="Hello from Cleo!")
+        servicer._speak_response_text = MagicMock()
         request = assistant_pb2.CommandRequest(text="hello")
         response = servicer.ProcessCommand(request, mock_grpc_context)
 
         assert response.success
         assert response.response_text == "Hello from Cleo!"
         assert response.tool_name == ""
+        assert response.responded is True
+        assert response.continue_follow_up is True
+        servicer._speak_response_text.assert_called_once_with("Hello from Cleo!")
+
+    def test_follow_up_non_continuation_returns_no_response(
+        self,
+        servicer,
+        mock_bedrock,
+        mock_grpc_context,
+    ):
+        mock_bedrock.classify_follow_up.return_value = False
+
+        request = assistant_pb2.CommandRequest(
+            text="yeah cool",
+            is_follow_up=True,
+        )
+        response = servicer.ProcessCommand(request, mock_grpc_context)
+
+        assert response.success
+        assert response.response_text == ""
+        assert response.responded is False
+        assert response.continue_follow_up is False
+        mock_bedrock.classify_follow_up.assert_called_once_with("yeah cool")
+        mock_bedrock.converse.assert_not_called()
 
     @patch("services.assistant.service.grpc.insecure_channel")
     @patch("services.assistant.service.frontend_pb2_grpc.FrontendServiceStub")
@@ -278,7 +303,8 @@ class TestAssistantService:
 
         frontend_channel = MagicMock()
         tool_channel = MagicMock()
-        mock_channel_cls.side_effect = [frontend_channel, tool_channel]
+        speak_channel = MagicMock()
+        mock_channel_cls.side_effect = [frontend_channel, tool_channel, speak_channel]
 
         mock_frontend_stub = MagicMock()
         mock_frontend_stub.ShowNotification.side_effect = grpc.RpcError()

@@ -24,6 +24,14 @@ _SYSTEM_PROMPT = (
     "For weather, temperature, forecast, rain, or outside conditions questions, call the weather tool. "
     "If no tool fits, respond with a short helpful text answer."
 )
+_FOLLOW_UP_CLASSIFIER_PROMPT = (
+    "You are a strict classifier for spoken follow-up utterances to an AI assistant. "
+    "Answer with exactly one token: YES or NO. "
+    "Return YES only if the utterance is a direct continuation, clarification, or question "
+    "for the assistant's immediately previous response. "
+    "Return NO for ambient chatter, side conversations, acknowledgements that do not request more help, "
+    "or unrelated speech."
+)
 _LOG_TEXT_MAX_CHARS = 400
 
 
@@ -125,3 +133,31 @@ class BedrockClient:
             text=_truncate(text_result),
         )
         return TextResult(text=text_result)
+
+    def classify_follow_up(self, user_text: str) -> bool:
+        """Return True when *user_text* is a continuation/question for the assistant."""
+        response = self._client.converse(
+            modelId=self._model_id,
+            system=[{"text": _FOLLOW_UP_CLASSIFIER_PROMPT}],
+            messages=[{"role": "user", "content": [{"text": user_text}]}],
+            inferenceConfig={
+                "maxTokens": 3,
+                "temperature": 0,
+            },
+        )
+
+        content_blocks = response.get("output", {}).get("message", {}).get("content", [])
+        text_parts: list[str] = []
+        for block in content_blocks:
+            if "text" in block:
+                text_parts.append(block["text"])
+
+        decision = " ".join(text_parts).strip().upper()
+        is_follow_up = decision.startswith("YES")
+        log.info(
+            "assistant.follow_up_classified",
+            is_follow_up=is_follow_up,
+            user_text=_truncate(user_text),
+            classifier_output=_truncate(decision),
+        )
+        return is_follow_up

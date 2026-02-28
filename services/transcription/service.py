@@ -12,7 +12,7 @@ import re
 import signal
 import threading
 import time
-from typing import Callable, Iterable, Iterator
+from typing import Callable, Iterable, Iterator, Protocol
 
 import grpc
 import numpy as np
@@ -47,6 +47,10 @@ _TRIGGER_CAPTURE_SECONDS = 3.0
 _TRIGGER_PREROLL_SECONDS = 0.75
 _TRIGGER_FINAL_FLUSH_GRACE_SECONDS = 0.2
 _TRIGGER_EARLY_FINAL_SECONDS = 1.25
+_FOLLOW_UP_BASE_WINDOW_SECONDS = 6.0
+_FOLLOW_UP_MAX_WINDOW_SECONDS = 14.0
+_FOLLOW_UP_BUFFER_SECONDS = 1.25
+_FOLLOW_UP_WORDS_PER_SECOND = 2.8
 _QUEUE_SENTINEL = object()
 
 
@@ -115,14 +119,22 @@ class AssistantCommandClient:
     def close(self) -> None:
         self._channel.close()
 
-    def send_command(self, text: str) -> None:
+    def send_command(
+        self,
+        text: str,
+        *,
+        is_follow_up: bool = False,
+    ) -> assistant_pb2.CommandResponse | None:
         command = text.strip()
         if not command:
-            return
+            return None
 
         try:
             response = self._stub.ProcessCommand(
-                assistant_pb2.CommandRequest(text=command),
+                assistant_pb2.CommandRequest(
+                    text=command,
+                    is_follow_up=is_follow_up,
+                ),
                 timeout=self._timeout,
             )
             response_text = response.response_text.strip()
@@ -136,8 +148,19 @@ class AssistantCommandClient:
                 tool_name=response.tool_name,
                 response_text=response_text,
             )
+            return response
         except grpc.RpcError as exc:
             log.warning("transcription.assistant_call_failed", error=str(exc))
+            return None
+
+
+class CommandClient(Protocol):
+    def send_command(
+        self,
+        text: str,
+        *,
+        is_follow_up: bool = False,
+    ) -> assistant_pb2.CommandResponse | None: ...
 
 
 class DataClient:
@@ -233,7 +256,7 @@ class TriggerRouter:
 
     def __init__(
         self,
-        command_client: AssistantCommandClient,
+        command_client: CommandClient,
         *,
         trigger_phrases: tuple[str, ...] = _TRIGGER_PHRASES,
         capture_seconds: float = _TRIGGER_CAPTURE_SECONDS,
@@ -255,6 +278,8 @@ class TriggerRouter:
         self._pending: list[PendingTrigger] = []
         self._last_trigger_start: float | None = None
         self._last_trigger_utterance_id: str | None = None
+        self._follow_up_until: float | None = None
+        self._last_follow_up_utterance_id: str | None = None
         self._lock = threading.Lock()
 
     def observe(self, result: transcription_pb2.TranscriptionResult) -> None:
@@ -292,6 +317,7 @@ class TriggerRouter:
             ):
                 is_duplicate = True
             if trigger_seen and not is_duplicate:
+                self._deactivate_follow_up()
                 trigger_time = result.end_time if result.end_time > 0 else result.start_time
                 capture_start_time = max(0.0, trigger_time - self._preroll_seconds)
                 capture_end_time = trigger_time + self._capture_seconds
@@ -315,6 +341,9 @@ class TriggerRouter:
                 )
                 if self._on_trigger_detected is not None:
                     self._on_trigger_detected(result)
+
+            if not result.is_partial and not trigger_seen:
+                self._dispatch_follow_up_if_active(result)
 
             self._prune_history(current_time=result.end_time)
             self._flush_ready(
@@ -380,7 +409,72 @@ class TriggerRouter:
                 end_time=trigger.capture_end_time,
                 text=snippet,
             )
-            self._command_client.send_command(snippet)
+            response = self._command_client.send_command(snippet)
+            if response is not None and response.success and response.continue_follow_up:
+                self._activate_follow_up(current_time=current_time, response_text=response.response_text)
+            else:
+                self._deactivate_follow_up()
+
+    def _dispatch_follow_up_if_active(
+        self,
+        result: transcription_pb2.TranscriptionResult,
+    ) -> None:
+        if not self._is_follow_up_active(current_time=result.end_time):
+            return
+
+        text = result.text.strip()
+        if not text:
+            return
+
+        utterance_id = result.utterance_id.strip()
+        if utterance_id and utterance_id == self._last_follow_up_utterance_id:
+            return
+
+        response = self._command_client.send_command(text, is_follow_up=True)
+        if utterance_id:
+            self._last_follow_up_utterance_id = utterance_id
+
+        if response is not None and response.success and response.continue_follow_up:
+            self._activate_follow_up(
+                current_time=result.end_time,
+                response_text=response.response_text,
+            )
+            return
+
+        self._deactivate_follow_up()
+
+    def _activate_follow_up(self, *, current_time: float, response_text: str) -> None:
+        duration = self._estimate_follow_up_window_seconds(response_text)
+        follow_up_until = current_time + duration
+        if self._follow_up_until is None:
+            self._follow_up_until = follow_up_until
+        else:
+            self._follow_up_until = max(self._follow_up_until, follow_up_until)
+        log.info("transcription.follow_up_active", until=self._follow_up_until)
+
+    def _deactivate_follow_up(self) -> None:
+        if self._follow_up_until is not None:
+            log.info("transcription.follow_up_ended")
+        self._follow_up_until = None
+        self._last_follow_up_utterance_id = None
+
+    def _is_follow_up_active(self, *, current_time: float) -> bool:
+        if self._follow_up_until is None:
+            return False
+        if current_time <= self._follow_up_until:
+            return True
+        self._deactivate_follow_up()
+        return False
+
+    @staticmethod
+    def _estimate_follow_up_window_seconds(response_text: str) -> float:
+        words = re.findall(r"\w+", response_text)
+        speech_seconds = len(words) / _FOLLOW_UP_WORDS_PER_SECOND if words else 0.0
+        window = speech_seconds + _FOLLOW_UP_BUFFER_SECONDS
+        return min(
+            _FOLLOW_UP_MAX_WINDOW_SECONDS,
+            max(_FOLLOW_UP_BASE_WINDOW_SECONDS, window),
+        )
 
     def _snippet_for_trigger(
         self,
