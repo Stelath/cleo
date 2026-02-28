@@ -1,7 +1,10 @@
 """Core orchestrator: starts services, connects gRPC clients, runs processing threads."""
 
+from collections import deque
+import math
 import multiprocessing
 import signal
+import struct
 import threading
 import time
 
@@ -23,8 +26,11 @@ from generated import transcription_pb2, transcription_pb2_grpc
 
 log = structlog.get_logger()
 
-_AUDIO_CHUNK_MS = 500
+_AUDIO_CHUNK_MS = 160
 _AUDIO_SAMPLE_RATE = 16000
+_SILENCE_THRESHOLD_RMS = 0.01
+_FINAL_SILENCE_MS = 1000
+_PREROLL_CHUNKS = 1
 
 
 def _run_sensor_service():
@@ -77,9 +83,56 @@ class AudioTranscriptionBridge(threading.Thread):
         self._transcription_address = transcription_address
         self._data_address = data_address
         self._stop_event = threading.Event()
+        self._partial_results: dict[str, transcription_pb2.TranscriptionResult] = {}
 
     def stop(self):
         self._stop_event.set()
+
+    def _chunk_rms(self, chunk_data: bytes) -> float:
+        """Estimate RMS for a float32 PCM chunk."""
+        if not chunk_data:
+            return 0.0
+
+        sample_count = len(chunk_data) // 4
+        if sample_count == 0:
+            return 0.0
+
+        total = 0.0
+        for index in range(sample_count):
+            sample = struct.unpack_from("<f", chunk_data, index * 4)[0]
+            total += sample * sample
+        return math.sqrt(total / sample_count)
+
+    def _result_text(self, result) -> str:
+        if result.text.strip():
+            return result.text.strip()
+        parts = [result.committed_text.strip(), result.unstable_text.strip()]
+        return " ".join(part for part in parts if part).strip()
+
+    def _store_completed_transcript(self, data_stub, result):
+        if result.is_partial:
+            if result.utterance_id:
+                self._partial_results[result.utterance_id] = result
+            return
+
+        if result.utterance_id:
+            self._partial_results.pop(result.utterance_id, None)
+
+        text = result.committed_text.strip() or result.text.strip()
+        if not text:
+            return
+
+        try:
+            data_stub.StoreTranscription(
+                data_pb2.StoreTranscriptionRequest(
+                    text=text,
+                    confidence=result.confidence,
+                    start_time=result.start_time,
+                    end_time=result.end_time,
+                )
+            )
+        except grpc.RpcError as e:
+            log.error("audio_bridge.store_error", error=str(e))
 
     def run(self):
         log.info("audio_bridge.started")
@@ -124,44 +177,74 @@ class AudioTranscriptionBridge(threading.Thread):
         request = sensor_pb2.StreamRequest(
             chunk_ms=_AUDIO_CHUNK_MS, sample_rate=_AUDIO_SAMPLE_RATE
         )
+        silence_ms = 0.0
+        speech_active = False
+        pre_roll: deque[tuple[bytes, int]] = deque(maxlen=_PREROLL_CHUNKS)
         for chunk in sensor_stub.StreamAudio(request):
             if self._stop_event.is_set():
+                if speech_active:
+                    yield transcription_pb2.AudioInput(
+                        audio_data=b"",
+                        sample_rate=chunk.sample_rate,
+                        is_final=True,
+                        stream_id=self.name,
+                    )
                 return
+
+            rms = self._chunk_rms(chunk.data)
+            chunk_ms = (len(chunk.data) / 4) / chunk.sample_rate * 1000 if chunk.sample_rate > 0 else 0.0
+
+            if rms >= _SILENCE_THRESHOLD_RMS:
+                if not speech_active:
+                    speech_active = True
+                    for buffered_chunk, buffered_rate in pre_roll:
+                        yield transcription_pb2.AudioInput(
+                            audio_data=buffered_chunk,
+                            sample_rate=buffered_rate,
+                            is_final=False,
+                            stream_id=self.name,
+                        )
+                    pre_roll.clear()
+                speech_active = True
+                silence_ms = 0.0
+            elif speech_active:
+                silence_ms += chunk_ms
+            else:
+                pre_roll.append((chunk.data, chunk.sample_rate))
+                continue
+
+            is_final = speech_active and silence_ms >= _FINAL_SILENCE_MS
             yield transcription_pb2.AudioInput(
                 audio_data=chunk.data,
                 sample_rate=chunk.sample_rate,
-                is_final=False,
+                is_final=is_final,
+                stream_id=self.name,
             )
+            if is_final:
+                speech_active = False
+                silence_ms = 0.0
+                pre_roll.clear()
 
     def _bridge(self, sensor_stub, transcription_stub, data_stub):
         """Connect sensor audio stream to transcription stream, push results to DataService."""
+        self._partial_results.clear()
         audio_stream = self._audio_generator(sensor_stub)
         results = transcription_stub.TranscribeStream(audio_stream)
 
         for result in results:
-            if self._stop_event.is_set():
-                return
-            if result.text.strip():
+            text = self._result_text(result)
+            if text:
                 log.info(
                     "transcription.result",
-                    text=result.text,
+                    utterance_id=result.utterance_id,
+                    revision=result.revision,
+                    text=text,
                     start=f"{result.start_time:.2f}",
                     end=f"{result.end_time:.2f}",
                     partial=result.is_partial,
+                    stability=f"{result.stability:.2f}",
                 )
-                # Persist to DataService
-                if not result.is_partial:
-                    try:
-                        data_stub.StoreTranscription(
-                            data_pb2.StoreTranscriptionRequest(
-                                text=result.text,
-                                confidence=result.confidence,
-                                start_time=result.start_time,
-                                end_time=result.end_time,
-                            )
-                        )
-                    except grpc.RpcError as e:
-                        log.error("audio_bridge.store_error", error=str(e))
+            self._store_completed_transcript(data_stub, result)
 
 
 def main():

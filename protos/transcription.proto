@@ -19,6 +19,12 @@ message AudioInput {
 
   // Signal that this is the final chunk in a stream
   bool is_final = 3;
+
+  // Optional stable stream identity across reconnects
+  string stream_id = 4;
+
+  // Force a hard utterance boundary and clear prior context
+  bool reset_context = 5;
 }
 
 message TranscriptionResult {
@@ -36,4 +42,19 @@ message TranscriptionResult {
 
   // Whether this is a partial (interim) or final result
   bool is_partial = 5;
+
+  // Stable identifier for all revisions of the same utterance
+  string utterance_id = 6;
+
+  // Monotonic revision number for this utterance
+  uint32 revision = 7;
+
+  // Stable committed prefix for the utterance
+  string committed_text = 8;
+
+  // Revisable suffix that may change on later revisions
+  string unstable_text = 9;
+
+  // Approximate confidence that the current suffix is stable [0.0, 1.0]
+  float stability = 10;
 }

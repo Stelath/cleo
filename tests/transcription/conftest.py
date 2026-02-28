@@ -14,4 +14,9 @@ def mock_transcription_result():
         start_time=0.0,
         end_time=1.5,
         is_partial=False,
+        utterance_id="utterance-1",
+        revision=1,
+        committed_text="hello world",
+        unstable_text="",
+        stability=1.0,
     )

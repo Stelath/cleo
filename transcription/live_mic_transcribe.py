@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import math
 import signal
+import struct
 import sys
 import threading
 from concurrent import futures
@@ -15,6 +17,23 @@ from generated import transcription_pb2, transcription_pb2_grpc
 from transcription import parakeet
 
 _MAX_GRPC_MESSAGE_BYTES = 16 * 1024 * 1024
+_SILENCE_THRESHOLD_RMS = 0.01
+_FINAL_SILENCE_MS = 1000
+
+
+def _chunk_rms(chunk_data: bytes) -> float:
+    if not chunk_data:
+        return 0.0
+
+    sample_count = len(chunk_data) // 4
+    if sample_count == 0:
+        return 0.0
+
+    total = 0.0
+    for index in range(sample_count):
+        sample = struct.unpack_from("<f", chunk_data, index * 4)[0]
+        total += sample * sample
+    return math.sqrt(total / sample_count)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -105,12 +124,34 @@ def _microphone_requests(
     )
 
     try:
+        silence_ms = 0.0
+        speech_active = False
         while not stop_event.is_set():
             chunk = stream.read(frames_per_buffer, exception_on_overflow=False)
+            rms = _chunk_rms(chunk)
+
+            if rms >= _SILENCE_THRESHOLD_RMS:
+                speech_active = True
+                silence_ms = 0.0
+            elif speech_active:
+                silence_ms += chunk_ms
+
+            is_final = speech_active and silence_ms >= _FINAL_SILENCE_MS
             yield transcription_pb2.AudioInput(
                 audio_data=chunk,
                 sample_rate=sample_rate,
-                is_final=False,
+                is_final=is_final,
+                stream_id="live-mic",
+            )
+            if is_final:
+                speech_active = False
+                silence_ms = 0.0
+        if speech_active:
+            yield transcription_pb2.AudioInput(
+                audio_data=b"",
+                sample_rate=sample_rate,
+                is_final=True,
+                stream_id="live-mic",
             )
     finally:
         try:
@@ -149,11 +190,20 @@ def _run_client(
             label = "partial" if response.is_partial else "final"
             text = response.text.strip()
             if not text:
+                parts = [response.committed_text.strip(), response.unstable_text.strip()]
+                text = " ".join(part for part in parts if part).strip()
+            if not text:
                 continue
-            print(f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s] {text}")
+            print(
+                f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
+                f"rev={response.revision} stable={response.stability:.2f}] {text}"
+            )
             # Write to a file as well
             with open("transcription_output.txt", "a", encoding="utf-8") as f:
-                f.write(f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s] {text}\n")
+                f.write(
+                    f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
+                    f"rev={response.revision} stable={response.stability:.2f}] {text}\n"
+                )
 
 
 def main() -> int:
