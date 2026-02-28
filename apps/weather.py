@@ -65,12 +65,13 @@ class WeatherServicer(ToolServiceBase):
     def execute(self, params: dict) -> tuple[bool, str]:
         location = self._resolve_location(params)
         try:
-            weather_text = self._fetch_weather(location)
+            weather_data = self._fetch_weather(location)
         except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
             log.warning("weather.lookup_failed", location=location, error=str(exc))
             return False, f"Could not fetch weather right now: {exc}"
 
-        self._notify(weather_text)
+        weather_text = self._format_weather_text(weather_data)
+        self._notify(weather_data)
         return True, weather_text
 
     def _resolve_location(self, params: dict) -> str:
@@ -98,7 +99,7 @@ class WeatherServicer(ToolServiceBase):
                 return candidate
         return ""
 
-    def _fetch_weather(self, location: str) -> str:
+    def _fetch_weather(self, location: str) -> dict:
         path = f"/{quote(location, safe='')}" if location else ""
         request = Request(
             f"{_WTTR_BASE_URL}{path}?format=j1",
@@ -122,6 +123,24 @@ class WeatherServicer(ToolServiceBase):
 
         location_label = location or area_name or "your area"
 
+        return {
+            "location_label": location_label,
+            "desc": desc,
+            "temp_c": temp_c,
+            "feels_like_c": feels_like_c,
+            "humidity": humidity,
+            "wind_kph": wind_kph,
+        }
+
+    @staticmethod
+    def _format_weather_text(weather_data: dict) -> str:
+        location_label = weather_data["location_label"]
+        desc = weather_data["desc"]
+        temp_c = weather_data["temp_c"]
+        feels_like_c = weather_data["feels_like_c"]
+        humidity = weather_data["humidity"]
+        wind_kph = weather_data["wind_kph"]
+
         conditions: list[str] = []
         if desc:
             conditions.append(desc)
@@ -141,15 +160,24 @@ class WeatherServicer(ToolServiceBase):
             return f"Weather for {location_label}: {details}. {', '.join(extras)}."
         return f"Weather for {location_label}: {details}."
 
-    def _notify(self, weather_text: str) -> None:
+    def _notify(self, weather_data: dict) -> None:
         try:
-            self._frontend.ShowNotification(
-                frontend_pb2.NotificationRequest(
-                    title="Weather",
-                    message=weather_text,
-                    style="info",
-                    duration_ms=6000,
-                ),
+            meta = [
+                frontend_pb2.KeyValue(key="Temperature", value=f"{weather_data['temp_c']}\u00b0C"),
+                frontend_pb2.KeyValue(key="Feels Like", value=f"{weather_data['feels_like_c']}\u00b0C"),
+                frontend_pb2.KeyValue(key="Humidity", value=f"{weather_data['humidity']}%"),
+                frontend_pb2.KeyValue(key="Wind", value=f"{weather_data['wind_kph']} km/h"),
+                frontend_pb2.KeyValue(key="Condition", value=weather_data["desc"]),
+                # Convention: __card_type meta entry signals specialized card rendering
+                frontend_pb2.KeyValue(key="__card_type", value="weather"),
+            ]
+            card = frontend_pb2.Card(
+                title=f"Weather - {weather_data['location_label']}",
+                description=weather_data["desc"],
+                meta=meta,
+            )
+            self._frontend.ShowCard(
+                frontend_pb2.CardRequest(cards=[card], position="right", duration_ms=8000),
                 timeout=2,
             )
         except grpc.RpcError as exc:
