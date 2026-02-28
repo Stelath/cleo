@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from generated import data_pb2
+from services.config import FACE_CLUSTER_MIN_SIGHTINGS
 from services.data.sql.db import CleoSQLite
 
 
@@ -1106,13 +1107,15 @@ def test_search_faces_rpc(data_servicer, tmp_path):
     with patch("services.data.service.embed_face_image", return_value=fixed_vec):
         fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
 
-        # Store a face
-        data_servicer.StoreFaceEmbedding(
-            data_pb2.StoreFaceEmbeddingRequest(
-                image_data=fake_face, timestamp=1000.0, confidence=99.0
-            ),
-            _mock_context(),
-        )
+        for idx in range(FACE_CLUSTER_MIN_SIGHTINGS):
+            data_servicer.StoreFaceEmbedding(
+                data_pb2.StoreFaceEmbeddingRequest(
+                    image_data=fake_face,
+                    timestamp=1000.0 + idx,
+                    confidence=99.0,
+                ),
+                _mock_context(),
+            )
 
         # Search for it
         resp = data_servicer.SearchFaces(
@@ -1122,6 +1125,53 @@ def test_search_faces_rpc(data_servicer, tmp_path):
         assert len(resp.results) >= 1
         assert resp.results[0].face_id >= 1
         assert resp.results[0].seen_count >= 1
+
+
+def test_search_faces_hides_non_core_faces(data_servicer):
+    from generated import data_pb2
+
+    fixed_vec = np.random.randn(512).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec):
+        fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+        data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1000.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+
+        resp = data_servicer.SearchFaces(
+            data_pb2.SearchFacesRequest(image_data=fake_face, top_k=5),
+            _mock_context(),
+        )
+
+        assert len(resp.results) == 0
+
+
+def test_list_faces_hides_non_core_faces(data_servicer):
+    from generated import data_pb2
+
+    fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    data_servicer.StoreFaceEmbedding(
+        data_pb2.StoreFaceEmbeddingRequest(
+            image_data=fake_face,
+            timestamp=1000.0,
+            confidence=99.0,
+        ),
+        _mock_context(),
+    )
+
+    resp = data_servicer.ListFaces(
+        data_pb2.ListFacesRequest(limit=10, offset=0),
+        _mock_context(),
+    )
+
+    assert resp.total_count == 0
+    assert list(resp.entries) == []
 
 
 def test_search_faces_groups_multiple_exemplars_into_one_result(data_servicer):
@@ -1145,8 +1195,15 @@ def test_search_faces_groups_multiple_exemplars_into_one_result(data_servicer):
             ),
             _mock_context(),
         )
+        third = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face, timestamp=1020.0, confidence=99.0
+            ),
+            _mock_context(),
+        )
 
         assert second.face_id == first.face_id
+        assert third.face_id == first.face_id
 
         resp = data_servicer.SearchFaces(
             data_pb2.SearchFacesRequest(image_data=fake_face, top_k=5),
@@ -1169,7 +1226,7 @@ def test_delete_face_rpc_removes_one_identity_and_preserves_others(data_servicer
 
     with patch(
         "services.data.service.embed_face_image",
-        side_effect=[vec_a, vec_b],
+        side_effect=[vec_a, vec_b, vec_b, vec_b],
     ):
         first = data_servicer.StoreFaceEmbedding(
             data_pb2.StoreFaceEmbeddingRequest(
@@ -1183,6 +1240,22 @@ def test_delete_face_rpc_removes_one_identity_and_preserves_others(data_servicer
             data_pb2.StoreFaceEmbeddingRequest(
                 image_data=fake_face,
                 timestamp=1010.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+        data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1020.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+        data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1030.0,
                 confidence=99.0,
             ),
             _mock_context(),
@@ -1267,14 +1340,27 @@ def test_list_faces_rpc(data_servicer):
     from generated import data_pb2
 
     fake_face = b"\xff\xd8\xff\xe0" + b"\x00" * 100
-    store_resp = data_servicer.StoreFaceEmbedding(
-        data_pb2.StoreFaceEmbeddingRequest(
-            image_data=fake_face,
-            timestamp=1000.0,
-            confidence=99.0,
-        ),
-        _mock_context(),
-    )
+    fixed_vec = np.random.randn(512).astype(np.float32)
+    fixed_vec /= np.linalg.norm(fixed_vec)
+
+    with patch("services.data.service.embed_face_image", return_value=fixed_vec):
+        store_resp = data_servicer.StoreFaceEmbedding(
+            data_pb2.StoreFaceEmbeddingRequest(
+                image_data=fake_face,
+                timestamp=1000.0,
+                confidence=99.0,
+            ),
+            _mock_context(),
+        )
+        for idx in range(1, FACE_CLUSTER_MIN_SIGHTINGS):
+            data_servicer.StoreFaceEmbedding(
+                data_pb2.StoreFaceEmbeddingRequest(
+                    image_data=fake_face,
+                    timestamp=1000.0 + idx,
+                    confidence=99.0,
+                ),
+                _mock_context(),
+            )
 
     name_resp = data_servicer.SetFaceName(
         data_pb2.SetFaceNameRequest(
@@ -1296,8 +1382,8 @@ def test_list_faces_rpc(data_servicer):
     assert resp.entries[0].face_id == store_resp.face_id
     assert resp.entries[0].name == "Grace"
     assert resp.entries[0].note == "Product manager from Brooklyn"
-    assert resp.entries[0].seen_count >= 1
-    assert resp.entries[0].collage_image_count == 1
+    assert resp.entries[0].seen_count >= FACE_CLUSTER_MIN_SIGHTINGS
+    assert resp.entries[0].collage_image_count == FACE_CLUSTER_MIN_SIGHTINGS
 
 
 def test_get_face_image_rpc(data_servicer):

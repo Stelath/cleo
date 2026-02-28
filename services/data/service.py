@@ -16,6 +16,7 @@ import structlog
 from services.config import (
     DATA_PORT,
     EMBEDDING_DIMENSION,
+    FACE_CLUSTER_MIN_SIGHTINGS,
     FACE_EMBEDDING_DIMENSION,
     FACE_SIMILARITY_THRESHOLD,
     FACE_STORAGE_DIR,
@@ -168,15 +169,15 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         )
         return ranked
 
-    def _select_face_match(self, embedding) -> dict[str, Any] | None:
-        ranked = self._group_face_matches(embedding, top_k=_FACE_MATCH_SEARCH_K)
+    @staticmethod
+    def _is_core_face(face: dict[str, Any]) -> bool:
+        return int(face.get("seen_count", 0)) >= FACE_CLUSTER_MIN_SIGHTINGS
+
+    def _select_ranked_face_match(self, ranked: list[dict[str, Any]]) -> dict[str, Any] | None:
         if not ranked:
             return None
 
         best = ranked[0]
-        if float(best["aggregate_score"]) < FACE_SIMILARITY_THRESHOLD:
-            return None
-
         runner_up_score = float(ranked[1]["aggregate_score"]) if len(ranked) > 1 else None
         if (
             runner_up_score is not None
@@ -192,6 +193,25 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             return None
 
         return best
+
+    def _select_face_match(self, embedding, *, core_only: bool = False) -> dict[str, Any] | None:
+        ranked = self._group_face_matches(embedding, top_k=_FACE_MATCH_SEARCH_K)
+        passing = [
+            match
+            for match in ranked
+            if float(match["aggregate_score"]) >= FACE_SIMILARITY_THRESHOLD
+        ]
+        if not passing:
+            return None
+
+        core_matches = [match for match in passing if self._is_core_face(match["face"])]
+        if core_only:
+            return self._select_ranked_face_match(core_matches)
+
+        if core_matches:
+            return self._select_ranked_face_match(core_matches)
+
+        return self._select_ranked_face_match(passing)
 
     # ── StoreTranscription ──
 
@@ -1074,7 +1094,8 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             return data_pb2.SearchFacesResponse()
 
         results = []
-        for match in grouped_matches[:top_k]:
+        core_matches = [match for match in grouped_matches if self._is_core_face(match["face"])]
+        for match in core_matches[:top_k]:
             face = match["face"]
             results.append(
                 data_pb2.FaceSearchResult(
@@ -1095,7 +1116,11 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
     def ListFaces(self, request, context):
         limit = request.limit if request.limit > 0 else 50
         offset = request.offset if request.offset >= 0 else 0
-        rows, total = self._sqlite.list_faces(limit=limit, offset=offset)
+        rows, total = self._sqlite.list_faces(
+            limit=limit,
+            offset=offset,
+            min_seen_count=FACE_CLUSTER_MIN_SIGHTINGS,
+        )
         entries = [self._serialize_face_entry(row) for row in rows]
         return data_pb2.ListFacesResponse(entries=entries, total_count=total)
 

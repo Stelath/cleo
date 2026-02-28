@@ -36,15 +36,22 @@ def _make_fake_frame(width=64, height=48):
     )
 
 
-def _mock_rekognition_response(n_faces=1, confidence=99.5):
+def _mock_rekognition_response(
+    n_faces=1,
+    confidence=99.5,
+    bbox_width=0.2,
+    bbox_height=0.3,
+    bbox_left=0.4,
+    bbox_top=0.3,
+):
     return {
         "FaceDetails": [
             {
                 "BoundingBox": {
-                    "Width": 0.2,
-                    "Height": 0.3,
-                    "Left": 0.4,
-                    "Top": 0.3,
+                    "Width": bbox_width,
+                    "Height": bbox_height,
+                    "Left": bbox_left,
+                    "Top": bbox_top,
                 },
                 "Confidence": confidence,
             }
@@ -352,6 +359,34 @@ class TestFaceDetectionLoop:
 
         # No faces stored since confidence is below threshold
         assert len(loop.recent_faces) == 0
+
+    @patch("apps.face_detection.grpc")
+    def test_process_frame_skips_tiny_face_bbox(self, mock_grpc_mod):
+        mock_rek = MagicMock()
+        mock_rek.detect_faces.return_value = _mock_rekognition_response(
+            1,
+            confidence=99.0,
+            bbox_width=0.03,
+            bbox_height=0.03,
+        )
+
+        mock_channel = MagicMock()
+        mock_grpc_mod.insecure_channel.return_value = mock_channel
+        mock_stub_instance = MagicMock()
+
+        with patch("apps.face_detection.data_pb2_grpc.DataServiceStub", return_value=mock_stub_instance):
+            loop = FaceDetectionLoop(
+                sensor_address="localhost:99999",
+                rekognition_client=mock_rek,
+                data_address="localhost:99998",
+            )
+
+            frame = _make_fake_frame()
+            loop._process_frame(frame)
+
+            mock_stub_instance.SearchFaces.assert_not_called()
+            mock_stub_instance.StoreFaceEmbedding.assert_not_called()
+            assert len(loop.recent_faces) == 0
 
     @patch("apps.face_detection.grpc")
     def test_multiple_faces_in_frame(self, mock_grpc_mod):

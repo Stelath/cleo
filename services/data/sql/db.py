@@ -579,12 +579,20 @@ class CleoSQLite:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_faces(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    def list_faces(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        min_seen_count: int = 1,
+    ) -> tuple[list[dict], int]:
         """Return paginated face rows ordered by most recent sightings."""
-        total = self._conn.execute("SELECT COUNT(*) FROM faces").fetchone()[0]
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM faces WHERE seen_count >= ?",
+            (min_seen_count,),
+        ).fetchone()[0]
         rows = self._conn.execute(
-            "SELECT * FROM faces ORDER BY last_seen DESC, id DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            "SELECT * FROM faces WHERE seen_count >= ? ORDER BY last_seen DESC, id DESC LIMIT ? OFFSET ?",
+            (min_seen_count, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total
 

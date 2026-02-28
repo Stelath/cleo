@@ -26,6 +26,8 @@ from services.media.camera_transport import (
 )
 from services.config import (
     DATA_ADDRESS,
+    FACE_MIN_BBOX_AREA_RATIO,
+    FACE_MIN_BBOX_SIDE_RATIO,
     FACE_DETECTION_PORT,
     FACE_SIMILARITY_THRESHOLD,
     FRONTEND_ADDRESS,
@@ -90,6 +92,17 @@ def _crop_face(
     if not success:
         raise RuntimeError("Failed to encode cropped face as JPEG")
     return encoded.tobytes()
+
+
+def _is_bbox_large_enough(bbox: dict) -> bool:
+    width_ratio = float(bbox.get("Width", 0.0))
+    height_ratio = float(bbox.get("Height", 0.0))
+    area_ratio = width_ratio * height_ratio
+    return (
+        width_ratio >= FACE_MIN_BBOX_SIDE_RATIO
+        and height_ratio >= FACE_MIN_BBOX_SIDE_RATIO
+        and area_ratio >= FACE_MIN_BBOX_AREA_RATIO
+    )
 
 
 class FaceDetectionLoop(threading.Thread):
@@ -253,6 +266,15 @@ class FaceDetectionLoop(threading.Thread):
                         continue
 
                     bbox = face["BoundingBox"]
+                    if not _is_bbox_large_enough(bbox):
+                        log.debug(
+                            "face_detection.face_too_small",
+                            bbox_width=bbox.get("Width", 0.0),
+                            bbox_height=bbox.get("Height", 0.0),
+                            min_side_ratio=FACE_MIN_BBOX_SIDE_RATIO,
+                            min_area_ratio=FACE_MIN_BBOX_AREA_RATIO,
+                        )
+                        continue
                     cropped = _crop_face(img_bgr, bbox, padding=0.2)
                     try:
                         matched_face = self._find_matching_face(data_stub, cropped)
