@@ -180,6 +180,34 @@ class TestNavigatorLoop:
         assert len(loop.recent_guidance) == 0
 
 
+    def test_process_frame_calls_speak_text(self):
+        mock_bedrock = MagicMock(spec=NavigatorBedrockClient)
+        mock_bedrock.analyze_frame.return_value = "Curb at 12 o'clock, two steps ahead."
+        loop = NavigatorLoop(
+            user_context="find curbs",
+            bedrock_client=mock_bedrock,
+        )
+
+        frame = _make_fake_frame()
+        with patch.object(loop, "_speak_guidance") as mock_speak:
+            loop._process_frame(frame)
+            mock_speak.assert_called_once_with("Curb at 12 o'clock, two steps ahead.")
+
+    def test_speak_guidance_error_does_not_crash(self):
+        mock_bedrock = MagicMock(spec=NavigatorBedrockClient)
+        mock_bedrock.analyze_frame.return_value = "All clear."
+        loop = NavigatorLoop(
+            user_context="test",
+            bedrock_client=mock_bedrock,
+        )
+
+        with patch("apps.navigator.grpc.insecure_channel", side_effect=RuntimeError("no frontend")):
+            frame = _make_fake_frame()
+            # Should not raise even when TTS fails
+            loop._process_frame(frame)
+            assert loop.recent_guidance[0][1] == "All clear."
+
+
 # ── NavigatorServicer ──
 
 

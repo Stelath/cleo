@@ -204,6 +204,18 @@ class NavigatorLoop(threading.Thread):
             if frame is not None:
                 yield frame
 
+    def _speak_guidance(self, guidance: str) -> None:
+        """Send guidance text to FrontendService for TTS. Errors are logged and swallowed."""
+        try:
+            channel = grpc.insecure_channel(FRONTEND_ADDRESS)
+            try:
+                stub = frontend_pb2_grpc.FrontendServiceStub(channel)
+                stub.SpeakText(frontend_pb2.SpeakTextRequest(text=guidance))
+            finally:
+                channel.close()
+        except Exception as exc:
+            log.warning("navigator.speak_error", error=str(exc))
+
     def _process_frame(
         self,
         frame: AssembledCameraFrame | Any,
@@ -247,6 +259,7 @@ class NavigatorLoop(threading.Thread):
             frame_ts = assembled.timestamp or time.time()
             self._guidance_buffer.append((frame_ts, guidance))
             log.info("navigator.guidance", guidance=guidance[:100])
+            self._speak_guidance(guidance)
 
             if self._guidance_callback:
                 self._guidance_callback(guidance)
