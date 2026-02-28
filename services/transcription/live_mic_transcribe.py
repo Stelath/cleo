@@ -10,6 +10,7 @@ import sys
 import threading
 from concurrent import futures
 from pathlib import Path
+from typing import Iterator
 
 import grpc
 import pyaudio
@@ -88,7 +89,28 @@ def _list_input_devices() -> int:
     return 0
 
 
-def _start_server(host: str, port: int) -> tuple[grpc.Server, str]:
+class TriggerEventState:
+    """Shared service-side wake-word detection state for the live mic harness."""
+
+    def __init__(self):
+        self._detected_utterances: set[str] = set()
+        self._lock = threading.Lock()
+
+    def mark_detected(self, result: transcription_pb2.TranscriptionResult) -> None:
+        if not result.utterance_id:
+            return
+        with self._lock:
+            self._detected_utterances.add(result.utterance_id)
+
+    def was_detected(self, utterance_id: str) -> bool:
+        if not utterance_id:
+            return False
+        with self._lock:
+            return utterance_id in self._detected_utterances
+
+
+def _start_server(host: str, port: int) -> tuple[grpc.Server, str, TriggerEventState]:
+    trigger_state = TriggerEventState()
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=4),
         options=[
@@ -97,70 +119,91 @@ def _start_server(host: str, port: int) -> tuple[grpc.Server, str]:
         ],
     )
     transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(
-        transcription_service.TranscriptionServiceServicer(),
+        transcription_service.TranscriptionServiceServicer(
+            on_trigger_detected=trigger_state.mark_detected,
+        ),
         server,
     )
     bound_port = server.add_insecure_port(f"{host}:{port}")
     if bound_port == 0:
         raise RuntimeError(f"Failed to bind transcription service on {host}:{port}")
     server.start()
-    return server, f"{host}:{bound_port}"
+    return server, f"{host}:{bound_port}", trigger_state
 
 
-def _microphone_requests(
-    stop_event: threading.Event,
-    sample_rate: int,
-    chunk_ms: int,
-    input_device_index: int | None,
-):
-    frames_per_buffer = max(1, int(sample_rate * chunk_ms / 1000))
-    audio = pyaudio.PyAudio()
-    stream = audio.open(
-        format=pyaudio.paFloat32,
-        channels=1,
-        rate=sample_rate,
-        input=True,
-        input_device_index=input_device_index,
-        frames_per_buffer=frames_per_buffer,
-    )
+class MicrophoneInput:
+    """Keeps the microphone stream open while yielding one utterance per request stream."""
 
-    try:
+    def __init__(
+        self,
+        *,
+        sample_rate: int,
+        chunk_ms: int,
+        input_device_index: int | None,
+    ):
+        self._sample_rate = sample_rate
+        self._chunk_ms = chunk_ms
+        self._frames_per_buffer = max(1, int(sample_rate * chunk_ms / 1000))
+        self._audio = pyaudio.PyAudio()
+        self._stream = self._audio.open(
+            format=pyaudio.paFloat32,
+            channels=1,
+            rate=sample_rate,
+            input=True,
+            input_device_index=input_device_index,
+            frames_per_buffer=self._frames_per_buffer,
+        )
+        self._stream_index = 0
+
+    def close(self) -> None:
+        try:
+            self._stream.stop_stream()
+            self._stream.close()
+        finally:
+            self._audio.terminate()
+
+    def next_utterance_requests(
+        self,
+        stop_event: threading.Event,
+    ) -> Iterator[transcription_pb2.AudioInput]:
         silence_ms = 0.0
         speech_active = False
+        self._stream_index += 1
+        stream_id = f"live-mic-{self._stream_index}"
+
         while not stop_event.is_set():
-            chunk = stream.read(frames_per_buffer, exception_on_overflow=False)
+            chunk = self._stream.read(
+                self._frames_per_buffer,
+                exception_on_overflow=False,
+            )
             rms = _chunk_rms(chunk)
 
             if rms >= _SILENCE_THRESHOLD_RMS:
                 speech_active = True
                 silence_ms = 0.0
             elif speech_active:
-                silence_ms += chunk_ms
+                silence_ms += self._chunk_ms
+            else:
+                continue
 
             is_final = speech_active and silence_ms >= _FINAL_SILENCE_MS
             yield transcription_pb2.AudioInput(
                 audio_data=chunk,
-                sample_rate=sample_rate,
+                sample_rate=self._sample_rate,
                 is_final=is_final,
-                stream_id="live-mic",
+                stream_id=stream_id,
             )
+
             if is_final:
-                speech_active = False
-                silence_ms = 0.0
+                return
+
         if speech_active:
             yield transcription_pb2.AudioInput(
                 audio_data=b"",
-                sample_rate=sample_rate,
+                sample_rate=self._sample_rate,
                 is_final=True,
-                stream_id="live-mic",
+                stream_id=stream_id,
             )
-    finally:
-        try:
-            stream.stop_stream()
-            stream.close()
-        finally:
-            audio.terminate()
-
 
 def _run_client(
     address: str,
@@ -168,44 +211,57 @@ def _run_client(
     sample_rate: int,
     chunk_ms: int,
     input_device_index: int | None,
+    trigger_state: TriggerEventState,
 ) -> None:
-    with grpc.insecure_channel(
-        address,
-        options=[
-            ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
-            ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
-        ],
-    ) as channel:
-        grpc.channel_ready_future(channel).result(timeout=30)
-        stub = transcription_pb2_grpc.TranscriptionServiceStub(channel)
-        responses = stub.TranscribeStream(
-            _microphone_requests(
-                stop_event=stop_event,
-                sample_rate=sample_rate,
-                chunk_ms=chunk_ms,
-                input_device_index=input_device_index,
-            )
-        )
+    mic = MicrophoneInput(
+        sample_rate=sample_rate,
+        chunk_ms=chunk_ms,
+        input_device_index=input_device_index,
+    )
 
-        for response in responses:
-            label = "partial" if response.is_partial else "final"
-            text = response.text.strip()
-            if not text:
-                parts = [response.committed_text.strip(), response.unstable_text.strip()]
-                text = " ".join(part for part in parts if part).strip()
-            if not text:
-                continue
-            print(
-                f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
-                f"rev={response.revision} stable={response.stability:.2f}] {text}"
-            )
-            # Write to a file as well
-            output_path = Path("transcription_output.txt")
-            with output_path.open("a", encoding="utf-8") as f:
-                f.write(
-                    f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
-                    f"rev={response.revision} stable={response.stability:.2f}] {text}\n"
+    try:
+        with grpc.insecure_channel(
+            address,
+            options=[
+                ("grpc.max_send_message_length", _MAX_GRPC_MESSAGE_BYTES),
+                ("grpc.max_receive_message_length", _MAX_GRPC_MESSAGE_BYTES),
+            ],
+        ) as channel:
+            grpc.channel_ready_future(channel).result(timeout=30)
+            stub = transcription_pb2_grpc.TranscriptionServiceStub(channel)
+
+            while not stop_event.is_set():
+                responses = stub.TranscribeStream(
+                    mic.next_utterance_requests(stop_event=stop_event)
                 )
+
+                saw_audio = False
+                for response in responses:
+                    text = response.text.strip()
+                    if not text:
+                        continue
+
+                    saw_audio = True
+                    label = "partial" if response.is_partial else "final"
+                    wake_marker = (
+                        " wake-word=DETECTED"
+                        if trigger_state.was_detected(response.utterance_id)
+                        else ""
+                    )
+                    line = (
+                        f"[{label} {response.start_time:.2f}-{response.end_time:.2f}s "
+                        f"utterance={response.utterance_id or '-'}{wake_marker}] {text}"
+                    )
+                    print(line)
+
+                    output_path = Path("transcription_output.txt")
+                    with output_path.open("a", encoding="utf-8") as f:
+                        f.write(f"{line}\n")
+
+                if not saw_audio and stop_event.is_set():
+                    break
+    finally:
+        mic.close()
 
 
 def main() -> int:
@@ -223,8 +279,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    print("Loading Parakeet model and starting transcription service...", file=sys.stderr)
-    server, address = _start_server(args.host, args.port)
+    print("Starting transcription service...", file=sys.stderr)
+    server, address, trigger_state = _start_server(args.host, args.port)
     print(
         f"Listening on microphone and streaming to {address}. Press Ctrl-C to stop.",
         file=sys.stderr,
@@ -237,6 +293,7 @@ def main() -> int:
             sample_rate=args.sample_rate,
             chunk_ms=args.chunk_ms,
             input_device_index=args.input_device_index,
+            trigger_state=trigger_state,
         )
     except KeyboardInterrupt:
         stop_event.set()

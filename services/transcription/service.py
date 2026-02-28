@@ -1,19 +1,21 @@
-"""Streaming transcription service with persistent sensor ingestion."""
+"""Amazon Transcribe-backed transcription service and sensor ingestion pipeline."""
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
-import math
-import signal
-import tempfile
-import threading
-import time
 from concurrent import futures
 from dataclasses import dataclass
+import os
+import queue
+import re
+import signal
+import threading
+import time
+from typing import Callable, Iterable, Iterator
 
 import grpc
 import numpy as np
-import soundfile as sf
 import structlog
 
 from generated import assistant_pb2, assistant_pb2_grpc
@@ -26,99 +28,52 @@ from services.config import (
     SENSOR_ADDRESS,
     SENSOR_DEFAULT_CHUNK_MS,
     SENSOR_DEFAULT_SAMPLE_RATE,
-    TRANSCRIPTION_ACCUMULATION_SECONDS,
-    TRANSCRIPTION_FINAL_SILENCE_MS,
     TRANSCRIPTION_PORT,
-    TRANSCRIPTION_PREROLL_CHUNKS,
-    TRANSCRIPTION_SILENCE_THRESHOLD_RMS,
 )
 
 log = structlog.get_logger()
 
-_DEFAULT_SAMPLE_RATE = 48000
-_TRIGGER_PHRASE = "hey cleo"
-_TRIGGER_WINDOW_SECONDS = 2.0
 _MAX_GRPC_MESSAGE_BYTES = 16 * 1024 * 1024
+_TRANSCRIBE_REGION = (
+    os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+)
+_TRIGGER_PHRASES = ("hey cleo", "hey clio", "hi cleo", "hi clio")
+_TRIGGER_CAPTURE_SECONDS = 3.0
+_QUEUE_SENTINEL = object()
 
 
-def _load_parakeet_model():
-    """Load the NVIDIA Parakeet ASR model once at startup."""
-    import nemo.collections.asr as nemo_asr
+def normalize_for_trigger_match(text: str) -> str:
+    """Normalize transcript text for wake-word matching only."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    return " ".join(normalized.split())
 
-    log.info("transcription.loading_model", model="nvidia/parakeet-tdt-0.6b-v3")
-    model = nemo_asr.models.ASRModel.from_pretrained("nvidia/parakeet-tdt-0.6b-v3")
-    log.info("transcription.model_loaded")
-    return model
+
+def _float32_to_pcm16(audio: bytes) -> bytes:
+    """Convert mono float32 PCM bytes to little-endian signed 16-bit PCM."""
+    if not audio:
+        return b""
+
+    samples = np.frombuffer(audio, dtype=np.float32)
+    if len(samples) == 0:
+        return b""
+
+    clipped = np.clip(samples, -1.0, 1.0)
+    scaled = (clipped * 32767.0).astype(np.int16)
+    return scaled.tobytes()
 
 
 @dataclass(slots=True)
-class TranscriptChunk:
+class TranscriptSpan:
     text: str
     start_time: float
     end_time: float
+    is_partial: bool
 
 
 @dataclass(slots=True)
 class PendingTrigger:
     start_time: float
-    deadline: float
-
-
-class TranscriptBuffer:
-    """In-memory transcript state for one stream/session."""
-
-    def __init__(self):
-        self._final_chunks: list[TranscriptChunk] = []
-        self._partial_chunk: TranscriptChunk | None = None
-        self._lock = threading.Lock()
-
-    def update(
-        self,
-        text: str,
-        start_time: float,
-        end_time: float,
-        *,
-        is_partial: bool,
-    ) -> None:
-        clean_text = text.strip()
-        with self._lock:
-            if is_partial:
-                self._partial_chunk = (
-                    TranscriptChunk(clean_text, start_time, end_time) if clean_text else None
-                )
-                return
-
-            if clean_text:
-                self._final_chunks.append(TranscriptChunk(clean_text, start_time, end_time))
-            self._partial_chunk = None
-
-    def full_text(self, include_partial: bool = True) -> str:
-        with self._lock:
-            parts = [chunk.text for chunk in self._final_chunks if chunk.text]
-            if include_partial and self._partial_chunk and self._partial_chunk.text:
-                parts.append(self._partial_chunk.text)
-            return " ".join(parts).strip()
-
-    def text_between(self, start_time: float, end_time: float) -> str:
-        with self._lock:
-            parts = [
-                chunk.text
-                for chunk in self._final_chunks
-                if chunk.end_time > start_time and chunk.start_time < end_time and chunk.text
-            ]
-            if (
-                self._partial_chunk
-                and self._partial_chunk.end_time > start_time
-                and self._partial_chunk.start_time < end_time
-                and self._partial_chunk.text
-            ):
-                parts.append(self._partial_chunk.text)
-            return " ".join(parts).strip()
-
-    def clear(self) -> None:
-        with self._lock:
-            self._final_chunks.clear()
-            self._partial_chunk = None
+    end_time: float
 
 
 class AssistantCommandClient:
@@ -152,14 +107,13 @@ class AssistantCommandClient:
                 "transcription.assistant_invoked",
                 success=response.success,
                 tool_name=response.tool_name,
-                response=response.response_text,
             )
         except grpc.RpcError as exc:
             log.warning("transcription.assistant_call_failed", error=str(exc))
 
 
 class DataClient:
-    """Client for storing finalized transcriptions."""
+    """Client for storing finalized transcription results."""
 
     def __init__(self, address: str = DATA_ADDRESS, timeout: float = 5.0):
         self._timeout = timeout
@@ -179,6 +133,7 @@ class DataClient:
         text = result.text.strip()
         if not text:
             return
+
         try:
             self._stub.StoreTranscription(
                 data_pb2.StoreTranscriptionRequest(
@@ -193,219 +148,414 @@ class DataClient:
             log.warning("transcription.store_failed", error=str(exc))
 
 
-class StreamSession:
-    """Owns transcript state and trigger handling for one audio stream."""
+class TriggerRouter:
+    """Tracks wake phrases and sends the next three seconds of transcript to the assistant."""
 
     def __init__(
         self,
-        model,
-        *,
         command_client: AssistantCommandClient,
-        trigger_phrase: str = _TRIGGER_PHRASE,
-        trigger_window_seconds: float = _TRIGGER_WINDOW_SECONDS,
-    ):
-        self._model = model
-        self._command_client = command_client
-        self._trigger_phrase = trigger_phrase.lower()
-        self._trigger_window_seconds = trigger_window_seconds
-        self._transcript = TranscriptBuffer()
-        self._inference_lock = threading.Lock()
-        self._pending_triggers: list[PendingTrigger] = []
-        self._processed_phrase_count = 0
-
-    def close(self) -> None:
-        self._transcript.clear()
-
-    def transcribe_audio(self, audio: np.ndarray, sample_rate: int) -> str:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-            sf.write(tmp.name, audio, sample_rate)
-            with self._inference_lock:
-                results = self._model.transcribe([tmp.name])
-
-        if not results:
-            return ""
-        first = results[0]
-        if isinstance(first, str):
-            return first
-        if hasattr(first, "text"):
-            return first.text
-        return str(first)
-
-    def process_chunk(
-        self,
-        audio: np.ndarray,
-        sample_rate: int,
         *,
-        start_time: float,
-        end_time: float,
-        is_partial: bool,
-    ) -> transcription_pb2.TranscriptionResult:
-        text = self.transcribe_audio(audio, sample_rate)
-        self._transcript.update(text, start_time, end_time, is_partial=is_partial)
-        self._detect_new_triggers(at_time=end_time)
-        self._flush_ready_triggers(current_time=end_time, force=False)
-        return transcription_pb2.TranscriptionResult(
+        trigger_phrases: tuple[str, ...] = _TRIGGER_PHRASES,
+        capture_seconds: float = _TRIGGER_CAPTURE_SECONDS,
+        on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
+    ):
+        self._command_client = command_client
+        self._trigger_phrases = tuple(
+            normalize_for_trigger_match(phrase) for phrase in trigger_phrases
+        )
+        self._capture_seconds = capture_seconds
+        self._on_trigger_detected = on_trigger_detected
+        self._history: deque[TranscriptSpan] = deque()
+        self._pending: list[PendingTrigger] = []
+        self._last_trigger_start: float | None = None
+        self._lock = threading.Lock()
+
+    def observe(self, result: transcription_pb2.TranscriptionResult) -> None:
+        text = result.text.strip()
+        if not text:
+            self._flush_ready(result.end_time, force=result.is_partial is False)
+            return
+
+        span = TranscriptSpan(
             text=text,
-            confidence=1.0 if text.strip() else 0.0,
-            start_time=start_time,
-            end_time=end_time,
-            is_partial=is_partial,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            is_partial=result.is_partial,
         )
 
-    def finalize(self, current_time: float) -> None:
-        self._flush_ready_triggers(current_time=current_time, force=True)
+        with self._lock:
+            if not result.is_partial:
+                self._history.append(span)
 
-    def _detect_new_triggers(self, *, at_time: float) -> None:
-        phrase_count = self._transcript.full_text().lower().count(self._trigger_phrase)
-        while phrase_count > self._processed_phrase_count:
-            self._pending_triggers.append(
-                PendingTrigger(
-                    start_time=at_time,
-                    deadline=at_time + self._trigger_window_seconds,
+            normalized = normalize_for_trigger_match(text)
+            trigger_seen = any(phrase in normalized for phrase in self._trigger_phrases)
+            is_duplicate = (
+                self._last_trigger_start is not None
+                and abs(self._last_trigger_start - result.start_time) < 0.25
+            )
+            if trigger_seen and not is_duplicate:
+                self._pending.append(
+                    PendingTrigger(
+                        start_time=result.start_time,
+                        end_time=result.start_time + self._capture_seconds,
+                    )
                 )
-            )
-            self._processed_phrase_count += 1
-            log.info(
-                "transcription.trigger_detected",
-                phrase=self._trigger_phrase,
-                window_start=at_time,
-                window_end=at_time + self._trigger_window_seconds,
-            )
+                self._last_trigger_start = result.start_time
+                log.info(
+                    "transcription.trigger_detected",
+                    start_time=result.start_time,
+                    end_time=result.start_time + self._capture_seconds,
+                    text=text,
+                )
+                if self._on_trigger_detected is not None:
+                    self._on_trigger_detected(result)
 
-    def _flush_ready_triggers(self, *, current_time: float, force: bool) -> None:
-        if not self._pending_triggers:
+            self._prune_history(current_time=result.end_time)
+            self._flush_ready(result.end_time, force=False, partial_span=span)
+
+    def finalize(self) -> None:
+        with self._lock:
+            cutoff = self._history[-1].end_time if self._history else 0.0
+            self._flush_ready(cutoff, force=True, partial_span=None)
+
+    def _prune_history(self, *, current_time: float) -> None:
+        threshold = current_time - max(10.0, self._capture_seconds + 2.0)
+        while self._history and self._history[0].end_time < threshold:
+            self._history.popleft()
+
+    def _flush_ready(
+        self,
+        current_time: float,
+        *,
+        force: bool,
+        partial_span: TranscriptSpan | None = None,
+    ) -> None:
+        if not self._pending:
             return
 
         ready: list[PendingTrigger] = []
         waiting: list[PendingTrigger] = []
-        for trigger in self._pending_triggers:
-            if force or current_time >= trigger.deadline:
+        for trigger in self._pending:
+            if force or current_time >= trigger.end_time:
                 ready.append(trigger)
             else:
                 waiting.append(trigger)
-        self._pending_triggers = waiting
+        self._pending = waiting
 
         for trigger in ready:
-            snippet = self._transcript.text_between(trigger.start_time, trigger.deadline)
+            snippet = self._snippet_for_trigger(trigger, partial_span=partial_span)
             if not snippet:
                 continue
             log.info(
                 "transcription.trigger_window_ready",
-                start=trigger.start_time,
-                end=trigger.deadline,
-                transcript=snippet,
+                start_time=trigger.start_time,
+                end_time=trigger.end_time,
+                text=snippet,
             )
             self._command_client.send_command(snippet)
 
+    def _snippet_for_trigger(
+        self,
+        trigger: PendingTrigger,
+        *,
+        partial_span: TranscriptSpan | None,
+    ) -> str:
+        parts = [
+            span.text
+            for span in self._history
+            if span.end_time > trigger.start_time and span.start_time < trigger.end_time
+        ]
 
-class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceServicer):
-    """gRPC transcription service backed by NVIDIA Parakeet."""
+        if (
+            partial_span is not None
+            and partial_span.end_time > trigger.start_time
+            and partial_span.start_time < trigger.end_time
+        ):
+            parts.append(partial_span.text)
 
-    def __init__(self, command_client: AssistantCommandClient | None = None):
-        self._model = _load_parakeet_model()
-        self._command_client = command_client or AssistantCommandClient()
+        return " ".join(part.strip() for part in parts if part.strip()).strip()
 
-    def _new_session(self) -> StreamSession:
-        return StreamSession(self._model, command_client=self._command_client)
+
+class AmazonTranscribeBackend:
+    """Wraps the async Amazon Transcribe streaming client behind sync iterators."""
+
+    def __init__(self, region: str = _TRANSCRIBE_REGION):
+        self._region = region
 
     @staticmethod
-    def _sample_rate(request: transcription_pb2.AudioInput) -> int:
-        return request.sample_rate if request.sample_rate > 0 else _DEFAULT_SAMPLE_RATE
-
-    @staticmethod
-    def _audio_from_request(request: transcription_pb2.AudioInput) -> np.ndarray:
-        return np.frombuffer(request.audio_data, dtype=np.float32)
-
-    def _iter_results(self, request_iterator, *, context=None):
-        session = self._new_session()
-        sample_rate = _DEFAULT_SAMPLE_RATE
-        stream_time = 0.0
-        buffer: list[np.ndarray] = []
-        buffer_samples = 0
-
+    def _sdk_imports():
         try:
-            for request in request_iterator:
-                if context is not None and not context.is_active():
+            from amazon_transcribe.client import TranscribeStreamingClient
+            from amazon_transcribe.handlers import TranscriptResultStreamHandler
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "amazon-transcribe is not installed. Add the package and run `uv sync`."
+            ) from exc
+
+        return TranscribeStreamingClient, TranscriptResultStreamHandler
+
+    def transcribe_stream(
+        self, requests: Iterable[transcription_pb2.AudioInput]
+    ) -> Iterator[transcription_pb2.TranscriptionResult]:
+        input_queue: queue.Queue[object] = queue.Queue()
+        output_queue: queue.Queue[object] = queue.Queue()
+
+        def _enqueue_requests() -> None:
+            try:
+                for request in requests:
+                    input_queue.put(request)
+            except Exception as exc:  # pragma: no cover - defensive passthrough
+                output_queue.put(exc)
+            finally:
+                input_queue.put(_QUEUE_SENTINEL)
+
+        producer = threading.Thread(
+            target=_enqueue_requests,
+            daemon=True,
+            name="TranscribeRequestProducer",
+        )
+        producer.start()
+
+        worker = threading.Thread(
+            target=self._run_transcribe_worker,
+            args=(input_queue, output_queue),
+            daemon=True,
+            name="AmazonTranscribeWorker",
+        )
+        worker.start()
+
+        while True:
+            item = output_queue.get()
+            if item is _QUEUE_SENTINEL:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
+        worker.join(timeout=1)
+        producer.join(timeout=1)
+
+    def transcribe_once(
+        self, request: transcription_pb2.AudioInput
+    ) -> transcription_pb2.TranscriptionResult:
+        final_segments: list[transcription_pb2.TranscriptionResult] = []
+        partial_segment: transcription_pb2.TranscriptionResult | None = None
+
+        for result in self.transcribe_stream([request]):
+            if result.is_partial:
+                partial_segment = result
+            else:
+                final_segments.append(result)
+
+        if final_segments:
+            return self._merge_segments(final_segments)
+        if partial_segment is not None:
+            return partial_segment
+
+        return transcription_pb2.TranscriptionResult(
+            text="",
+            confidence=0.0,
+            start_time=0.0,
+            end_time=0.0,
+            is_partial=False,
+            utterance_id="",
+        )
+
+    def _run_transcribe_worker(
+        self,
+        input_queue: queue.Queue[object],
+        output_queue: queue.Queue[object],
+    ) -> None:
+        try:
+            asyncio.run(self._run_transcribe_async(input_queue, output_queue))
+        except Exception as exc:
+            output_queue.put(exc)
+            output_queue.put(_QUEUE_SENTINEL)
+
+    async def _run_transcribe_async(
+        self,
+        input_queue: queue.Queue[object],
+        output_queue: queue.Queue[object],
+    ) -> None:
+        TranscribeStreamingClient, TranscriptResultStreamHandler = self._sdk_imports()
+        client = TranscribeStreamingClient(region=self._region)
+
+        first_request = await asyncio.to_thread(input_queue.get)
+        if first_request is _QUEUE_SENTINEL:
+            output_queue.put(_QUEUE_SENTINEL)
+            return
+
+        if not isinstance(first_request, transcription_pb2.AudioInput):
+            raise RuntimeError("Unexpected request type passed to transcription backend")
+
+        sample_rate = (
+            first_request.sample_rate
+            if first_request.sample_rate > 0
+            else SENSOR_DEFAULT_SAMPLE_RATE
+        )
+        stream = await client.start_stream_transcription(
+            language_code="en-US",
+            media_sample_rate_hz=sample_rate,
+            media_encoding="pcm",
+            enable_partial_results_stabilization=True,
+            partial_results_stability="medium",
+        )
+
+        class ResultHandler(TranscriptResultStreamHandler):
+            async def handle_transcript_event(self, transcript_event) -> None:
+                results = getattr(transcript_event.transcript, "results", [])
+                for result in results:
+                    alternatives = getattr(result, "alternatives", [])
+                    if not alternatives:
+                        continue
+                    text = getattr(alternatives[0], "transcript", "").strip()
+                    if not text:
+                        continue
+
+                    output_queue.put(
+                        transcription_pb2.TranscriptionResult(
+                            text=text,
+                            confidence=1.0,
+                            start_time=float(getattr(result, "start_time", 0.0) or 0.0),
+                            end_time=float(getattr(result, "end_time", 0.0) or 0.0),
+                            is_partial=bool(getattr(result, "is_partial", False)),
+                            utterance_id=str(getattr(result, "result_id", "") or ""),
+                        )
+                    )
+
+        async def _send_audio() -> None:
+            current = first_request
+            while True:
+                if current.reset_context:
+                    log.info(
+                        "transcription.reset_context_ignored",
+                        reason="Amazon Transcribe streams cannot be reset mid-session",
+                    )
+
+                pcm_chunk = _float32_to_pcm16(current.audio_data)
+                if pcm_chunk:
+                    await stream.input_stream.send_audio_event(audio_chunk=pcm_chunk)
+
+                if current.is_final:
                     break
 
-                sample_rate = self._sample_rate(request)
-                chunk = self._audio_from_request(request)
-                if len(chunk) == 0:
-                    continue
+                next_item = await asyncio.to_thread(input_queue.get)
+                if next_item is _QUEUE_SENTINEL:
+                    break
+                if not isinstance(next_item, transcription_pb2.AudioInput):
+                    raise RuntimeError(
+                        "Unexpected request type passed to transcription backend"
+                    )
+                current = next_item
 
-                buffer.append(chunk)
-                buffer_samples += len(chunk)
-                threshold_samples = int(TRANSCRIPTION_ACCUMULATION_SECONDS * sample_rate)
-                should_flush = buffer_samples >= threshold_samples or request.is_final
-                if not should_flush:
-                    continue
+            await stream.input_stream.end_stream()
 
-                audio = np.concatenate(buffer)
-                duration = len(audio) / sample_rate
-                start_time = stream_time
-                end_time = stream_time + duration
-                is_partial = not request.is_final
+        handler = ResultHandler(stream.output_stream)
+        await asyncio.gather(_send_audio(), handler.handle_events())
+        output_queue.put(_QUEUE_SENTINEL)
 
-                buffer.clear()
-                buffer_samples = 0
-                stream_time = end_time
+    @staticmethod
+    def _merge_segments(
+        segments: list[transcription_pb2.TranscriptionResult],
+    ) -> transcription_pb2.TranscriptionResult:
+        text = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        if not text:
+            return transcription_pb2.TranscriptionResult(
+                text="",
+                confidence=0.0,
+                start_time=0.0,
+                end_time=0.0,
+                is_partial=False,
+                utterance_id="",
+            )
 
-                yield session.process_chunk(
-                    audio,
-                    sample_rate,
-                    start_time=start_time,
-                    end_time=end_time,
-                    is_partial=is_partial,
-                )
+        start_time = min(segment.start_time for segment in segments)
+        end_time = max(segment.end_time for segment in segments)
+        confidence = sum(segment.confidence for segment in segments) / len(segments)
 
-                if request.is_final:
-                    session.finalize(current_time=stream_time)
+        return transcription_pb2.TranscriptionResult(
+            text=text,
+            confidence=confidence,
+            start_time=start_time,
+            end_time=end_time,
+            is_partial=False,
+            utterance_id=segments[-1].utterance_id,
+        )
 
-            if buffer_samples > 0:
-                audio = np.concatenate(buffer)
-                duration = len(audio) / sample_rate
-                end_time = stream_time + duration
-                yield session.process_chunk(
-                    audio,
-                    sample_rate,
-                    start_time=stream_time,
-                    end_time=end_time,
-                    is_partial=False,
-                )
-                stream_time = end_time
 
-            session.finalize(current_time=stream_time)
-        finally:
-            session.close()
+class TranscriptionServiceServicer(transcription_pb2_grpc.TranscriptionServiceServicer):
+    """gRPC transcription service backed by Amazon Transcribe Streaming."""
+
+    def __init__(
+        self,
+        *,
+        backend: AmazonTranscribeBackend | None = None,
+        command_client: AssistantCommandClient | None = None,
+        on_trigger_detected: Callable[[transcription_pb2.TranscriptionResult], None] | None = None,
+    ):
+        self._backend = backend or AmazonTranscribeBackend()
+        self._command_client = command_client or AssistantCommandClient()
+        self._on_trigger_detected = on_trigger_detected
 
     def Transcribe(self, request, context):
-        sample_rate = self._sample_rate(request)
-        audio = self._audio_from_request(request)
-        if len(audio) == 0:
-            return transcription_pb2.TranscriptionResult(text="", confidence=0.0)
-
-        session = self._new_session()
-        duration = len(audio) / sample_rate
-        try:
-            result = session.process_chunk(
-                audio,
-                sample_rate,
+        if not request.audio_data:
+            return transcription_pb2.TranscriptionResult(
+                text="",
+                confidence=0.0,
                 start_time=0.0,
-                end_time=duration,
+                end_time=0.0,
                 is_partial=False,
+                utterance_id="",
             )
-            session.finalize(current_time=duration)
+
+        try:
+            result = self._backend.transcribe_once(request)
+            trigger_router = TriggerRouter(
+                self._command_client,
+                on_trigger_detected=self._on_trigger_detected,
+            )
+            trigger_router.observe(result)
+            trigger_router.finalize()
             return result
-        finally:
-            session.close()
+        except RuntimeError as exc:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(exc))
+            return transcription_pb2.TranscriptionResult()
+        except Exception as exc:
+            log.exception("transcription.unary_failed", error=str(exc))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Transcription failed: {exc}")
+            return transcription_pb2.TranscriptionResult()
 
     def TranscribeStream(self, request_iterator, context):
-        for result in self._iter_results(request_iterator, context=context):
-            yield result
+        trigger_router = TriggerRouter(
+            self._command_client,
+            on_trigger_detected=self._on_trigger_detected,
+        )
+        try:
+            for result in self._backend.transcribe_stream(request_iterator):
+                if context is not None and not context.is_active():
+                    break
+                trigger_router.observe(result)
+                yield result
+            trigger_router.finalize()
+        except RuntimeError as exc:
+            if context is not None:
+                context.set_code(grpc.StatusCode.UNAVAILABLE)
+                context.set_details(str(exc))
+            else:
+                log.warning("transcription.stream_unavailable", error=str(exc))
+        except Exception as exc:
+            log.exception("transcription.stream_failed", error=str(exc))
+            if context is not None:
+                context.set_code(grpc.StatusCode.INTERNAL)
+                context.set_details(f"Transcription failed: {exc}")
+        finally:
+            trigger_router.finalize()
 
 
 class SensorTranscriptionPipeline(threading.Thread):
-    """Persistent pipeline: sensor stream -> transcription -> data store."""
+    """Persistent pipeline: sensor stream -> transcription -> data store -> assistant."""
 
     def __init__(
         self,
@@ -423,72 +573,32 @@ class SensorTranscriptionPipeline(threading.Thread):
     def stop(self) -> None:
         self._stop_event.set()
 
-    @staticmethod
-    def _chunk_rms(chunk_data: bytes) -> float:
-        if not chunk_data:
-            return 0.0
-        audio = np.frombuffer(chunk_data, dtype=np.float32)
-        if len(audio) == 0:
-            return 0.0
-        return math.sqrt(float(np.mean(audio * audio)))
-
     def _sensor_audio_requests(self, sensor_stub):
-        request = sensor_pb2.StreamRequest(
+        stream_request = sensor_pb2.StreamRequest(
             chunk_ms=SENSOR_DEFAULT_CHUNK_MS,
             sample_rate=SENSOR_DEFAULT_SAMPLE_RATE,
         )
-        silence_ms = 0.0
-        speech_active = False
-        pre_roll: deque[tuple[bytes, int]] = deque(maxlen=TRANSCRIPTION_PREROLL_CHUNKS)
+        chunk_index = 0
 
-        for chunk in sensor_stub.StreamAudio(request):
+        for chunk in sensor_stub.StreamAudio(stream_request):
             if self._stop_event.is_set():
-                if speech_active:
-                    yield transcription_pb2.AudioInput(
-                        audio_data=b"",
-                        sample_rate=chunk.sample_rate,
-                        is_final=True,
-                        stream_id=self.name,
-                    )
                 return
 
-            rms = self._chunk_rms(chunk.data)
-            chunk_ms = (
-                (len(chunk.data) / 4) / chunk.sample_rate * 1000
-                if chunk.sample_rate > 0
-                else 0.0
-            )
-
-            if rms >= TRANSCRIPTION_SILENCE_THRESHOLD_RMS:
-                if not speech_active:
-                    speech_active = True
-                    for buffered_chunk, buffered_rate in pre_roll:
-                        yield transcription_pb2.AudioInput(
-                            audio_data=buffered_chunk,
-                            sample_rate=buffered_rate,
-                            is_final=False,
-                            stream_id=self.name,
-                        )
-                    pre_roll.clear()
-                silence_ms = 0.0
-            elif speech_active:
-                silence_ms += chunk_ms
-            else:
-                pre_roll.append((chunk.data, chunk.sample_rate))
-                continue
-
-            is_final = speech_active and silence_ms >= TRANSCRIPTION_FINAL_SILENCE_MS
+            chunk_index += 1
             yield transcription_pb2.AudioInput(
                 audio_data=chunk.data,
                 sample_rate=chunk.sample_rate,
-                is_final=is_final,
-                stream_id=self.name,
+                is_final=False,
+                stream_id=f"sensor-{chunk_index}",
             )
 
-            if is_final:
-                speech_active = False
-                silence_ms = 0.0
-                pre_roll.clear()
+        if not self._stop_event.is_set():
+            yield transcription_pb2.AudioInput(
+                audio_data=b"",
+                sample_rate=SENSOR_DEFAULT_SAMPLE_RATE,
+                is_final=True,
+                stream_id="sensor-final",
+            )
 
     def run(self) -> None:
         sensor_channel = grpc.insecure_channel(
@@ -502,14 +612,18 @@ class SensorTranscriptionPipeline(threading.Thread):
             while not self._stop_event.is_set():
                 try:
                     requests = self._sensor_audio_requests(sensor_stub)
-                    for result in self._servicer._iter_results(requests):
-                        if result.is_partial:
-                            continue
-                        data_client.store_transcription(result)
+                    for result in self._servicer.TranscribeStream(requests, context=None):
+                        if not result.is_partial:
+                            data_client.store_transcription(result)
                 except grpc.RpcError as exc:
                     if self._stop_event.is_set():
                         break
                     log.warning("transcription.sensor_stream_error", error=str(exc))
+                    time.sleep(2)
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        break
+                    log.warning("transcription.pipeline_error", error=str(exc))
                     time.sleep(2)
         finally:
             data_client.close()

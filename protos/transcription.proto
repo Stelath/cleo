@@ -45,16 +45,4 @@ message TranscriptionResult {
 
   // Stable identifier for all revisions of the same utterance
   string utterance_id = 6;
-
-  // Monotonic revision number for this utterance
-  uint32 revision = 7;
-
-  // Stable committed prefix for the utterance
-  string committed_text = 8;
-
-  // Revisable suffix that may change on later revisions
-  string unstable_text = 9;
-
-  // Approximate confidence that the current suffix is stable [0.0, 1.0]
-  float stability = 10;
 }

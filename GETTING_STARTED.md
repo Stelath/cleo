@@ -100,7 +100,7 @@ cleo/
 ├── services/              # Runtime + service implementations
 │   ├── main.py            #   Entry point — starts persistent services
 │   ├── sensor_service.py  #   Camera + audio media hub over gRPC
-│   ├── transcription/     #   NVIDIA Parakeet ASR service
+│   ├── transcription/     #   Transcription service using Amazon Transcribe
 │   ├── assistant/         #   Assistant service + tool routing
 │   └── data/              #   Data service (SQLite + FAISS + video store)
 ├── apps/                  # Tool app services invoked by assistant

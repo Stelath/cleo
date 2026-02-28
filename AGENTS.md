@@ -38,7 +38,7 @@ uv run python -m services.main
 Cleo is an AI-powered AR glasses platform for VITURE Luma Ultra glasses. The runtime is a multi-process service graph (`services/main.py`):
 
 - **Sensor Service** (subprocess, port 50051) — owns camera/mic capture, maintains in-memory buffers, and exposes `CaptureFrame`, `RecordAudio`, `StreamCamera`, `StreamAudio`, `StreamIMU`
-- **Transcription Service** (subprocess, port 50052) — runs Parakeet ASR and persistently subscribes to sensor audio; writes final transcripts to DataService and triggers AssistantService on wake phrase
+- **Transcription Service** (subprocess, port 50052) — runs Amazon Transcribe ASR and persistently subscribes to sensor audio; writes final transcripts to DataService and triggers AssistantService on wake phrase
 - **Data Service** (subprocess, port 50053) — owns SQLite + FAISS + video storage/search RPCs
 - **Assistant Service** (subprocess, port 50054) — routes transcribed commands to tools via Bedrock tool-use
 
