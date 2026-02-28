@@ -3,6 +3,7 @@
 import threading
 from unittest.mock import MagicMock, patch
 
+import cv2
 import numpy as np
 import pytest
 
@@ -10,7 +11,7 @@ from apps.face_detection import (
     FaceDetectionLoop,
     FaceDetectionServicer,
     _crop_face,
-    _rgb_to_jpeg,
+    _decode_jpeg,
 )
 
 
@@ -18,8 +19,11 @@ from apps.face_detection import (
 
 
 def _make_fake_frame(width=64, height=48):
+    """Create a fake frame with JPEG-encoded data (matching sensor service output)."""
     frame = MagicMock()
-    frame.data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
+    img = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+    _, encoded = cv2.imencode(".jpg", img)
+    frame.data = encoded.tobytes()
     frame.width = width
     frame.height = height
     frame.timestamp = 1000.0
@@ -48,29 +52,26 @@ def _mock_rekognition_response(n_faces=1, confidence=99.5):
 
 class TestCropFace:
     def test_basic_crop(self):
-        width, height = 64, 48
-        frame_data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
+        img_bgr = np.random.randint(0, 255, (48, 64, 3), dtype=np.uint8)
         bbox = {"Width": 0.2, "Height": 0.3, "Left": 0.4, "Top": 0.3}
-        result = _crop_face(frame_data, width, height, bbox)
+        result = _crop_face(img_bgr, bbox)
         # Should produce valid JPEG bytes
         assert result[:2] == b"\xff\xd8"
 
     def test_padding_expands_region(self):
-        width, height = 100, 100
-        frame_data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
+        img_bgr = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
         bbox = {"Width": 0.2, "Height": 0.2, "Left": 0.4, "Top": 0.4}
 
-        no_pad = _crop_face(frame_data, width, height, bbox, padding=0.0)
-        with_pad = _crop_face(frame_data, width, height, bbox, padding=0.5)
+        no_pad = _crop_face(img_bgr, bbox, padding=0.0)
+        with_pad = _crop_face(img_bgr, bbox, padding=0.5)
         # Padded crop should be larger (more pixels → generally more JPEG bytes)
         assert len(with_pad) > len(no_pad)
 
     def test_clamps_to_image_bounds(self):
-        width, height = 64, 48
-        frame_data = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8).tobytes()
+        img_bgr = np.random.randint(0, 255, (48, 64, 3), dtype=np.uint8)
         # bbox near top-left corner with large padding
         bbox = {"Width": 0.1, "Height": 0.1, "Left": 0.0, "Top": 0.0}
-        result = _crop_face(frame_data, width, height, bbox, padding=1.0)
+        result = _crop_face(img_bgr, bbox, padding=1.0)
         # Should not crash, should return valid JPEG
         assert result[:2] == b"\xff\xd8"
 

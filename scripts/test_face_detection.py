@@ -353,7 +353,8 @@ def main() -> int:
 
         ideal_threshold = (np.mean(intra_scores) + np.mean(inter_scores)) / 2
         print(f"    Suggested threshold:   {ideal_threshold:.4f}")
-        print(f"    Current threshold:     0.85 (FACE_SIMILARITY_THRESHOLD)")
+        from services.config import FACE_SIMILARITY_THRESHOLD
+        print(f"    Current threshold:     {FACE_SIMILARITY_THRESHOLD} (FACE_SIMILARITY_THRESHOLD)")
 
     # ── Summary ──
 
