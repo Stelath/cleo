@@ -18,32 +18,76 @@ PROTOCOL_VERSION = "1.0.0"
 
 
 class FrontendServiceServicer(frontend_pb2_grpc.FrontendServiceServicer):
-    """gRPC servicer that fans out HUD commands to connected Tauri clients."""
+    """gRPC servicer with typed RPCs that fan out DisplayUpdates to Tauri clients."""
 
     def __init__(self):
         self._hub = BroadcastHub(maxsize=256)
         self._stop_event = threading.Event()
         log.info("frontend_service.init")
 
-    def push_command(self, hud_command: frontend_pb2.HudCommand) -> None:
-        """Inject a HUD command to be sent to all connected clients."""
-        self._hub.publish(hud_command)
+    def _publish_update(self, **kwargs) -> frontend_pb2.FrontendResponse:
+        """Wrap a typed request in a DisplayUpdate and publish to all subscribers."""
+        update = frontend_pb2.DisplayUpdate(**kwargs)
+        self._hub.publish(update)
+        return frontend_pb2.FrontendResponse(ok=True)
 
-    def SubscribeHudCommands(self, request, context):
+    # ── Typed push RPCs ──
+
+    def ShowNotification(self, request, context):
+        log.info("frontend_service.show_notification", title=request.title)
+        return self._publish_update(notification=request)
+
+    def ShowImage(self, request, context):
+        log.info("frontend_service.show_image", mime=request.mime_type)
+        return self._publish_update(image=request)
+
+    def ShowProgress(self, request, context):
+        log.info("frontend_service.show_progress", label=request.label, value=request.value)
+        return self._publish_update(progress=request)
+
+    def ShowText(self, request, context):
+        log.info("frontend_service.show_text")
+        return self._publish_update(text=request)
+
+    def ShowCard(self, request, context):
+        log.info("frontend_service.show_card", count=len(request.cards))
+        return self._publish_update(card=request)
+
+    def Clear(self, request, context):
+        log.info("frontend_service.clear")
+        return self._publish_update(clear=request)
+
+    def PlayAudio(self, request, context):
+        log.info("frontend_service.play_audio", sample_rate=request.sample_rate)
+        return self._publish_update(play_audio=request)
+
+    def PlayAudioFile(self, request, context):
+        log.info("frontend_service.play_audio_file", path=request.path)
+        return self._publish_update(play_audio_file=request)
+
+    def RenderHtml(self, request, context):
+        log.info("frontend_service.render_html")
+        return self._publish_update(render_html=request)
+
+    # ── Streaming (Tauri subscribes here) ──
+
+    def StreamUpdates(self, request, context):
         client_id = request.client_id or "anonymous"
-        log.info("frontend_service.subscribe", client_id=client_id)
+        log.info("frontend_service.stream_updates", client_id=client_id)
 
         sid, q = self._hub.subscribe()
         try:
             while context.is_active() and not self._stop_event.is_set():
                 try:
-                    command = q.get(timeout=1.0)
-                    yield command
+                    update = q.get(timeout=1.0)
+                    yield update
                 except queue.Empty:
                     continue
         finally:
             self._hub.unsubscribe(sid)
-            log.info("frontend_service.unsubscribe", client_id=client_id)
+            log.info("frontend_service.stream_ended", client_id=client_id)
+
+    # ── User actions & status (unchanged) ──
 
     def SendUserAction(self, request, context):
         action_type = request.WhichOneof("action")

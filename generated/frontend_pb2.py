@@ -24,39 +24,55 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x66rontend.proto\x12\rcleo.frontend\"%\n\x10SubscribeRequest\x12\x11\n\tclient_id\x18\x01 \x01(\t\"\xab\x02\n\nHudCommand\x12\x34\n\tcomponent\x18\x01 \x01(\x0b\x32\x1f.cleo.frontend.ComponentCommandH\x00\x12\x35\n\nplay_audio\x18\x02 \x01(\x0b\x32\x1f.cleo.frontend.PlayAudioCommandH\x00\x12>\n\x0fplay_audio_file\x18\x03 \x01(\x0b\x32#.cleo.frontend.PlayAudioFileCommandH\x00\x12\x37\n\x0brender_html\x18\x04 \x01(\x0b\x32 .cleo.frontend.RenderHtmlCommandH\x00\x12,\n\x05\x63lear\x18\x05 \x01(\x0b\x32\x1b.cleo.frontend.ClearCommandH\x00\x42\t\n\x07\x63ommand\"r\n\x10\x43omponentCommand\x12\x11\n\tcomponent\x18\x01 \x01(\t\x12\x0e\n\x06\x61\x63tion\x18\x02 \x01(\t\x12\x13\n\x0bparams_json\x18\x03 \x01(\t\x12\x12\n\nmedia_data\x18\x04 \x01(\x0c\x12\x12\n\nmedia_mime\x18\x05 \x01(\t\"<\n\x10PlayAudioCommand\x12\x13\n\x0b\x64\x61ta_base64\x18\x01 \x01(\t\x12\x13\n\x0bsample_rate\x18\x02 \x01(\r\"$\n\x14PlayAudioFileCommand\x12\x0c\n\x04path\x18\x01 \x01(\t\"!\n\x11RenderHtmlCommand\x12\x0c\n\x04html\x18\x01 \x01(\t\"\x0e\n\x0c\x43learCommand\"\x82\x01\n\nUserAction\x12\x36\n\x0bvideo_ended\x18\x01 \x01(\x0b\x32\x1f.cleo.frontend.VideoEndedActionH\x00\x12\x32\n\ntext_input\x18\x02 \x01(\x0b\x32\x1c.cleo.frontend.UserTextInputH\x00\x42\x08\n\x06\x61\x63tion\"\x12\n\x10VideoEndedAction\"\x1d\n\rUserTextInput\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x1c\n\x0e\x41\x63tionResponse\x12\n\n\x02ok\x18\x01 \x01(\x08\"\x0f\n\rStatusRequest\"9\n\x0eStatusResponse\x12\x18\n\x10protocol_version\x18\x01 \x01(\t\x12\r\n\x05ready\x18\x02 \x01(\x08\x32\xfd\x01\n\x0f\x46rontendService\x12T\n\x14SubscribeHudCommands\x12\x1f.cleo.frontend.SubscribeRequest\x1a\x19.cleo.frontend.HudCommand0\x01\x12J\n\x0eSendUserAction\x12\x19.cleo.frontend.UserAction\x1a\x1d.cleo.frontend.ActionResponse\x12H\n\tGetStatus\x12\x1c.cleo.frontend.StatusRequest\x1a\x1d.cleo.frontend.StatusResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x66rontend.proto\x12\rcleo.frontend\"\x1e\n\x10\x46rontendResponse\x12\n\n\x02ok\x18\x01 \x01(\x08\"\"\n\rStreamRequest\x12\x11\n\tclient_id\x18\x01 \x01(\t\"Y\n\x13NotificationRequest\x12\r\n\x05title\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\r\n\x05style\x18\x03 \x01(\t\x12\x13\n\x0b\x64uration_ms\x18\x04 \x01(\r\"A\n\x0cImageRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x11\n\tmime_type\x18\x02 \x01(\t\x12\x10\n\x08position\x18\x03 \x01(\t\"@\n\x0fProgressRequest\x12\r\n\x05label\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01\x12\x0f\n\x07visible\x18\x03 \x01(\x08\"-\n\x0bTextRequest\x12\x0c\n\x04text\x18\x01 \x01(\t\x12\x10\n\x08position\x18\x02 \x01(\t\"X\n\x0b\x43\x61rdRequest\x12\"\n\x05\x63\x61rds\x18\x01 \x03(\x0b\x32\x13.cleo.frontend.Card\x12\x10\n\x08position\x18\x02 \x01(\t\x12\x13\n\x0b\x64uration_ms\x18\x03 \x01(\r\"\xaf\x01\n\x04\x43\x61rd\x12\r\n\x05title\x18\x01 \x01(\t\x12\x10\n\x08subtitle\x18\x02 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x12\n\nimage_data\x18\x04 \x01(\x0c\x12\x12\n\nimage_mime\x18\x05 \x01(\t\x12%\n\x04meta\x18\x06 \x03(\x0b\x32\x17.cleo.frontend.KeyValue\x12\"\n\x05links\x18\x07 \x03(\x0b\x32\x13.cleo.frontend.Link\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"\"\n\x04Link\x12\r\n\x05label\x18\x01 \x01(\t\x12\x0b\n\x03url\x18\x02 \x01(\t\"\x0e\n\x0c\x43learRequest\"<\n\x10PlayAudioRequest\x12\x13\n\x0b\x64\x61ta_base64\x18\x01 \x01(\t\x12\x13\n\x0bsample_rate\x18\x02 \x01(\r\"$\n\x14PlayAudioFileRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"!\n\x11RenderHtmlRequest\x12\x0c\n\x04html\x18\x01 \x01(\t\"\xed\x03\n\rDisplayUpdate\x12:\n\x0cnotification\x18\x01 \x01(\x0b\x32\".cleo.frontend.NotificationRequestH\x00\x12,\n\x05image\x18\x02 \x01(\x0b\x32\x1b.cleo.frontend.ImageRequestH\x00\x12\x32\n\x08progress\x18\x03 \x01(\x0b\x32\x1e.cleo.frontend.ProgressRequestH\x00\x12*\n\x04text\x18\x04 \x01(\x0b\x32\x1a.cleo.frontend.TextRequestH\x00\x12*\n\x04\x63\x61rd\x18\x05 \x01(\x0b\x32\x1a.cleo.frontend.CardRequestH\x00\x12,\n\x05\x63lear\x18\x06 \x01(\x0b\x32\x1b.cleo.frontend.ClearRequestH\x00\x12\x35\n\nplay_audio\x18\x07 \x01(\x0b\x32\x1f.cleo.frontend.PlayAudioRequestH\x00\x12>\n\x0fplay_audio_file\x18\x08 \x01(\x0b\x32#.cleo.frontend.PlayAudioFileRequestH\x00\x12\x37\n\x0brender_html\x18\t \x01(\x0b\x32 .cleo.frontend.RenderHtmlRequestH\x00\x42\x08\n\x06update\"\x82\x01\n\nUserAction\x12\x36\n\x0bvideo_ended\x18\x01 \x01(\x0b\x32\x1f.cleo.frontend.VideoEndedActionH\x00\x12\x32\n\ntext_input\x18\x02 \x01(\x0b\x32\x1c.cleo.frontend.UserTextInputH\x00\x42\x08\n\x06\x61\x63tion\"\x12\n\x10VideoEndedAction\"\x1d\n\rUserTextInput\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x1c\n\x0e\x41\x63tionResponse\x12\n\n\x02ok\x18\x01 \x01(\x08\"\x0f\n\rStatusRequest\"9\n\x0eStatusResponse\x12\x18\n\x10protocol_version\x18\x01 \x01(\t\x12\r\n\x05ready\x18\x02 \x01(\x08\x32\xbb\x07\n\x0f\x46rontendService\x12W\n\x10ShowNotification\x12\".cleo.frontend.NotificationRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12I\n\tShowImage\x12\x1b.cleo.frontend.ImageRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12O\n\x0cShowProgress\x12\x1e.cleo.frontend.ProgressRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12G\n\x08ShowText\x12\x1a.cleo.frontend.TextRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12G\n\x08ShowCard\x12\x1a.cleo.frontend.CardRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12\x45\n\x05\x43lear\x12\x1b.cleo.frontend.ClearRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12M\n\tPlayAudio\x12\x1f.cleo.frontend.PlayAudioRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12U\n\rPlayAudioFile\x12#.cleo.frontend.PlayAudioFileRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12O\n\nRenderHtml\x12 .cleo.frontend.RenderHtmlRequest\x1a\x1f.cleo.frontend.FrontendResponse\x12M\n\rStreamUpdates\x12\x1c.cleo.frontend.StreamRequest\x1a\x1c.cleo.frontend.DisplayUpdate0\x01\x12J\n\x0eSendUserAction\x12\x19.cleo.frontend.UserAction\x1a\x1d.cleo.frontend.ActionResponse\x12H\n\tGetStatus\x12\x1c.cleo.frontend.StatusRequest\x1a\x1d.cleo.frontend.StatusResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'frontend_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SUBSCRIBEREQUEST']._serialized_start=33
-  _globals['_SUBSCRIBEREQUEST']._serialized_end=70
-  _globals['_HUDCOMMAND']._serialized_start=73
-  _globals['_HUDCOMMAND']._serialized_end=372
-  _globals['_COMPONENTCOMMAND']._serialized_start=374
-  _globals['_COMPONENTCOMMAND']._serialized_end=488
-  _globals['_PLAYAUDIOCOMMAND']._serialized_start=490
-  _globals['_PLAYAUDIOCOMMAND']._serialized_end=550
-  _globals['_PLAYAUDIOFILECOMMAND']._serialized_start=552
-  _globals['_PLAYAUDIOFILECOMMAND']._serialized_end=588
-  _globals['_RENDERHTMLCOMMAND']._serialized_start=590
-  _globals['_RENDERHTMLCOMMAND']._serialized_end=623
-  _globals['_CLEARCOMMAND']._serialized_start=625
-  _globals['_CLEARCOMMAND']._serialized_end=639
-  _globals['_USERACTION']._serialized_start=642
-  _globals['_USERACTION']._serialized_end=772
-  _globals['_VIDEOENDEDACTION']._serialized_start=774
-  _globals['_VIDEOENDEDACTION']._serialized_end=792
-  _globals['_USERTEXTINPUT']._serialized_start=794
-  _globals['_USERTEXTINPUT']._serialized_end=823
-  _globals['_ACTIONRESPONSE']._serialized_start=825
-  _globals['_ACTIONRESPONSE']._serialized_end=853
-  _globals['_STATUSREQUEST']._serialized_start=855
-  _globals['_STATUSREQUEST']._serialized_end=870
-  _globals['_STATUSRESPONSE']._serialized_start=872
-  _globals['_STATUSRESPONSE']._serialized_end=929
-  _globals['_FRONTENDSERVICE']._serialized_start=932
-  _globals['_FRONTENDSERVICE']._serialized_end=1185
+  _globals['_FRONTENDRESPONSE']._serialized_start=33
+  _globals['_FRONTENDRESPONSE']._serialized_end=63
+  _globals['_STREAMREQUEST']._serialized_start=65
+  _globals['_STREAMREQUEST']._serialized_end=99
+  _globals['_NOTIFICATIONREQUEST']._serialized_start=101
+  _globals['_NOTIFICATIONREQUEST']._serialized_end=190
+  _globals['_IMAGEREQUEST']._serialized_start=192
+  _globals['_IMAGEREQUEST']._serialized_end=257
+  _globals['_PROGRESSREQUEST']._serialized_start=259
+  _globals['_PROGRESSREQUEST']._serialized_end=323
+  _globals['_TEXTREQUEST']._serialized_start=325
+  _globals['_TEXTREQUEST']._serialized_end=370
+  _globals['_CARDREQUEST']._serialized_start=372
+  _globals['_CARDREQUEST']._serialized_end=460
+  _globals['_CARD']._serialized_start=463
+  _globals['_CARD']._serialized_end=638
+  _globals['_KEYVALUE']._serialized_start=640
+  _globals['_KEYVALUE']._serialized_end=678
+  _globals['_LINK']._serialized_start=680
+  _globals['_LINK']._serialized_end=714
+  _globals['_CLEARREQUEST']._serialized_start=716
+  _globals['_CLEARREQUEST']._serialized_end=730
+  _globals['_PLAYAUDIOREQUEST']._serialized_start=732
+  _globals['_PLAYAUDIOREQUEST']._serialized_end=792
+  _globals['_PLAYAUDIOFILEREQUEST']._serialized_start=794
+  _globals['_PLAYAUDIOFILEREQUEST']._serialized_end=830
+  _globals['_RENDERHTMLREQUEST']._serialized_start=832
+  _globals['_RENDERHTMLREQUEST']._serialized_end=865
+  _globals['_DISPLAYUPDATE']._serialized_start=868
+  _globals['_DISPLAYUPDATE']._serialized_end=1361
+  _globals['_USERACTION']._serialized_start=1364
+  _globals['_USERACTION']._serialized_end=1494
+  _globals['_VIDEOENDEDACTION']._serialized_start=1496
+  _globals['_VIDEOENDEDACTION']._serialized_end=1514
+  _globals['_USERTEXTINPUT']._serialized_start=1516
+  _globals['_USERTEXTINPUT']._serialized_end=1545
+  _globals['_ACTIONRESPONSE']._serialized_start=1547
+  _globals['_ACTIONRESPONSE']._serialized_end=1575
+  _globals['_STATUSREQUEST']._serialized_start=1577
+  _globals['_STATUSREQUEST']._serialized_end=1592
+  _globals['_STATUSRESPONSE']._serialized_start=1594
+  _globals['_STATUSRESPONSE']._serialized_end=1651
+  _globals['_FRONTENDSERVICE']._serialized_start=1654
+  _globals['_FRONTENDSERVICE']._serialized_end=2609
 # @@protoc_insertion_point(module_scope)

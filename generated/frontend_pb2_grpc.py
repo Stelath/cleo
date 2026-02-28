@@ -34,10 +34,55 @@ class FrontendServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.SubscribeHudCommands = channel.unary_stream(
-                '/cleo.frontend.FrontendService/SubscribeHudCommands',
-                request_serializer=frontend__pb2.SubscribeRequest.SerializeToString,
-                response_deserializer=frontend__pb2.HudCommand.FromString,
+        self.ShowNotification = channel.unary_unary(
+                '/cleo.frontend.FrontendService/ShowNotification',
+                request_serializer=frontend__pb2.NotificationRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.ShowImage = channel.unary_unary(
+                '/cleo.frontend.FrontendService/ShowImage',
+                request_serializer=frontend__pb2.ImageRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.ShowProgress = channel.unary_unary(
+                '/cleo.frontend.FrontendService/ShowProgress',
+                request_serializer=frontend__pb2.ProgressRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.ShowText = channel.unary_unary(
+                '/cleo.frontend.FrontendService/ShowText',
+                request_serializer=frontend__pb2.TextRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.ShowCard = channel.unary_unary(
+                '/cleo.frontend.FrontendService/ShowCard',
+                request_serializer=frontend__pb2.CardRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.Clear = channel.unary_unary(
+                '/cleo.frontend.FrontendService/Clear',
+                request_serializer=frontend__pb2.ClearRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.PlayAudio = channel.unary_unary(
+                '/cleo.frontend.FrontendService/PlayAudio',
+                request_serializer=frontend__pb2.PlayAudioRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.PlayAudioFile = channel.unary_unary(
+                '/cleo.frontend.FrontendService/PlayAudioFile',
+                request_serializer=frontend__pb2.PlayAudioFileRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.RenderHtml = channel.unary_unary(
+                '/cleo.frontend.FrontendService/RenderHtml',
+                request_serializer=frontend__pb2.RenderHtmlRequest.SerializeToString,
+                response_deserializer=frontend__pb2.FrontendResponse.FromString,
+                _registered_method=True)
+        self.StreamUpdates = channel.unary_stream(
+                '/cleo.frontend.FrontendService/StreamUpdates',
+                request_serializer=frontend__pb2.StreamRequest.SerializeToString,
+                response_deserializer=frontend__pb2.DisplayUpdate.FromString,
                 _registered_method=True)
         self.SendUserAction = channel.unary_unary(
                 '/cleo.frontend.FrontendService/SendUserAction',
@@ -54,8 +99,64 @@ class FrontendServiceStub(object):
 class FrontendServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def SubscribeHudCommands(self, request, context):
-        """Server-side streaming: Tauri client subscribes to receive HUD commands
+    def ShowNotification(self, request, context):
+        """Typed push RPCs — called by other Python services
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ShowImage(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ShowProgress(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ShowText(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ShowCard(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Clear(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PlayAudio(self, request, context):
+        """Audio commands
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PlayAudioFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RenderHtml(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamUpdates(self, request, context):
+        """Tauri gRPC client subscribes here to receive all updates
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -78,10 +179,55 @@ class FrontendServiceServicer(object):
 
 def add_FrontendServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'SubscribeHudCommands': grpc.unary_stream_rpc_method_handler(
-                    servicer.SubscribeHudCommands,
-                    request_deserializer=frontend__pb2.SubscribeRequest.FromString,
-                    response_serializer=frontend__pb2.HudCommand.SerializeToString,
+            'ShowNotification': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShowNotification,
+                    request_deserializer=frontend__pb2.NotificationRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'ShowImage': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShowImage,
+                    request_deserializer=frontend__pb2.ImageRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'ShowProgress': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShowProgress,
+                    request_deserializer=frontend__pb2.ProgressRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'ShowText': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShowText,
+                    request_deserializer=frontend__pb2.TextRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'ShowCard': grpc.unary_unary_rpc_method_handler(
+                    servicer.ShowCard,
+                    request_deserializer=frontend__pb2.CardRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'Clear': grpc.unary_unary_rpc_method_handler(
+                    servicer.Clear,
+                    request_deserializer=frontend__pb2.ClearRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'PlayAudio': grpc.unary_unary_rpc_method_handler(
+                    servicer.PlayAudio,
+                    request_deserializer=frontend__pb2.PlayAudioRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'PlayAudioFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.PlayAudioFile,
+                    request_deserializer=frontend__pb2.PlayAudioFileRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'RenderHtml': grpc.unary_unary_rpc_method_handler(
+                    servicer.RenderHtml,
+                    request_deserializer=frontend__pb2.RenderHtmlRequest.FromString,
+                    response_serializer=frontend__pb2.FrontendResponse.SerializeToString,
+            ),
+            'StreamUpdates': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamUpdates,
+                    request_deserializer=frontend__pb2.StreamRequest.FromString,
+                    response_serializer=frontend__pb2.DisplayUpdate.SerializeToString,
             ),
             'SendUserAction': grpc.unary_unary_rpc_method_handler(
                     servicer.SendUserAction,
@@ -105,7 +251,250 @@ class FrontendService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def SubscribeHudCommands(request,
+    def ShowNotification(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/ShowNotification',
+            frontend__pb2.NotificationRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ShowImage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/ShowImage',
+            frontend__pb2.ImageRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ShowProgress(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/ShowProgress',
+            frontend__pb2.ProgressRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ShowText(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/ShowText',
+            frontend__pb2.TextRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ShowCard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/ShowCard',
+            frontend__pb2.CardRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Clear(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/Clear',
+            frontend__pb2.ClearRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PlayAudio(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/PlayAudio',
+            frontend__pb2.PlayAudioRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PlayAudioFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/PlayAudioFile',
+            frontend__pb2.PlayAudioFileRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RenderHtml(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.frontend.FrontendService/RenderHtml',
+            frontend__pb2.RenderHtmlRequest.SerializeToString,
+            frontend__pb2.FrontendResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamUpdates(request,
             target,
             options=(),
             channel_credentials=None,
@@ -118,9 +507,9 @@ class FrontendService(object):
         return grpc.experimental.unary_stream(
             request,
             target,
-            '/cleo.frontend.FrontendService/SubscribeHudCommands',
-            frontend__pb2.SubscribeRequest.SerializeToString,
-            frontend__pb2.HudCommand.FromString,
+            '/cleo.frontend.FrontendService/StreamUpdates',
+            frontend__pb2.StreamRequest.SerializeToString,
+            frontend__pb2.DisplayUpdate.FromString,
             options,
             channel_credentials,
             insecure,

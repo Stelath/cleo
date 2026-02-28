@@ -3,8 +3,21 @@ syntax = "proto3";
 package cleo.frontend;
 
 service FrontendService {
-  // Server-side streaming: Tauri client subscribes to receive HUD commands
-  rpc SubscribeHudCommands(SubscribeRequest) returns (stream HudCommand);
+  // Typed push RPCs — called by other Python services
+  rpc ShowNotification(NotificationRequest) returns (FrontendResponse);
+  rpc ShowImage(ImageRequest) returns (FrontendResponse);
+  rpc ShowProgress(ProgressRequest) returns (FrontendResponse);
+  rpc ShowText(TextRequest) returns (FrontendResponse);
+  rpc ShowCard(CardRequest) returns (FrontendResponse);
+  rpc Clear(ClearRequest) returns (FrontendResponse);
+
+  // Audio commands
+  rpc PlayAudio(PlayAudioRequest) returns (FrontendResponse);
+  rpc PlayAudioFile(PlayAudioFileRequest) returns (FrontendResponse);
+  rpc RenderHtml(RenderHtmlRequest) returns (FrontendResponse);
+
+  // Tauri gRPC client subscribes here to receive all updates
+  rpc StreamUpdates(StreamRequest) returns (stream DisplayUpdate);
 
   // Unary: Tauri client sends user actions back to the platform
   rpc SendUserAction(UserAction) returns (ActionResponse);
@@ -13,46 +26,100 @@ service FrontendService {
   rpc GetStatus(StatusRequest) returns (StatusResponse);
 }
 
-// ── Subscribe ──
+// ── Common ──
 
-message SubscribeRequest {
+message FrontendResponse {
+  bool ok = 1;
+}
+
+message StreamRequest {
   string client_id = 1;
 }
 
-// ── HUD Commands (server → client) ──
+// ── Typed display requests ──
 
-message HudCommand {
-  oneof command {
-    ComponentCommand component = 1;
-    PlayAudioCommand play_audio = 2;
-    PlayAudioFileCommand play_audio_file = 3;
-    RenderHtmlCommand render_html = 4;
-    ClearCommand clear = 5;
-  }
+message NotificationRequest {
+  string title = 1;
+  string message = 2;
+  string style = 3;       // "info", "success", "warning", "error"
+  uint32 duration_ms = 4; // 0 = default
 }
 
-message ComponentCommand {
-  string component = 1;
-  string action = 2;
-  string params_json = 3;
-  bytes media_data = 4;
-  string media_mime = 5;
+message ImageRequest {
+  bytes data = 1;
+  string mime_type = 2;
+  string position = 3;    // "center", "top", "bottom"
 }
 
-message PlayAudioCommand {
+message ProgressRequest {
+  string label = 1;
+  double value = 2;        // 0.0–1.0
+  bool visible = 3;
+}
+
+message TextRequest {
+  string text = 1;
+  string position = 2;
+}
+
+message CardRequest {
+  repeated Card cards = 1;
+  string position = 2;
+  uint32 duration_ms = 3;
+}
+
+message Card {
+  string title = 1;
+  string subtitle = 2;
+  string description = 3;
+  bytes image_data = 4;
+  string image_mime = 5;
+  repeated KeyValue meta = 6;
+  repeated Link links = 7;
+}
+
+message KeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+message Link {
+  string label = 1;
+  string url = 2;
+}
+
+message ClearRequest {}
+
+// ── Audio commands ──
+
+message PlayAudioRequest {
   string data_base64 = 1;
   uint32 sample_rate = 2;
 }
 
-message PlayAudioFileCommand {
+message PlayAudioFileRequest {
   string path = 1;
 }
 
-message RenderHtmlCommand {
+message RenderHtmlRequest {
   string html = 1;
 }
 
-message ClearCommand {}
+// ── Display update stream (server → Tauri client) ──
+
+message DisplayUpdate {
+  oneof update {
+    NotificationRequest notification = 1;
+    ImageRequest image = 2;
+    ProgressRequest progress = 3;
+    TextRequest text = 4;
+    CardRequest card = 5;
+    ClearRequest clear = 6;
+    PlayAudioRequest play_audio = 7;
+    PlayAudioFileRequest play_audio_file = 8;
+    RenderHtmlRequest render_html = 9;
+  }
+}
 
 // ── User Actions (client → server) ──
 
