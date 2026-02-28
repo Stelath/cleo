@@ -29,6 +29,10 @@ from services.config import (
     SAVE_VIDEO_PORT,
     SENSOR_ADDRESS,
     SENSOR_PORT,
+    TRACK_ITEM_LOCATE_ADDRESS,
+    TRACK_ITEM_LOCATE_PORT,
+    TRACK_ITEM_REGISTER_ADDRESS,
+    TRACK_ITEM_REGISTER_PORT,
     TRANSCRIPTION_ADDRESS,
     TRANSCRIPTION_PORT,
     WEATHER_ADDRESS,
@@ -119,6 +123,18 @@ def _run_weather_service() -> None:
     serve(port=WEATHER_PORT)
 
 
+def _run_track_item_register_service() -> None:
+    from apps.track_item import serve_register
+
+    serve_register(port=TRACK_ITEM_REGISTER_PORT)
+
+
+def _run_track_item_locate_service() -> None:
+    from apps.track_item import serve_locate
+
+    serve_locate(port=TRACK_ITEM_LOCATE_PORT)
+
+
 def _wait_for_grpc(address: str, timeout: float = 30.0) -> None:
     channel = grpc.insecure_channel(address)
     try:
@@ -175,6 +191,28 @@ def main() -> None:
         if shutdown_event.is_set():
             raise KeyboardInterrupt
 
+    def _start_optional_grpc_service(
+        run_fn,
+        name: str,
+        address: str,
+        *,
+        timeout: float = 30.0,
+    ) -> bool:
+        """Start an optional gRPC service and continue on startup failures."""
+        _start_process(run_fn, name)
+        try:
+            _wait_for_grpc(address, timeout=timeout)
+            _abort_if_shutdown_requested()
+            return True
+        except Exception as exc:
+            log.warning(
+                "runtime.optional_service_unavailable",
+                service=name,
+                address=address,
+                error=str(exc),
+            )
+            return False
+
     def _shutdown(signum, frame) -> None:
         del frame
         log.info("runtime.shutdown_signal", signal=signum)
@@ -209,32 +247,49 @@ def main() -> None:
         _start_process(_run_video_service, "video-service")
         _abort_if_shutdown_requested()
 
-        _start_process(_run_color_blind_service, "color-blind-tool")
-        _wait_for_grpc(COLOR_BLIND_ADDRESS)
+        _start_process(_run_track_item_register_service, "track-item-register-tool")
+        _wait_for_grpc(TRACK_ITEM_REGISTER_ADDRESS)
         _abort_if_shutdown_requested()
 
-        _start_process(_run_notetaking_service, "notetaking-tool")
-        _wait_for_grpc(NOTETAKING_ADDRESS)
+        _start_process(_run_track_item_locate_service, "track-item-locate-tool")
+        _wait_for_grpc(TRACK_ITEM_LOCATE_ADDRESS)
         _abort_if_shutdown_requested()
 
-        _start_process(_run_food_macros_service, "food-macros-tool")
-        _wait_for_grpc(FOOD_MACROS_ADDRESS)
-        _abort_if_shutdown_requested()
-
-        _start_process(_run_navigator_service, "navigator-tool")
-        _wait_for_grpc(NAVIGATOR_ADDRESS)
-        _abort_if_shutdown_requested()
-
-        _start_process(_run_face_detection_service, "face-detection-tool")
-        _wait_for_grpc(FACE_DETECTION_ADDRESS)
-        
-        _start_process(_run_save_video_service, "save-video-tool")
-        _wait_for_grpc(SAVE_VIDEO_ADDRESS)
-        _abort_if_shutdown_requested()
-
-        _start_process(_run_weather_service, "weather-tool")
-        _wait_for_grpc(WEATHER_ADDRESS)
-        _abort_if_shutdown_requested()
+        _start_optional_grpc_service(
+            _run_color_blind_service,
+            "color-blind-tool",
+            COLOR_BLIND_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_notetaking_service,
+            "notetaking-tool",
+            NOTETAKING_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_food_macros_service,
+            "food-macros-tool",
+            FOOD_MACROS_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_navigator_service,
+            "navigator-tool",
+            NAVIGATOR_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_face_detection_service,
+            "face-detection-tool",
+            FACE_DETECTION_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_save_video_service,
+            "save-video-tool",
+            SAVE_VIDEO_ADDRESS,
+        )
+        _start_optional_grpc_service(
+            _run_weather_service,
+            "weather-tool",
+            WEATHER_ADDRESS,
+        )
 
         log.info("runtime.services_ready")
         shutdown_event.wait()

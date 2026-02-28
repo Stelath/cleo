@@ -54,6 +54,16 @@ class DataServiceStub(object):
                 request_serializer=data__pb2.SearchVideoClipsByTextRequest.SerializeToString,
                 response_deserializer=data__pb2.SearchResponse.FromString,
                 _registered_method=True)
+        self.StoreTrackedItem = channel.unary_unary(
+                '/cleo.data.DataService/StoreTrackedItem',
+                request_serializer=data__pb2.StoreTrackedItemRequest.SerializeToString,
+                response_deserializer=data__pb2.StoreTrackedItemResponse.FromString,
+                _registered_method=True)
+        self.FindLatestTrackedItemOccurrence = channel.unary_unary(
+                '/cleo.data.DataService/FindLatestTrackedItemOccurrence',
+                request_serializer=data__pb2.FindLatestTrackedItemOccurrenceRequest.SerializeToString,
+                response_deserializer=data__pb2.FindLatestTrackedItemOccurrenceResponse.FromString,
+                _registered_method=True)
         self.GetTranscriptionLog = channel.unary_unary(
                 '/cleo.data.DataService/GetTranscriptionLog',
                 request_serializer=data__pb2.TranscriptionLogRequest.SerializeToString,
@@ -182,6 +192,20 @@ class DataServiceServicer(object):
 
     def SearchVideoClipsByText(self, request, context):
         """Search video clips by text query for frontend memory lookups
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StoreTrackedItem(self, request, context):
+        """Store a named item embedding captured from the current camera frame
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FindLatestTrackedItemOccurrence(self, request, context):
+        """Find the most recent matching video clip for a previously tracked item
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -349,6 +373,16 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.SearchVideoClipsByText,
                     request_deserializer=data__pb2.SearchVideoClipsByTextRequest.FromString,
                     response_serializer=data__pb2.SearchResponse.SerializeToString,
+            ),
+            'StoreTrackedItem': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreTrackedItem,
+                    request_deserializer=data__pb2.StoreTrackedItemRequest.FromString,
+                    response_serializer=data__pb2.StoreTrackedItemResponse.SerializeToString,
+            ),
+            'FindLatestTrackedItemOccurrence': grpc.unary_unary_rpc_method_handler(
+                    servicer.FindLatestTrackedItemOccurrence,
+                    request_deserializer=data__pb2.FindLatestTrackedItemOccurrenceRequest.FromString,
+                    response_serializer=data__pb2.FindLatestTrackedItemOccurrenceResponse.SerializeToString,
             ),
             'GetTranscriptionLog': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTranscriptionLog,
@@ -559,6 +593,60 @@ class DataService(object):
             '/cleo.data.DataService/SearchVideoClipsByText',
             data__pb2.SearchVideoClipsByTextRequest.SerializeToString,
             data__pb2.SearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreTrackedItem(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/StoreTrackedItem',
+            data__pb2.StoreTrackedItemRequest.SerializeToString,
+            data__pb2.StoreTrackedItemResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FindLatestTrackedItemOccurrence(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cleo.data.DataService/FindLatestTrackedItemOccurrence',
+            data__pb2.FindLatestTrackedItemOccurrenceRequest.SerializeToString,
+            data__pb2.FindLatestTrackedItemOccurrenceResponse.FromString,
             options,
             channel_credentials,
             insecure,

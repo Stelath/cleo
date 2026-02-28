@@ -235,6 +235,7 @@ data/videos/*
 data/cleo.db-shm
 data/cleo.db-wal
 data/cleo.db
+data/tracked_items/
 
 
 # Bazel

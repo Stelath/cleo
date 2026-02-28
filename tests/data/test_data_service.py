@@ -133,6 +133,44 @@ def test_insert_and_query_food_macros(sqlite_db):
     assert rows[0]["protein_g"] == pytest.approx(20.0)
 
 
+def test_insert_and_get_tracked_item(sqlite_db):
+    item_id, created = sqlite_db.insert_tracked_item(
+        title="phone",
+        normalized_title="phone",
+        embedding_json="[0.1, 0.2]",
+        reference_image_path="/tmp/phone.jpg",
+        registered_at=100.0,
+    )
+    assert created is True
+    assert item_id >= 1
+
+    row = sqlite_db.get_tracked_item_by_normalized_title("phone")
+    assert row is not None
+    assert row["id"] == item_id
+    assert row["title"] == "phone"
+
+
+def test_insert_tracked_item_returns_existing(sqlite_db):
+    first_id, created = sqlite_db.insert_tracked_item(
+        title="phone",
+        normalized_title="phone",
+        embedding_json="[0.1, 0.2]",
+        reference_image_path="/tmp/phone.jpg",
+        registered_at=100.0,
+    )
+    assert created is True
+
+    second_id, created = sqlite_db.insert_tracked_item(
+        title="phone",
+        normalized_title="phone",
+        embedding_json="[0.2, 0.3]",
+        reference_image_path="/tmp/phone2.jpg",
+        registered_at=101.0,
+    )
+    assert created is False
+    assert second_id == first_id
+
+
 # ── DataService gRPC servicer tests ──
 
 
@@ -168,6 +206,7 @@ def data_servicer(tmp_path):
             video_dir=str(tmp_path / "videos"),
             faces_index_path=str(tmp_path / "faces.index"),
             face_dir=str(tmp_path / "faces"),
+            tracked_item_dir=str(tmp_path / "tracked_items"),
         )
         yield servicer
         servicer.shutdown()
@@ -477,6 +516,313 @@ def test_get_nonexistent_clip_rpc(data_servicer):
     req = data_pb2.GetVideoClipRequest(clip_id=9999)
     list(data_servicer.GetVideoClip(req, ctx))
     ctx.set_code.assert_called()
+
+
+def test_store_tracked_item_rpc(data_servicer):
+    image_data = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+    first = data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=image_data,
+            registered_at=1000.0,
+        ),
+        _mock_context(),
+    )
+    assert first.created is True
+    assert first.item_id >= 1
+    assert first.normalized_title == "phone"
+
+    second = data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="Phone",
+            image_data=image_data,
+            registered_at=1001.0,
+        ),
+        _mock_context(),
+    )
+    assert second.created is False
+    assert second.item_id == first.item_id
+
+
+def test_find_latest_tracked_item_occurrence_rpc(data_servicer):
+    now = time.time()
+    clip_a = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-a",
+            mp4_data=b"\x01" * 100,
+            start_timestamp=now - 3600.0,
+            end_timestamp=now - 3590.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+    clip_b = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-b",
+            mp4_data=b"\x02" * 100,
+            start_timestamp=now - 1200.0,
+            end_timestamp=now - 1190.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x03" * 64,
+            registered_at=now - 100.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_a.faiss_id, 0.91, {}),
+            (clip_b.faiss_id, 0.85, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="phone", top_k=5),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is True
+    assert resp.latest_result.clip_id == clip_b.clip_id
+
+
+def test_find_latest_tracked_item_occurrence_ranks_top_k_by_recency(data_servicer):
+    now = time.time()
+    clip_old_high = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-old-high-score",
+            mp4_data=b"\x0a" * 100,
+            start_timestamp=now - 4000.0,
+            end_timestamp=now - 3985.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+    clip_recent_mid = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-recent-mid-score",
+            mp4_data=b"\x0b" * 100,
+            start_timestamp=now - 600.0,
+            end_timestamp=now - 585.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+    clip_newest_low = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-newest-low-score",
+            mp4_data=b"\x0c" * 100,
+            start_timestamp=now - 200.0,
+            end_timestamp=now - 185.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x03" * 64,
+            registered_at=now - 120.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_old_high.faiss_id, 0.95, {}),
+            (clip_recent_mid.faiss_id, 0.76, {}),
+            (clip_newest_low.faiss_id, 0.30, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="phone", top_k=2),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is True
+    assert resp.latest_result.clip_id == clip_recent_mid.clip_id
+
+
+def test_find_latest_tracked_item_occurrence_skips_registration_clip(data_servicer):
+    now = time.time()
+    clip_outside = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-outside-window",
+            mp4_data=b"\x11" * 100,
+            start_timestamp=now - 1800.0,
+            end_timestamp=now - 1790.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+    clip_registration = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-near-registration",
+            mp4_data=b"\x22" * 100,
+            start_timestamp=now - 130.0,
+            end_timestamp=now - 115.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x04" * 64,
+            registered_at=now - 120.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_registration.faiss_id, 0.97, {}),
+            (clip_outside.faiss_id, 0.89, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="phone", top_k=5),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is True
+    assert resp.latest_result.clip_id == clip_outside.clip_id
+
+
+def test_find_latest_tracked_item_occurrence_falls_back_to_registration_clip(data_servicer):
+    now = time.time()
+    clip_registration = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-registration-only",
+            mp4_data=b"\x33" * 100,
+            start_timestamp=now - 130.0,
+            end_timestamp=now - 115.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x05" * 64,
+            registered_at=now - 120.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_registration.faiss_id, 0.94, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="phone", top_k=5),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is True
+    assert resp.latest_result.clip_id == clip_registration.clip_id
+
+
+def test_find_latest_tracked_item_occurrence_relaxes_default_threshold(data_servicer):
+    now = time.time()
+    clip_match = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-relaxed-threshold",
+            mp4_data=b"\x44" * 100,
+            start_timestamp=now - 3000.0,
+            end_timestamp=now - 2985.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x06" * 64,
+            registered_at=now - 120.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_match.faiss_id, 0.42, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="phone", top_k=5),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is True
+    assert resp.latest_result.clip_id == clip_match.clip_id
+    assert resp.min_score_used == pytest.approx(0.35)
+
+
+def test_find_latest_tracked_item_occurrence_respects_explicit_min_score(data_servicer):
+    now = time.time()
+    clip_match = data_servicer.StoreVideoClip(
+        _store_clip_request_iter(
+            upload_id="tracked-item-explicit-threshold",
+            mp4_data=b"\x55" * 100,
+            start_timestamp=now - 3000.0,
+            end_timestamp=now - 2985.0,
+            num_frames=10,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer.StoreTrackedItem(
+        data_pb2.StoreTrackedItemRequest(
+            title="phone",
+            image_data=b"\xff\xd8\xff\xe0" + b"\x07" * 64,
+            registered_at=now - 120.0,
+        ),
+        _mock_context(),
+    )
+
+    data_servicer._faiss.search = MagicMock(
+        return_value=[
+            (clip_match.faiss_id, 0.42, {}),
+        ]
+    )
+
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(
+            title="phone",
+            top_k=5,
+            min_score=0.5,
+        ),
+        _mock_context(),
+    )
+    assert resp.found_item is True
+    assert resp.found_occurrence is False
+    assert resp.min_score_used == pytest.approx(0.5)
+
+
+def test_find_latest_tracked_item_occurrence_missing_item(data_servicer):
+    resp = data_servicer.FindLatestTrackedItemOccurrence(
+        data_pb2.FindLatestTrackedItemOccurrenceRequest(title="wallet"),
+        _mock_context(),
+    )
+    assert resp.found_item is False
+    assert resp.found_occurrence is False
 
 
 # ── Face SQLite tests ──

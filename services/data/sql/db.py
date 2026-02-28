@@ -62,6 +62,17 @@ class CleoSQLite:
                 updated_at REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS tracked_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                normalized_title TEXT NOT NULL UNIQUE,
+                embedding_json TEXT NOT NULL,
+                reference_image_path TEXT NOT NULL,
+                registered_at REAL NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS note_summaries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 summary_text TEXT NOT NULL,
@@ -402,6 +413,64 @@ class CleoSQLite:
             (limit, offset),
         ).fetchall()
         return [dict(r) for r in rows], total
+
+    # ── Tracked items ──
+
+    def insert_tracked_item(
+        self,
+        *,
+        title: str,
+        normalized_title: str,
+        embedding_json: str,
+        reference_image_path: str,
+        registered_at: float,
+    ) -> tuple[int, bool]:
+        """Insert a tracked item if it does not exist.
+
+        Returns:
+            (item_id, created) where created is False for existing items.
+        """
+        existing = self._conn.execute(
+            "SELECT id FROM tracked_items WHERE normalized_title = ?",
+            (normalized_title,),
+        ).fetchone()
+        if existing is not None:
+            return int(existing["id"]), False
+
+        now = time.time()
+        cur = self._conn.execute(
+            """
+            INSERT INTO tracked_items (
+                title,
+                normalized_title,
+                embedding_json,
+                reference_image_path,
+                registered_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                title,
+                normalized_title,
+                embedding_json,
+                reference_image_path,
+                registered_at,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid), True
+
+    def get_tracked_item_by_normalized_title(self, normalized_title: str) -> dict | None:
+        """Return tracked item metadata by normalized title."""
+        row = self._conn.execute(
+            "SELECT * FROM tracked_items WHERE normalized_title = ?",
+            (normalized_title,),
+        ).fetchone()
+        return dict(row) if row else None
 
     # ── Preferences ──
 

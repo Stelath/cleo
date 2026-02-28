@@ -25,6 +25,8 @@ _SYSTEM_PROMPT = (
     "call the food_macros tool. "
     "For color blindness correction or color assist requests, call the color_blindness_assist tool. "
     "For weather, temperature, forecast, rain, or outside conditions questions, call the weather tool. "
+    "For registering a visible object to track later, call track_item_register with the item title. "
+    "For requests like finding where an item was left last (for example phone, keys, wallet), call track_item_locate with the item title. "
     "If no tool fits, respond with a short helpful text answer."
 )
 _FOLLOW_UP_CLASSIFIER_PROMPT = (

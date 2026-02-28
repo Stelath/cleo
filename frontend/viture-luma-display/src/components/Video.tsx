@@ -191,6 +191,9 @@ const Video = forwardRef<HudComponentHandle, VideoProps>(({ onVideoEnded }, ref)
   };
 
   const onEnded = () => {
+    if (!loopRef.current) {
+      stopVideo();
+    }
     onVideoEnded?.();
   };
 

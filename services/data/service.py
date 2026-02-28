@@ -2,6 +2,7 @@
 
 import json
 import mimetypes
+import re
 import signal
 import threading
 import time
@@ -18,6 +19,7 @@ from services.config import (
     FACE_EMBEDDING_DIMENSION,
     FACE_SIMILARITY_THRESHOLD,
     FACE_STORAGE_DIR,
+    TRACKED_ITEM_STORAGE_DIR,
     VIDEO_STORAGE_DIR,
 )
 from services.data.vector.embedding import (
@@ -36,6 +38,17 @@ _MEDIA_CHUNK_BYTES = 256 * 1024
 _FACE_MATCH_SEARCH_K = 8
 _FACE_MATCH_SCORE_MARGIN = 0.03
 _FACE_SEARCH_RESULT_MULTIPLIER = 3
+_TRACKED_ITEM_SEARCH_TOP_K_DEFAULT = 128
+_TRACKED_ITEM_MIN_SCORE_DEFAULT = 0.55
+_TRACKED_ITEM_REGISTRATION_CLIP_MARGIN_SECONDS = 0.75
+_TRACKED_ITEM_RELAXED_MIN_SCORES = (0.45, 0.35, 0.25, 0.15)
+_TRACKED_ITEM_LOOKBACK_SECONDS = 24 * 60 * 60
+_TRACKED_ITEM_SEARCH_OVERFETCH_MULTIPLIER = 12
+
+
+def _normalize_item_title(title: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+    return " ".join(normalized.split())
 
 
 class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
@@ -50,6 +63,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         face_embedding_dim: int = FACE_EMBEDDING_DIMENSION,
         faces_index_path: str = "data/vector/faces.index",
         face_dir: str = FACE_STORAGE_DIR,
+        tracked_item_dir: str = TRACKED_ITEM_STORAGE_DIR,
     ):
         self._sqlite = CleoSQLite(db_path=db_path)
         self._faiss = FaissDB(dimension=embedding_dim, index_path=index_path)
@@ -61,6 +75,8 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
         self._video_dir.mkdir(parents=True, exist_ok=True)
         self._face_dir = Path(face_dir)
         self._face_dir.mkdir(parents=True, exist_ok=True)
+        self._tracked_item_dir = Path(tracked_item_dir)
+        self._tracked_item_dir.mkdir(parents=True, exist_ok=True)
         self._embedding_dim = embedding_dim
         self._face_embedding_dim = face_embedding_dim
         self._face_store_lock = threading.Lock()
@@ -69,6 +85,7 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             db_path=db_path,
             index_path=index_path,
             video_dir=video_dir,
+            tracked_item_dir=tracked_item_dir,
             faiss_size=self._faiss.size,
             faces_faiss_size=self._faces_faiss.size,
             face_embedding_dim=face_embedding_dim,
@@ -386,6 +403,212 @@ class DataServiceServicer(data_pb2_grpc.DataServiceServicer):
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
         )
+
+    def StoreTrackedItem(self, request, context):
+        title = request.title.strip()
+        normalized_title = _normalize_item_title(title)
+        if not normalized_title:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("StoreTrackedItem title is required")
+            return data_pb2.StoreTrackedItemResponse()
+        if not request.image_data:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("StoreTrackedItem image_data is required")
+            return data_pb2.StoreTrackedItemResponse()
+
+        existing = self._sqlite.get_tracked_item_by_normalized_title(normalized_title)
+        if existing is not None:
+            return data_pb2.StoreTrackedItemResponse(
+                item_id=existing["id"],
+                created=False,
+                title=existing["title"],
+                normalized_title=existing["normalized_title"],
+            )
+
+        try:
+            embedding = embed_image(
+                request.image_data,
+                dimension=self._embedding_dim,
+                embedding_purpose="VIDEO_RETRIEVAL",
+            )
+        except Exception as exc:
+            log.error("data_service.tracked_item_embed_error", error=str(exc))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Tracked item embedding failed: {exc}")
+            return data_pb2.StoreTrackedItemResponse()
+
+        registered_at = request.registered_at if request.registered_at > 0 else time.time()
+        safe_slug = (normalized_title.replace(" ", "_") or "item")[:64]
+        image_path = self._tracked_item_dir / f"tracked_{safe_slug}_{registered_at:.6f}.jpg"
+        image_path.write_bytes(request.image_data)
+
+        item_id, created = self._sqlite.insert_tracked_item(
+            title=title,
+            normalized_title=normalized_title,
+            embedding_json=json.dumps(embedding.tolist()),
+            reference_image_path=str(image_path),
+            registered_at=registered_at,
+        )
+        log.info(
+            "data_service.tracked_item_stored",
+            item_id=item_id,
+            title=title,
+            created=created,
+            image_path=str(image_path),
+        )
+        return data_pb2.StoreTrackedItemResponse(
+            item_id=item_id,
+            created=created,
+            title=title,
+            normalized_title=normalized_title,
+        )
+
+    def FindLatestTrackedItemOccurrence(self, request, context):
+        normalized_title = _normalize_item_title(request.title)
+        if not normalized_title:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("FindLatestTrackedItemOccurrence title is required")
+            return data_pb2.FindLatestTrackedItemOccurrenceResponse()
+
+        has_explicit_min_score = request.HasField("min_score")
+        min_score = request.min_score if has_explicit_min_score else _TRACKED_ITEM_MIN_SCORE_DEFAULT
+        top_k = request.top_k if request.top_k > 0 else _TRACKED_ITEM_SEARCH_TOP_K_DEFAULT
+
+        item = self._sqlite.get_tracked_item_by_normalized_title(normalized_title)
+        if item is None:
+            return data_pb2.FindLatestTrackedItemOccurrenceResponse(
+                found_item=False,
+                title=request.title.strip(),
+                min_score_used=min_score,
+            )
+
+        try:
+            query_vec = json.loads(item["embedding_json"])
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            log.error(
+                "data_service.tracked_item_embedding_invalid",
+                item_id=item["id"],
+                error=str(exc),
+            )
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details("Tracked item embedding is corrupted")
+            return data_pb2.FindLatestTrackedItemOccurrenceResponse()
+
+        min_score_candidates = [min_score]
+        if not has_explicit_min_score:
+            min_score_candidates.extend(
+                candidate
+                for candidate in _TRACKED_ITEM_RELAXED_MIN_SCORES
+                if candidate < min_score
+            )
+
+        resolved_min_score = min_score
+        latest = None
+        for candidate_min_score in min_score_candidates:
+            latest = self._find_latest_occurrence_for_embedding(
+                query_vec,
+                top_k=top_k,
+                min_score=candidate_min_score,
+                exclude_contains_timestamp=item.get("registered_at"),
+                exclude_margin_seconds=_TRACKED_ITEM_REGISTRATION_CLIP_MARGIN_SECONDS,
+            )
+            if latest is None:
+                log.info(
+                    "data_service.tracked_item_no_result_outside_registration_clip",
+                    item_id=item["id"],
+                    title=item["title"],
+                    registered_at=item.get("registered_at"),
+                    min_score=candidate_min_score,
+                    top_k=top_k,
+                )
+                latest = self._find_latest_occurrence_for_embedding(
+                    query_vec,
+                    top_k=top_k,
+                    min_score=candidate_min_score,
+                )
+
+            if latest is not None:
+                resolved_min_score = candidate_min_score
+                break
+
+        if latest is None:
+            return data_pb2.FindLatestTrackedItemOccurrenceResponse(
+                found_item=True,
+                item_id=item["id"],
+                title=item["title"],
+                found_occurrence=False,
+                min_score_used=min_score_candidates[-1],
+            )
+
+        clip, score = latest
+        return data_pb2.FindLatestTrackedItemOccurrenceResponse(
+            found_item=True,
+            item_id=item["id"],
+            title=item["title"],
+            found_occurrence=True,
+            latest_result=data_pb2.SearchResult(
+                clip_id=clip["id"],
+                score=score,
+                start_timestamp=clip["start_timestamp"] or 0.0,
+                end_timestamp=clip["end_timestamp"] or 0.0,
+                clip_path=clip["clip_path"],
+                num_frames=clip["num_frames"] or 0,
+            ),
+            min_score_used=resolved_min_score,
+        )
+
+    def _find_latest_occurrence_for_embedding(
+        self,
+        query_vec,
+        *,
+        top_k: int,
+        min_score: float,
+        exclude_contains_timestamp: float | None = None,
+        exclude_margin_seconds: float = 0.0,
+    ) -> tuple[dict, float] | None:
+        search_k = max(top_k, top_k * _TRACKED_ITEM_SEARCH_OVERFETCH_MULTIPLIER)
+        if self._faiss.size > 0:
+            search_k = min(search_k, int(self._faiss.size))
+        faiss_results = self._faiss.search(query_vec, k=search_k)
+
+        cutoff_ts = time.time() - _TRACKED_ITEM_LOOKBACK_SECONDS
+        recent_candidates: list[tuple[float, float, dict]] = []
+        for faiss_id, score, _meta in faiss_results:
+            if score < min_score:
+                continue
+            clip = self._sqlite.get_clip_by_faiss_id(faiss_id)
+            if clip is None:
+                continue
+
+            clip_start = clip.get("start_timestamp") or 0.0
+            clip_end = clip.get("end_timestamp") or 0.0
+            if clip_end <= 0.0:
+                clip_end = clip_start
+            if clip_start <= 0.0:
+                clip_start = clip_end
+
+            if (
+                exclude_contains_timestamp is not None
+                and clip_start - exclude_margin_seconds
+                <= exclude_contains_timestamp
+                <= clip_end + exclude_margin_seconds
+            ):
+                continue
+
+            if clip_end < cutoff_ts:
+                continue
+
+            recent_candidates.append((float(score), float(clip_end), clip))
+
+        if not recent_candidates:
+            return None
+
+        recent_candidates.sort(key=lambda row: row[0], reverse=True)
+        top_recent_by_score = recent_candidates[:top_k]
+        top_recent_by_score.sort(key=lambda row: row[1], reverse=True)
+
+        chosen_score, _chosen_end, chosen_clip = top_recent_by_score[0]
+        return chosen_clip, chosen_score
 
     def _search_video_clips(
         self,

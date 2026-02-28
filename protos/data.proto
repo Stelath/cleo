@@ -15,6 +15,12 @@ service DataService {
   // Search video clips by text query for frontend memory lookups
   rpc SearchVideoClipsByText(SearchVideoClipsByTextRequest) returns (SearchResponse);
 
+  // Store a named item embedding captured from the current camera frame
+  rpc StoreTrackedItem(StoreTrackedItemRequest) returns (StoreTrackedItemResponse);
+
+  // Find the most recent matching video clip for a previously tracked item
+  rpc FindLatestTrackedItemOccurrence(FindLatestTrackedItemOccurrenceRequest) returns (FindLatestTrackedItemOccurrenceResponse);
+
   // Get paginated transcription history
   rpc GetTranscriptionLog(TranscriptionLogRequest) returns (TranscriptionLogResponse);
 
@@ -159,6 +165,36 @@ message SearchVideoClipsByTextRequest {
   int32 top_k = 2;
   optional double start_timestamp = 3;
   optional double end_timestamp = 4;
+}
+
+// ── Tracked Items ──
+
+message StoreTrackedItemRequest {
+  string title = 1;
+  bytes image_data = 2;
+  double registered_at = 3;
+}
+
+message StoreTrackedItemResponse {
+  int64 item_id = 1;
+  bool created = 2;
+  string title = 3;
+  string normalized_title = 4;
+}
+
+message FindLatestTrackedItemOccurrenceRequest {
+  string title = 1;
+  int32 top_k = 2;
+  optional float min_score = 3;
+}
+
+message FindLatestTrackedItemOccurrenceResponse {
+  bool found_item = 1;
+  int64 item_id = 2;
+  string title = 3;
+  bool found_occurrence = 4;
+  SearchResult latest_result = 5;
+  float min_score_used = 6;
 }
 
 // ── Transcription Log ──

@@ -33,6 +33,7 @@ def data_server(tmp_path):
         db_path=str(tmp_path / "cleo.db"),
         index_path=str(tmp_path / "clips.index"),
         video_dir=str(tmp_path / "videos"),
+        tracked_item_dir=str(tmp_path / "tracked_items"),
     )
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=4),

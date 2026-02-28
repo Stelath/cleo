@@ -31,6 +31,7 @@ def data_servicer(tmp_path):
             db_path=str(tmp_path / "test.db"),
             index_path=str(tmp_path / "test.index"),
             video_dir=str(tmp_path / "videos"),
+            tracked_item_dir=str(tmp_path / "tracked_items"),
         )
         yield servicer
         servicer.shutdown()
