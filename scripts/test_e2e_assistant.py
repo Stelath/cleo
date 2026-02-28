@@ -101,25 +101,30 @@ def main():
     channel = grpc.insecure_channel(f"localhost:{ASSISTANT_PORT}")
     stub = assistant_pb2_grpc.AssistantServiceStub(channel)
 
-    # Note: tool-invoking commands will fail because the sensor service is not
-    # running. We still verify that Bedrock routes correctly (tool name shown)
-    # and that text-only queries succeed.
+    # Navigator's "start" action returns immediately (sensor connects in
+    # background), so we can verify Bedrock routes to it without the sensor.
+    # Color-blind tool needs the sensor synchronously, so we skip it here.
     tests = [
-        "what is the capital of France",
+        ("help me navigate around obstacles", "navigator"),
+        ("what is the capital of France", None),
     ]
 
     all_passed = True
     try:
-        for text in tests:
+        for text, expected_tool in tests:
             print(f"\n--- Command: \"{text}\" ---", flush=True)
             try:
                 resp = stub.ProcessCommand(
                     assistant_pb2.CommandRequest(text=text), timeout=30
                 )
+                actual_tool = resp.tool_name or None
                 print(f"  success:  {resp.success}", flush=True)
-                print(f"  tool:     {resp.tool_name or '(none)'}", flush=True)
+                print(f"  tool:     {actual_tool or '(none)'}", flush=True)
                 print(f"  response: {resp.response_text}", flush=True)
                 if not resp.success:
+                    all_passed = False
+                if expected_tool and actual_tool != expected_tool:
+                    print(f"  FAIL: expected tool '{expected_tool}', got '{actual_tool}'", flush=True)
                     all_passed = False
             except grpc.RpcError as e:
                 print(f"  FAIL: gRPC error: {e.code().name}: {e.details()}", flush=True)
